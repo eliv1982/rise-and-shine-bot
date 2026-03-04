@@ -1,0 +1,32 @@
+# Секреты и конфиг
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Логи и данные бота
+bot.log
+bot.log.*
+outputs/
+*.db
+
+# IDE и ОС
+.idea/
+.vscode/
+.cursor/
+.DS_Store
+Thumbs.db
+
+# Прочее
+*.log
+terminals/
+agent-transcripts/

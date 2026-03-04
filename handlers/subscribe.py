@@ -1,0 +1,167 @@
+import asyncio
+import logging
+from typing import Optional
+
+from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+
+from database import deactivate_subscription, get_subscription, get_user, upsert_subscription
+from keyboards.inline import (
+    relationships_subsphere_keyboard,
+    sphere_keyboard_for_subscription,
+    style_keyboard_for_subscription,
+    subscription_confirm_keyboard,
+    subscription_time_keyboard_hours,
+    subscription_time_keyboard_minutes,
+)
+from services.openai_image import generate_image
+from services.yandex_gpt import generate_affirmations
+from states import SubscriptionState
+from utils import gender_display
+
+router = Router()
+logger = logging.getLogger(__name__)
+
+
+@router.message(Command("subscribe"))
+async def cmd_subscribe(message: Message, state: FSMContext) -> None:
+    user = await get_user(message.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await state.set_state(SubscriptionState.choosing_sphere)
+    await message.answer(
+        "Выбери сферу для ежедневных аффирмаций:" if language == "ru" else "Choose a sphere for daily affirmations:",
+        reply_markup=sphere_keyboard_for_subscription(language),
+    )
+
+
+@router.message(Command("unsubscribe"))
+async def cmd_unsubscribe(message: Message, state: FSMContext) -> None:
+    await deactivate_subscription(message.from_user.id)
+    user = await get_user(message.from_user.id)
+    language = (user or {}).get("language", "ru")
+    if language == "ru":
+        await message.answer("Ежедневная подписка отключена.")
+    else:
+        await message.answer("Daily subscription disabled.")
+
+
+@router.callback_query(SubscriptionState.choosing_sphere, F.data.startswith("sphere:"))
+async def sub_choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    sphere = callback.data.split(":", maxsplit=1)[1]
+    await state.update_data(sphere=sphere)
+
+    if sphere == "relationships":
+        await state.set_state(SubscriptionState.choosing_relationship_subsphere)
+        await callback.message.edit_text(
+            "Уточни, пожалуйста:" if language == "ru" else "Please specify:",
+            reply_markup=relationships_subsphere_keyboard(language),
+        )
+    else:
+        await state.set_state(SubscriptionState.choosing_style)
+        await callback.message.edit_text(
+            "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
+            reply_markup=style_keyboard_for_subscription(language),
+        )
+    await callback.answer()
+
+
+@router.callback_query(SubscriptionState.choosing_relationship_subsphere, F.data.startswith("subsphere:"))
+async def sub_choose_relationship_subsphere(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    subsphere = callback.data.split(":", maxsplit=1)[1]
+    await state.update_data(subsphere=subsphere)
+    await state.set_state(SubscriptionState.choosing_style)
+    await callback.message.edit_text(
+        "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
+        reply_markup=style_keyboard_for_subscription(language),
+    )
+    await callback.answer()
+
+
+@router.callback_query(SubscriptionState.choosing_style, F.data.startswith("style:"))
+async def sub_choose_style(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    style = callback.data.split(":", maxsplit=1)[1]
+    await state.update_data(style=style)
+    await state.set_state(SubscriptionState.choosing_hour)
+    await callback.message.edit_text(
+        "Выбери час (по времени бота):" if language == "ru" else "Choose hour (bot time):",
+        reply_markup=subscription_time_keyboard_hours(language),
+    )
+    await callback.answer()
+
+
+@router.callback_query(SubscriptionState.choosing_hour, F.data.startswith("hour:"))
+async def sub_choose_hour(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    hour = int(callback.data.split(":", maxsplit=1)[1])
+    await state.update_data(hour=hour)
+    await state.set_state(SubscriptionState.choosing_minute)
+    await callback.message.edit_text(
+        "Выбери минуты:" if language == "ru" else "Choose minutes:",
+        reply_markup=subscription_time_keyboard_minutes(language),
+    )
+    await callback.answer()
+
+
+@router.callback_query(SubscriptionState.choosing_minute, F.data.startswith("minute:"))
+async def sub_choose_minute(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    minute = int(callback.data.split(":", maxsplit=1)[1])
+    await state.update_data(minute=minute)
+    await state.set_state(SubscriptionState.confirming)
+    data = await state.get_data()
+    sphere = data.get("sphere")
+    style = data.get("style")
+    subsphere = data.get("subsphere")
+
+    text = (
+        f"Подтверди подписку:\n\nСфера: {sphere}\nПодсфера: {subsphere or '—'}\nСтиль: {style}\nВремя: {data['hour']:02d}:{minute:02d}"
+        if language == "ru"
+        else f"Confirm subscription:\n\nSphere: {sphere}\nSub: {subsphere or '-'}\nStyle: {style}\nTime: {data['hour']:02d}:{minute:02d}"
+    )
+    await callback.message.edit_text(text, reply_markup=subscription_confirm_keyboard(language))
+    await callback.answer()
+
+
+@router.callback_query(SubscriptionState.confirming, F.data == "sub:cancel")
+async def sub_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    if language == "ru":
+        await callback.message.edit_text("Подписка отменена.")
+    else:
+        await callback.message.edit_text("Subscription cancelled.")
+    await callback.answer()
+
+
+@router.callback_query(SubscriptionState.confirming, F.data == "sub:confirm")
+async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    data = await state.get_data()
+    await upsert_subscription(
+        user_id=callback.from_user.id,
+        sphere=data["sphere"],
+        subsphere=data.get("subsphere"),
+        image_style=data["style"],
+        language=language,
+        hour=int(data["hour"]),
+        minute=int(data["minute"]),
+    )
+    await state.clear()
+    if language == "ru":
+        await callback.message.edit_text("Подписка сохранена. Я буду присылать тебе ежедневные аффирмации.")
+    else:
+        await callback.message.edit_text("Subscription saved. I will send you daily affirmations.")
+    await callback.answer()
+

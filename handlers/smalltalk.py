@@ -1,0 +1,60 @@
+import logging
+
+from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import default_state
+from aiogram.types import Message
+
+from database import get_user
+from keyboards.inline import new_affirmation_keyboard
+from services.yandex_gpt import generate_smalltalk_reply
+
+router = Router()
+logger = logging.getLogger(__name__)
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    text = (
+        "Я бот *Rise and Shine Daily*.\n\n"
+        "Я помогаю тебе получать душевные аффирмации и красивые картинки по разным сферам жизни.\n\n"
+        "/start — регистрация или приветствие\n"
+        "/new — новая аффирмация\n"
+        "/subscribe — подписка на ежедневные аффирмации\n"
+        "/unsubscribe — отменить подписку\n"
+        "/profile — профиль\n"
+        "/language — сменить язык (ru/en)\n"
+        "/cancel — выйти из текущего диалога"
+    )
+    await message.answer(text, parse_mode="Markdown")
+
+
+@router.message(default_state)
+async def smalltalk(message: Message, state: FSMContext) -> None:
+    # Команды обрабатываются другими хендлерами
+    if message.text and message.text.startswith("/"):
+        return
+
+    user = await get_user(message.from_user.id)
+    language = (user or {}).get("language", "ru")
+    text = message.text or ""
+
+    try:
+        reply = await generate_smalltalk_reply(text, language=language)
+    except Exception as exc:
+        logger.exception("Smalltalk failed: %s", exc)
+        if language == "ru":
+            await message.answer(
+                "Я здесь, чтобы помогать с аффирмациями. Хочешь сгенерировать новую?",
+                reply_markup=new_affirmation_keyboard(language),
+            )
+        else:
+            await message.answer(
+                "I'm here to help with affirmations. Want a new one?",
+                reply_markup=new_affirmation_keyboard(language),
+            )
+        return
+
+    await message.answer(reply, reply_markup=new_affirmation_keyboard(language))
+
