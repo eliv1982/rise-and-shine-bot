@@ -157,3 +157,10 @@ def subscription_confirm_keyboard(language: str) -> InlineKeyboardMarkup:
     b.adjust(2)
     return b.as_markup()
 
+
+def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
+    """Клавиатура под сообщением по подписке: озвучить."""
+    b = InlineKeyboardBuilder()
+    b.button(text="🔊 Озвучить", callback_data="sub_tts:yes")
+    return b.as_markup()
+

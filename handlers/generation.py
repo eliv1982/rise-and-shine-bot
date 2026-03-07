@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 from typing import Optional
@@ -64,9 +65,9 @@ async def choose_custom_theme_early(callback: CallbackQuery, state: FSMContext) 
     await state.set_state(GenerationState.waiting_for_theme_early)
     await callback.message.edit_text(
         (
-            "Напиши свою тему или отправь голосовое сообщение. Потом выбери сферу жизни."
+            "Напиши свою тему или отправь голосовое сообщение."
             if language == "ru"
-            else "Type your theme or send a voice message. Then choose a life area."
+            else "Type your theme or send a voice message."
         ),
         reply_markup=theme_early_cancel_keyboard(language),
     )
@@ -420,6 +421,19 @@ async def _run_generation(message: Message, state: FSMContext, theme_text: Optio
         text_lines.append(f"• {a}")
 
     caption = "\n\n".join(text_lines)
+
+    meta_path = image_path.replace(".png", "_meta.json")
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            meta["affirmations"] = affirmations
+            meta["theme_text"] = theme_text
+            meta["gender"] = gender
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning("Could not update meta file %s: %s", meta_path, e)
 
     photo = FSInputFile(image_path)
     await message.answer_photo(photo=photo, caption=caption, reply_markup=after_generation_keyboard(language))

@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 import logging
 import os
 from typing import Optional
@@ -165,6 +166,20 @@ async def generate_image(
 
     with open(output_path, "wb") as f:
         f.write(image_bytes)
+
+    meta = {
+        "prompt": prompt,
+        "style": style,
+        "sphere": sphere,
+        "subsphere": subsphere,
+        "user_text": user_text,
+        "custom_style_description": custom_style_description,
+        "model": "gpt-image-1-mini",
+        "size": "1024x1024",
+    }
+    meta_path = os.path.join(output_dir, f"{file_basename}_meta.json")
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
 
     logger.info("Image saved to %s", output_path)
     return output_path

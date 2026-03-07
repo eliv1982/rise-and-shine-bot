@@ -5,7 +5,7 @@ from typing import Optional
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from database import deactivate_subscription, get_subscription, get_user, upsert_subscription
 from keyboards.inline import (
@@ -16,7 +16,9 @@ from keyboards.inline import (
     subscription_time_keyboard_hours,
     subscription_time_keyboard_minutes,
 )
+from scheduler import last_subscription_affirmations
 from services.openai_image import generate_image
+from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.yandex_gpt import generate_affirmations
 from states import SubscriptionState
 from utils import gender_display
@@ -164,4 +166,29 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     else:
         await callback.message.edit_text("Subscription saved. I will send you daily affirmations.")
     await callback.answer()
+
+
+@router.callback_query(F.data == "sub_tts:yes")
+async def subscription_tts(callback: CallbackQuery) -> None:
+    """Озвучить последнюю рассылку по подписке."""
+    await callback.answer()
+    user_id = callback.from_user.id
+    cached = last_subscription_affirmations.get(user_id)
+    if not cached or not cached.get("affirmations"):
+        await callback.message.answer(
+            "Нет данных для озвучки. Следующая рассылка по подписке придёт в назначенное время."
+        )
+        return
+    affirmations = cached["affirmations"]
+    gender = cached.get("gender")
+    try:
+        audio_path = await synthesize_affirmations_with_pauses(
+            affirmations, gender=gender, pause_seconds=5.0
+        )
+        await callback.message.answer_voice(voice=FSInputFile(audio_path))
+    except RuntimeError as e:
+        await callback.message.answer(str(e))
+    except Exception as exc:
+        logger.exception("Subscription TTS failed: %s", exc)
+        await callback.message.answer("Сервис озвучки временно недоступен. Попробуй позже.")
 
