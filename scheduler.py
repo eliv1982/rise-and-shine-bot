@@ -17,12 +17,13 @@ from utils import gender_display
 
 logger = logging.getLogger(__name__)
 
-scheduler = AsyncIOScheduler()
+MOSCOW = ZoneInfo("Europe/Moscow")
+
+# Планировщик в московском времени, чтобы cron срабатывал по Москве
+scheduler = AsyncIOScheduler(timezone=MOSCOW)
 
 # Кэш последних аффирмаций по подписке для кнопки «Озвучить»
 last_subscription_affirmations: dict[int, dict] = {}
-
-MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 async def send_daily_affirmations(bot: Bot) -> None:
@@ -30,6 +31,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
     subs = await get_due_subscriptions(now)
     if not subs:
         return
+    logger.info("Subscription run at Moscow time %s, sending to %s user(s)", now.strftime("%H:%M"), len(subs))
 
     for sub in subs:
         user_id = sub["user_id"]
@@ -100,12 +102,14 @@ async def send_daily_affirmations(bot: Bot) -> None:
 
         try:
             photo = FSInputFile(image_path)
+            keyboard = subscription_after_keyboard(language)
             await bot.send_photo(
                 chat_id=user_id,
                 photo=photo,
                 caption=caption,
-                reply_markup=subscription_after_keyboard(language),
+                reply_markup=keyboard,
             )
+            logger.info("Sent daily affirmation to user %s with TTS button", user_id)
         except Exception as exc:
             logger.exception("Failed to send daily affirmation to user %s: %s", user_id, exc)
 
