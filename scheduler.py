@@ -57,6 +57,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 sphere=sphere,
                 user_text=None,
                 subsphere=subsphere,
+                add_variety=True,
             )
             affirmations, image_path = await asyncio.gather(affirmations_task, image_task)
         except Exception as exc:
