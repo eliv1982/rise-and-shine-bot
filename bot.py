@@ -42,9 +42,9 @@ async def main() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher(storage=MemoryStorage())
 
+    dp.include_router(subscribe.router)  # до start, чтобы lang: в подписке обрабатывался здесь
     dp.include_router(start.router)
     dp.include_router(generation.router)
-    dp.include_router(subscribe.router)
     dp.include_router(smalltalk.router)
 
     setup_scheduler(bot)

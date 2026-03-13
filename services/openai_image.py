@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import uuid
 from typing import Optional
 
 import aiohttp
@@ -11,6 +12,32 @@ import aiohttp
 from config import get_outputs_dir, get_settings
 
 logger = logging.getLogger(__name__)
+
+# Варианты цветовой гаммы и атмосферы для разнообразия картинок
+_COLOR_MOODS = [
+    "warm golden hour lighting, soft amber and honey tones",
+    "cool blue and soft lavender tones, peaceful morning light",
+    "earthy greens and soft browns, natural forest atmosphere",
+    "pastel soft colors, gentle pink and peach hues",
+    "vibrant sunset colors, orange and deep purple gradient",
+    "misty morning atmosphere, soft grey and pale green",
+    "deep twilight, indigo and silver accents",
+    "warm terracotta and sand tones, mediterranean feel",
+    "fresh mint and sage green palette, spring feeling",
+    "rich burgundy and gold accents, cozy and warm",
+    "soft aqua and white, clean and airy",
+    "warm candlelight glow, ochre and soft yellow",
+]
+
+# Варианты композиции
+_COMPOSITION_HINTS = [
+    "wide open space, horizon in the distance",
+    "intimate close-up, soft focus background",
+    "symmetrical balance, centered subject",
+    "layered depth, foreground and distant elements",
+    "minimalist composition, lots of negative space",
+    "dynamic angle, gentle movement in the scene",
+]
 
 
 def _build_default_image_theme(sphere: str, subsphere: Optional[str]) -> str:
@@ -60,131 +87,18 @@ def _style_to_phrase(style: str) -> str:
     return mapping.get(style, "soft, inspiring, visually harmonious style")
 
 
-# Варианты сцен для разнообразия (подписка): один стиль — разные места и мотивы
-SCENE_VARIANTS: dict[str, list[str]] = {
-    "nature": [
-        "misty forest with sunlight through trees",
-        "peaceful lake surrounded by mountains",
-        "gentle coast with sea and rocks",
-        "flower meadow at golden hour",
-        "desert dunes at sunset",
-        "waterfall in a green canyon",
-        "autumn forest path",
-        "winter landscape with snow and soft light",
-        "bamboo grove with soft shadows",
-        "lavender or poppy field",
-        "tropical beach with palm trees",
-        "mountain valley with a stream",
-        "cherry blossom or garden in bloom",
-        "northern lights over a quiet lake",
-        "vineyard or olive grove on a hill",
-    ],
-    "realistic": [
-        "soft window light in a minimal interior",
-        "morning mist over a landscape",
-        "detail of water or stone in natural light",
-        "portrait-style still life with plants",
-        "architectural detail with soft shadows",
-        "coastal cliff at dawn",
-        "forest clearing with rays of light",
-        "urban park in autumn",
-        "mountain peak at sunrise",
-        "field of wheat or grass in the wind",
-        "ice or snow crystals in sunlight",
-        "old garden with climbing plants",
-        "sea horizon at dusk",
-        "rocks and moss by a stream",
-        "balcony or terrace with view",
-    ],
-    "cosmos": [
-        "nebula in blue and purple tones",
-        "galaxy with golden core",
-        "starfield over a planet silhouette",
-        "aurora in space",
-        "comet or meteor shower",
-        "moon and stars over a minimal landscape",
-        "deep space with distant galaxies",
-        "planetary ring in soft light",
-        "constellation pattern in night sky",
-        "nebula in warm pink and orange",
-    ],
-    "abstract": [
-        "flowing gradients in warm tones",
-        "geometric shapes in soft pastels",
-        "organic forms in blue and green",
-        "layers of translucent color",
-        "minimal composition with one accent",
-        "fluid shapes in sunset colors",
-        "soft circles and waves",
-        "earthy tones with gold accent",
-        "cool blues and silvers",
-        "warm amber and cream",
-    ],
-    "mandala": [
-        "floral motifs in pastel tones",
-        "geometric with gold and deep blue",
-        "nature-inspired (leaves, petals) in green and earth",
-        "radial pattern in warm sunset palette",
-        "minimal lines in monochrome",
-        "layered circles in soft pink and mint",
-    ],
-    "sacred_geometry": [
-        "golden ratio spiral in warm light",
-        "crystalline pattern in cool tones",
-        "overlapping circles in pastels",
-        "hexagonal grid in nature colors",
-        "luminous lines on dark background",
-    ],
-    "cartoon": [
-        "friendly landscape with rolling hills",
-        "cozy house by a lake",
-        "magical forest with glowing elements",
-        "sunny meadow with butterflies",
-        "mountain village at dusk",
-        "garden with birds and flowers",
-        "seaside town with boats",
-        "autumn park scene",
-    ],
-}
-
-# Цветовые палитры для разнообразия
-COLOR_PALETTES: list[str] = [
-    "warm golden hour, soft yellows and oranges",
-    "cool blue and green, peaceful and fresh",
-    "pastel tones, soft pink mint and lavender",
-    "earthy, terracotta and olive",
-    "sunset colors, coral and deep blue",
-    "morning mist, silver and pale green",
-    "rich jewel tones, deep blue and emerald",
-    "minimal, cream and soft grey",
-    "autumn palette, amber and burgundy",
-    "spring palette, fresh green and white",
-    "nocturne, deep blue and purple",
-    "warm neutrals, sand and stone",
-]
-
-
-def _pick_scene_and_palette(style: str) -> tuple[str, str]:
-    """Случайный выбор сцены и палитры для разнообразия (подписка)."""
-    style_key = style.lower() if style else "nature"
-    variants = SCENE_VARIANTS.get(style_key) or SCENE_VARIANTS["nature"]
-    scene = random.choice(variants)
-    palette = random.choice(COLOR_PALETTES)
-    return scene, palette
-
-
 def _build_image_prompt(
     style: str,
     sphere: str,
     subsphere: Optional[str],
     user_text: Optional[str],
     custom_style_description: Optional[str] = None,
-    scene_variant: Optional[str] = None,
-    color_palette: Optional[str] = None,
+    color_mood: Optional[str] = None,
+    composition_hint: Optional[str] = None,
 ) -> str:
     """
     Формирует англоязычный промпт для генерации изображения.
-    scene_variant и color_palette — для разнообразия (подписка).
+    Случайные color_mood и composition_hint добавляют разнообразие при каждой генерации.
     """
     base_theme = _build_default_image_theme(sphere, subsphere)
 
@@ -199,16 +113,13 @@ def _build_image_prompt(
     if user_text:
         extra = f" The scene subtly reflects the idea: \"{user_text}\"."
 
-    scene_part = ""
-    if scene_variant:
-        scene_part = f" Scene: {scene_variant}."
-    if color_palette:
-        scene_part = f"{scene_part} Color palette: {color_palette}."
+    color_part = f" Color and lighting: {color_mood}." if color_mood else ""
+    comp_part = f" Composition: {composition_hint}." if composition_hint else ""
 
     return (
-        f"{base_theme}.{extra}{scene_part} "
+        f"{base_theme}.{extra} "
         f"Atmosphere: uplifting, calm, hopeful, suitable for affirmation practice about {sphere}. "
-        f"Visual style: {style_phrase}. No text, no words on the image."
+        f"Visual style: {style_phrase}.{color_part}{comp_part} No text, no words on the image."
     )
 
 
@@ -220,11 +131,10 @@ async def generate_image(
     custom_style_description: Optional[str] = None,
     output_dir: Optional[str] = None,
     file_basename: Optional[str] = None,
-    add_variety: bool = False,
 ) -> str:
     """
     Асинхронно вызывает OpenAI-совместимый image API через ProxiAPI и сохраняет PNG.
-    add_variety=True — случайная сцена и палитра (для подписки, чтобы картинки не повторялись).
+    Случайные цвет и композиция добавляют разнообразие при каждой генерации.
     Возвращает путь к файлу.
     """
     settings = get_settings()
@@ -234,15 +144,16 @@ async def generate_image(
     base_url = settings.proxi_base_url.rstrip("/")
     url = f"{base_url}/images/generations"
 
-    scene_variant: Optional[str] = None
-    color_palette: Optional[str] = None
-    if add_variety and style != "custom":
-        scene_variant, color_palette = _pick_scene_and_palette(style)
-
+    color_mood = random.choice(_COLOR_MOODS)
+    composition_hint = random.choice(_COMPOSITION_HINTS)
     prompt = _build_image_prompt(
-        style=style, sphere=sphere, subsphere=subsphere,
-        user_text=user_text, custom_style_description=custom_style_description,
-        scene_variant=scene_variant, color_palette=color_palette,
+        style=style,
+        sphere=sphere,
+        subsphere=subsphere,
+        user_text=user_text,
+        custom_style_description=custom_style_description,
+        color_mood=color_mood,
+        composition_hint=composition_hint,
     )
 
     payload = {
@@ -290,7 +201,8 @@ async def generate_image(
     if not file_basename:
         safe_sphere = sphere.replace(" ", "_").lower()
         safe_style = style.replace(" ", "_").lower()
-        file_basename = f"affirmation_{safe_sphere}_{safe_style}"
+        unique = uuid.uuid4().hex[:8]
+        file_basename = f"affirmation_{safe_sphere}_{safe_style}_{unique}"
 
     filename = f"{file_basename}.png"
     output_path = os.path.join(output_dir, filename)
@@ -308,10 +220,6 @@ async def generate_image(
         "model": "gpt-image-1-mini",
         "size": "1024x1024",
     }
-    if scene_variant is not None:
-        meta["scene_variant"] = scene_variant
-    if color_palette is not None:
-        meta["color_palette"] = color_palette
     meta_path = os.path.join(output_dir, f"{file_basename}_meta.json")
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)

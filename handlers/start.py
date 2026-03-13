@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from database import create_or_update_user, delete_user_completely, get_user, update_user_language, update_user_profile
-from keyboards.inline import gender_keyboard, new_affirmation_keyboard
+from keyboards.inline import gender_keyboard, language_keyboard, new_affirmation_keyboard
 from states import RegistrationState
 from utils import extract_name_from_introduction
 
@@ -33,8 +33,9 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     user = await get_user(user_id)
     if user:
         await state.clear()
+        lang = (user or {}).get("language", "ru")
         text = _greet_returning(user.get("name"), user.get("gender"))
-        await message.answer(text, reply_markup=new_affirmation_keyboard("ru"))
+        await message.answer(text, reply_markup=new_affirmation_keyboard(lang))
         return
 
     # Новый пользователь
@@ -88,13 +89,36 @@ async def process_gender_callback(callback: CallbackQuery, state: FSMContext) ->
 
 @router.message(Command("language"))
 async def cmd_language(message: Message, state: FSMContext) -> None:
-    """Бот работает только на русском."""
+    """Выбор языка: русский / English."""
     user = await get_user(message.from_user.id)
     if not user:
         await message.answer("Сначала напиши /start.")
         return
-    await update_user_language(message.from_user.id, "ru")
-    await message.answer("Бот работает только на русском языке.")
+    lang = (user or {}).get("language", "ru")
+    text_ru = "Выбери язык общения:"
+    text_en = "Choose your language:"
+    text = text_ru if lang == "ru" else text_en
+    await message.answer(text, reply_markup=language_keyboard())
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def cmd_language_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    """Смена языка по кнопке после /language (не в процессе подписки)."""
+    current = await state.get_state()
+    if current and current.startswith("SubscriptionState:"):
+        return
+    lang = callback.data.split(":", maxsplit=1)[1]
+    if lang not in ("ru", "en"):
+        await callback.answer()
+        return
+    await update_user_language(callback.from_user.id, lang)
+    if lang == "ru":
+        await callback.message.edit_text("Язык изменён на русский. Дальше буду общаться по-русски.")
+        await callback.message.answer("Готово.", reply_markup=new_affirmation_keyboard("ru"))
+    else:
+        await callback.message.edit_text("Language set to English. I'll use English from now on.")
+        await callback.message.answer("Done.", reply_markup=new_affirmation_keyboard("en"))
+    await callback.answer()
 
 
 @router.message(Command("profile"))
@@ -104,36 +128,48 @@ async def cmd_profile(message: Message, state: FSMContext) -> None:
         await message.answer("Похоже, мы ещё не знакомы. Напиши /start.")
         return
 
+    lang = (user or {}).get("language", "ru")
     name = user.get("name") or "—"
     gender = user.get("gender") or "—"
-    await message.answer(
-        f"Твой профиль:\n\nИмя: {name}\nПол: {gender}\n\n"
-        "Чтобы изменить имя — просто напиши его.\n"
-        "Чтобы изменить пол — выбери кнопку ниже.",
-        reply_markup=gender_keyboard(language="ru"),
-    )
-    # Упростим: изменение имени — без FSM, просто следующее текстовое сообщение
+    if lang == "ru":
+        text = (
+            f"Твой профиль:\n\nИмя: {name}\nПол: {gender}\n\n"
+            "Чтобы изменить имя — просто напиши его.\n"
+            "Чтобы изменить пол — выбери кнопку ниже."
+        )
+    else:
+        text = (
+            f"Your profile:\n\nName: {name}\nGender: {gender}\n\n"
+            "To change name — just send it.\n"
+            "To change gender — choose the button below."
+        )
+    await message.answer(text, reply_markup=gender_keyboard(lang))
 
 
 @router.message(Command("cancel"))
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
     """Выход из текущего диалога (сброс FSM)."""
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "ru")
     current = await state.get_state()
     if not current:
-        await message.answer("Нечего отменять.")
+        await message.answer("Нечего отменять." if lang == "ru" else "Nothing to cancel.")
         return
     await state.clear()
-    await message.answer("Отменено. Напиши /new для новой аффирмации.")
+    await message.answer(
+        "Отменено. Напиши /new для новой аффирмации." if lang == "ru" else "Cancelled. Send /new for a new affirmation."
+    )
 
 
 @router.message(Command("reset"))
 async def cmd_reset(message: Message, state: FSMContext) -> None:
-    """
-    Полный сброс регистрации пользователя, чтобы пройти её заново.
-    """
+    """Полный сброс регистрации пользователя, чтобы пройти её заново."""
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "ru")
     await delete_user_completely(message.from_user.id)
     await state.clear()
-    await message.answer(
-        "Я удалил твою регистрацию. Напиши /start, чтобы познакомиться заново и правильно сохранить имя."
-    )
+    if lang == "ru":
+        await message.answer("Я удалил твою регистрацию. Напиши /start, чтобы познакомиться заново и правильно сохранить имя.")
+    else:
+        await message.answer("I've deleted your registration. Send /start to sign up again and save your name.")
 

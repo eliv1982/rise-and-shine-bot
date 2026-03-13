@@ -17,6 +17,7 @@ class GenerationState(StatesGroup):
 
 
 class SubscriptionState(StatesGroup):
+    choosing_language = State()
     choosing_sphere = State()
     choosing_relationship_subsphere = State()
     choosing_style = State()

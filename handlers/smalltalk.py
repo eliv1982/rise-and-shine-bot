@@ -16,17 +16,32 @@ logger = logging.getLogger(__name__)
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    text = (
-        "Я бот *Rise and Shine Daily*.\n\n"
-        "Я помогаю тебе получать душевные аффирмации и красивые картинки по разным сферам жизни.\n\n"
-        "/start — регистрация или приветствие\n"
-        "/new — новая аффирмация\n"
-        "/subscribe — подписка на ежедневные аффирмации\n"
-        "/unsubscribe — отменить подписку\n"
-        "/profile — профиль\n"
-        "/language — сменить язык (ru/en)\n"
-        "/cancel — выйти из текущего диалога"
-    )
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    if lang == "ru":
+        text = (
+            "Я бот *Rise and Shine Daily*.\n\n"
+            "Я помогаю тебе получать душевные аффирмации и красивые картинки по разным сферам жизни.\n\n"
+            "/start — регистрация или приветствие\n"
+            "/new — новая аффирмация\n"
+            "/subscribe — подписка на ежедневные аффирмации\n"
+            "/unsubscribe — отменить подписку\n"
+            "/profile — профиль\n"
+            "/language — сменить язык (русский / English)\n"
+            "/cancel — выйти из текущего диалога"
+        )
+    else:
+        text = (
+            "I'm the *Rise and Shine Daily* bot.\n\n"
+            "I help you get uplifting affirmations and images across different life areas.\n\n"
+            "/start — sign up or greeting\n"
+            "/new — new affirmation\n"
+            "/subscribe — daily affirmations subscription\n"
+            "/unsubscribe — cancel subscription\n"
+            "/profile — your profile\n"
+            "/language — change language (Russian / English)\n"
+            "/cancel — exit current dialog"
+        )
     await message.answer(text, parse_mode="Markdown")
 
 

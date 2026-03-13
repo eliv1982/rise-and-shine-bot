@@ -3,6 +3,7 @@ import datetime as dt
 import json
 import logging
 import os
+import random
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -18,6 +19,31 @@ from utils import gender_display
 logger = logging.getLogger(__name__)
 
 MOSCOW = ZoneInfo("Europe/Moscow")
+
+# Сферы для опции «разные сферы каждый день»
+SUBSCRIPTION_SPHERES = [
+    "career",
+    "health",
+    "money",
+    "relationships",
+    "self_realization",
+    "spirituality",
+    "inner_peace",
+]
+
+# Подсферы для relationships (при случайной сфере)
+RELATIONSHIP_SUBSPHERES = ["partner", "colleagues", "friends"]
+
+# Стили для опции «разный стиль каждый день»
+SUBSCRIPTION_STYLES = [
+    "realistic",
+    "cartoon",
+    "mandala",
+    "sacred_geometry",
+    "nature",
+    "cosmos",
+    "abstract",
+]
 
 # Планировщик в московском времени, чтобы cron срабатывал по Москве
 scheduler = AsyncIOScheduler(timezone=MOSCOW)
@@ -40,6 +66,14 @@ async def send_daily_affirmations(bot: Bot) -> None:
         style = sub["image_style"]
         language = sub["language"]
         gender = sub.get("user_gender")
+
+        # Опция «разные сферы каждый день»: выбираем сферу случайно
+        if sphere == "random":
+            sphere = random.choice(SUBSCRIPTION_SPHERES)
+            subsphere = random.choice(RELATIONSHIP_SUBSPHERES) if sphere == "relationships" else None
+        # Опция «разный стиль каждый день»: выбираем стиль случайно
+        if style == "random":
+            style = random.choice(SUBSCRIPTION_STYLES)
 
         gender_hint = gender_display(gender, language=language)
 

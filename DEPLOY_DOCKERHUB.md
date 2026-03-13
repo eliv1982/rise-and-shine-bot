@@ -2,6 +2,8 @@
 
 Образ хранится на Docker Hub. Подставь **свой логин Docker Hub** и **хост/IP сервера** в команды ниже.
 
+**Кратко (обновление после изменений в коде):** локально `docker build` + `docker push`, на сервере `docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`.
+
 ---
 
 ## 1. На локальном компьютере (сборка и публикация образа)

@@ -39,16 +39,32 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
     language = (user or {}).get("language", "ru")
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
-    await callback.message.answer(
-        "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
-        reply_markup=sphere_keyboard(language),
-    )
+    current = await state.get_state()
+    # Если уже в сценарии генерации — редактируем текущее сообщение, чтобы не слать лишний блок
+    if current and current.startswith("GenerationState:"):
+        await callback.message.edit_text(
+            "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
+            reply_markup=sphere_keyboard(language),
+        )
+    else:
+        await callback.message.answer(
+            "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
+            reply_markup=sphere_keyboard(language),
+        )
 
 
 @router.message(Command("new"))
 async def cmd_new(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
+    current = await state.get_state()
+    # Уже в сценарии генерации — не слать второй блок «Выбери сферу», чтобы не дублировать
+    if current and current.startswith("GenerationState:"):
+        if language == "ru":
+            await message.answer("Продолжи выбор выше: выбери стиль или сферу в предыдущем сообщении.")
+        else:
+            await message.answer("Continue above: choose style or sphere in the previous message.")
+        return
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
     await message.answer(
@@ -521,7 +537,7 @@ async def tts_affirmations(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(GenerationState.after_result, F.data == "new:yes")
 async def new_request_from_result(callback: CallbackQuery, state: FSMContext) -> None:
-    """Начать новый сценарий выбора после результата."""
+    """Начать новый сценарий выбора после результата (сообщение с фото не редактируем — шлём новое)."""
     await callback.answer()
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")

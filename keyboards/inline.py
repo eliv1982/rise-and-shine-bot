@@ -26,9 +26,14 @@ def sphere_keyboard(language: str) -> InlineKeyboardMarkup:
 
 
 def sphere_keyboard_for_subscription(language: str) -> InlineKeyboardMarkup:
-    """Сферы для подписки (без «Своя тема»)."""
+    """Сферы для подписки (без «Своя тема») + опция «разные сферы каждый день»."""
     b = InlineKeyboardBuilder()
     _sphere_buttons(b, language, include_custom_theme=False)
+    b.button(
+        text=_t(language, "Разные сферы каждый день", "Different sphere each day"),
+        callback_data="sphere:random",
+    )
+    b.adjust(1)
     return b.as_markup()
 
 
@@ -56,7 +61,7 @@ def style_keyboard(language: str) -> InlineKeyboardMarkup:
 
 
 def style_keyboard_for_subscription(language: str) -> InlineKeyboardMarkup:
-    """Стили для подписки (без «Свой стиль»)."""
+    """Стили для подписки (без «Свой стиль») + опция «разный стиль каждый день»."""
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "Реалистичный", "Realistic"), callback_data="style:realistic")
     b.button(text=_t(language, "Мультяшный", "Cartoon"), callback_data="style:cartoon")
@@ -65,6 +70,10 @@ def style_keyboard_for_subscription(language: str) -> InlineKeyboardMarkup:
     b.button(text=_t(language, "Природа", "Nature"), callback_data="style:nature")
     b.button(text=_t(language, "Космос", "Cosmos"), callback_data="style:cosmos")
     b.button(text=_t(language, "Абстракция", "Abstract"), callback_data="style:abstract")
+    b.button(
+        text=_t(language, "Разный стиль каждый день", "Different style each day"),
+        callback_data="style:random",
+    )
     b.adjust(1)
     return b.as_markup()
 
@@ -116,6 +125,15 @@ def gender_keyboard(language: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def language_keyboard() -> InlineKeyboardMarkup:
+    """Выбор языка: русский / English (для /language и для подписки)."""
+    b = InlineKeyboardBuilder()
+    b.button(text="Русский", callback_data="lang:ru")
+    b.button(text="English", callback_data="lang:en")
+    b.adjust(2)
+    return b.as_markup()
+
+
 def new_affirmation_keyboard(language: str) -> InlineKeyboardMarkup:
     """Кнопка «Новая аффирмация» после регистрации."""
     b = InlineKeyboardBuilder()
@@ -159,8 +177,17 @@ def subscription_confirm_keyboard(language: str) -> InlineKeyboardMarkup:
 
 
 def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура под сообщением по подписке: озвучить."""
+    """Клавиатура под сообщением по подписке: озвучить, отменить подписку, изменить подписку."""
     b = InlineKeyboardBuilder()
     b.button(text="🔊 Озвучить", callback_data="sub_tts:yes")
+    b.button(
+        text=_t(language, "Отменить подписку", "Cancel subscription"),
+        callback_data="sub:unsubscribe",
+    )
+    b.button(
+        text=_t(language, "Изменить подписку", "Change subscription"),
+        callback_data="sub:change",
+    )
+    b.adjust(1)
     return b.as_markup()
 
