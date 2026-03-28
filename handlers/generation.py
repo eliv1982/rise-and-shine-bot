@@ -1,7 +1,7 @@
-import asyncio
 import json
 import logging
 import os
+import random
 from typing import Optional
 
 from aiogram import F, Router
@@ -9,8 +9,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message, PhotoSize
 
-from config import get_outputs_dir
-from database import get_user
+from config import get_outputs_dir, get_settings
+from database import can_start_interactive_generation, get_user, record_interactive_generation
 from keyboards.inline import (
     after_generation_keyboard,
     relationships_subsphere_keyboard,
@@ -20,10 +20,16 @@ from keyboards.inline import (
     style_keyboard,
     theme_early_cancel_keyboard,
 )
-from services.openai_image import generate_image
+from monitoring import (
+    log_generation_fail,
+    log_generation_ok,
+    log_image_prompt_llm_fallback,
+    log_rate_limited,
+)
+from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
 from services.speechkit import transcribe_audio
 from services.speechkit_tts import synthesize_affirmations_with_pauses
-from services.yandex_gpt import generate_affirmations
+from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
 from utils import gender_display
 
@@ -229,7 +235,7 @@ async def style_extra_continue(callback: CallbackQuery, state: FSMContext) -> No
         "Генерирую аффирмацию и изображение…" if language == "ru" else "Generating affirmation and image…"
     )
     await callback.answer()
-    await _run_generation(callback.message, state, theme_text=theme_text)
+    await _run_generation(callback.message, state, theme_text=theme_text, user_telegram_id=callback.from_user.id)
 
 
 @router.callback_query(GenerationState.confirm_style_extra, F.data == "style_extra:add")
@@ -352,11 +358,22 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
 
 
 
-async def _run_generation(message: Message, state: FSMContext, theme_text: Optional[str]) -> None:
-    user = await get_user(message.from_user.id)
+async def _run_generation(
+    message: Message,
+    state: FSMContext,
+    theme_text: Optional[str],
+    *,
+    user_telegram_id: Optional[int] = None,
+) -> None:
+    """
+    user_telegram_id: обязателен для вызовов из callback под сообщением бота (там message.from_user — бот, не человек).
+    """
+    uid = user_telegram_id if user_telegram_id is not None else message.from_user.id
+    user = await get_user(uid)
     language = (user or {}).get("language", "ru")
     gender = (user or {}).get("gender")
     data = await state.get_data()
+    settings = get_settings()
 
     sphere = data.get("sphere")
     subsphere = data.get("subsphere")
@@ -368,10 +385,27 @@ async def _run_generation(message: Message, state: FSMContext, theme_text: Optio
         await state.clear()
         return
 
+    if settings.generation_daily_limit > 0:
+        allowed, used = await can_start_interactive_generation(uid, settings.generation_daily_limit)
+        if not allowed:
+            log_rate_limited(uid, used, settings.generation_daily_limit)
+            if language == "ru":
+                await message.answer(
+                    f"Сегодня уже {settings.generation_daily_limit} генераций — это дневной лимит. Завтра снова сможешь создавать аффирмации.",
+                    reply_markup=style_keyboard(language),
+                )
+            else:
+                await message.answer(
+                    f"You've reached the daily limit of {settings.generation_daily_limit} generations. Try again tomorrow.",
+                    reply_markup=style_keyboard(language),
+                )
+            await state.set_state(GenerationState.choosing_style)
+            return
+
     gender_hint = gender_display(gender, language=language)
 
     try:
-        affirmations_task = generate_affirmations(
+        affirmations = await generate_affirmations(
             sphere=sphere,
             language=language,
             user_text=theme_text,
@@ -379,46 +413,61 @@ async def _run_generation(message: Message, state: FSMContext, theme_text: Optio
             gender_hint=gender_hint,
             gender=gender,
         )
-        image_task = generate_image(
+    except Exception as exc:
+        logger.exception("Affirmations generation failed: %s", exc)
+        log_generation_fail(uid, "interactive", "affirmations", str(exc))
+        await message.answer(
+            "Не удалось сгенерировать текст аффирмаций. Попробуй ещё раз — выбери стиль ниже или /new."
+            if language == "ru"
+            else "Could not generate affirmation text. Try again — pick a style below or use /new.",
+            reply_markup=style_keyboard(language),
+        )
+        await state.set_state(GenerationState.choosing_style)
+        return
+
+    color_mood = random.choice(_COLOR_MOODS)
+    composition_hint = random.choice(_COMPOSITION_HINTS)
+    prompt_trace = "template"
+    try:
+        prompt_final, prompt_trace = await build_enriched_image_prompt(
+            style=style,
+            sphere=sphere,
+            subsphere=subsphere,
+            user_text=theme_text,
+            custom_style_description=custom_style_description,
+            affirmations=affirmations,
+            color_mood=color_mood,
+            composition_hint=composition_hint,
+            use_llm=settings.llm_image_prompt_enabled,
+        )
+        if prompt_trace == "template_fallback":
+            log_image_prompt_llm_fallback("llm_unavailable_or_bad_json")
+        image_path = await generate_image(
             style=style,
             sphere=sphere,
             user_text=theme_text,
             subsphere=subsphere,
             custom_style_description=custom_style_description,
+            prompt_override=prompt_final,
+            image_prompt_trace=prompt_trace,
         )
-        results = await asyncio.gather(affirmations_task, image_task, return_exceptions=True)
     except Exception as exc:
-        logger.exception("Generation failed: %s", exc)
-        await message.answer(
-            "Не удалось сгенерировать аффирмации. Попробуй ещё раз — выбери стиль ниже или /new для нового запроса.",
-            reply_markup=style_keyboard(language),
-        )
-        await state.set_state(GenerationState.choosing_style)
-        return
-
-    affirmations_err = results[0]
-    image_err = results[1]
-    if isinstance(affirmations_err, Exception):
-        logger.exception("Affirmations generation failed: %s", affirmations_err)
-        await message.answer(
-            "Не удалось сгенерировать текст аффирмаций. Попробуй ещё раз — выбери стиль ниже или /new.",
-            reply_markup=style_keyboard(language),
-        )
-        await state.set_state(GenerationState.choosing_style)
-        return
-    if isinstance(image_err, Exception):
-        logger.exception("Image generation failed: %s", image_err)
-        err_text = str(image_err)
-        if "Генерация изображения" in err_text or "времени" in err_text:
-            msg = err_text + " Попробуй ещё раз — выбери стиль ниже или /new."
+        logger.exception("Image generation failed: %s", exc)
+        log_generation_fail(uid, "interactive", "image", str(exc))
+        err_text = str(exc)
+        if language == "ru":
+            if "Генерация изображения" in err_text or "времени" in err_text:
+                msg = err_text + " Попробуй ещё раз — выбери стиль ниже или /new."
+            else:
+                msg = "Не удалось сгенерировать изображение. Попробуй ещё раз — выбери стиль ниже или /new."
         else:
-            msg = "Не удалось сгенерировать изображение. Попробуй ещё раз — выбери стиль ниже или /new."
+            if "took too long" in err_text.lower() or "timeout" in err_text.lower():
+                msg = err_text + " Try again — pick a style below or /new."
+            else:
+                msg = "Could not generate the image. Try again — pick a style below or /new."
         await message.answer(msg, reply_markup=style_keyboard(language))
         await state.set_state(GenerationState.choosing_style)
         return
-
-    affirmations = affirmations_err
-    image_path = image_err
 
     text_lines = []
     name = (user or {}).get("name")
@@ -454,6 +503,10 @@ async def _run_generation(message: Message, state: FSMContext, theme_text: Optio
     photo = FSInputFile(image_path)
     await message.answer_photo(photo=photo, caption=caption, reply_markup=after_generation_keyboard(language))
 
+    if settings.generation_daily_limit > 0:
+        await record_interactive_generation(uid)
+    log_generation_ok(uid, "interactive", prompt_trace)
+
     await state.update_data(
         last_generation={
             "sphere": sphere,
@@ -467,9 +520,9 @@ async def _run_generation(message: Message, state: FSMContext, theme_text: Optio
     await state.set_state(GenerationState.after_result)
 
 
-@router.callback_query(GenerationState.after_result, F.data == "again:yes")
+@router.callback_query(F.data == "again:yes")
 async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
-    """Повторная генерация с теми же параметрами."""
+    """Повторная генерация с теми же параметрами (без фильтра по FSM — после рестарта бота состояние могло обнулиться)."""
     await callback.answer()
     data = await state.get_data()
     last = data.get("last_generation")
@@ -491,7 +544,7 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         custom_style_description=last.get("custom_style_description"),
     )
     await callback.message.answer("Генерирую ещё..." if (await get_user(callback.from_user.id) or {}).get("language", "ru") == "ru" else "Generating more...")
-    await _run_generation(callback.message, state, theme_text=last.get("theme_text"))
+    await _run_generation(callback.message, state, theme_text=last.get("theme_text"), user_telegram_id=callback.from_user.id)
 
 
 @router.callback_query(GenerationState.after_result, F.data == "tts:yes")

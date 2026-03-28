@@ -1,12 +1,14 @@
+# Локально: docker compose up --build -d
+# Docker Hub: в .env задай DOCKERHUB_IMAGE=логин/rise-and-shine-bot:latest, затем на сервере:
+#   docker compose pull && docker compose up -d
 services:
   bot:
+    image: ${DOCKERHUB_IMAGE:-rise-and-shine-bot:latest}
     build: .
-    image: rise-and-shine-bot:latest
     container_name: rise-and-shine-bot
     restart: unless-stopped
     env_file: .env
     volumes:
-      # данные и логи переживают перезапуск контейнера и обновление образа
       - bot_data:/app/data
     environment:
       - BOT_DATA_DIR=/app/data

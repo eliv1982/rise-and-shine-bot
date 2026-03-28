@@ -16,8 +16,8 @@ docker push DOCKERHUB_USERNAME/rise-and-shine-bot:latest
 
 ```bash
 cd /opt/rise-and-shine
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 Подробная настройка (первый запуск, .env, compose) — в **DEPLOY_DOCKERHUB.md**.

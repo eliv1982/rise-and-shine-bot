@@ -1,7 +1,8 @@
 import os
 import datetime as dt
 import logging
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
 
@@ -40,10 +41,75 @@ async def init_db() -> None:
                 is_active   INTEGER NOT NULL DEFAULT 1,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             );
+
+            CREATE TABLE IF NOT EXISTS generation_limits (
+                user_id   INTEGER PRIMARY KEY,
+                day_utc   TEXT NOT NULL,
+                count     INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            );
             """
         )
         await db.commit()
     logger.info("Database initialized")
+
+
+def _utc_today_iso() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+async def get_generation_usage_today(user_id: int) -> int:
+    """Сколько интерактивных генераций уже учтено за текущие сутки UTC."""
+    today = _utc_today_iso()
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT count FROM generation_limits WHERE user_id = ? AND day_utc = ?",
+            (user_id, today),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+    return int(row[0]) if row else 0
+
+
+async def can_start_interactive_generation(user_id: int, daily_limit: int) -> Tuple[bool, int]:
+    """
+    daily_limit <= 0 — без лимита (всегда можно).
+    Возвращает (разрешено, текущее число за сегодня UTC).
+    """
+    if daily_limit <= 0:
+        return True, 0
+    used = await get_generation_usage_today(user_id)
+    return used < daily_limit, used
+
+
+async def record_interactive_generation(user_id: int) -> None:
+    """Учитывает успешную интерактивную генерацию (UTC-день)."""
+    today = _utc_today_iso()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        cur = await db.execute(
+            "SELECT day_utc, count FROM generation_limits WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        if not row:
+            await db.execute(
+                "INSERT INTO generation_limits (user_id, day_utc, count) VALUES (?, ?, ?)",
+                (user_id, today, 1),
+            )
+        else:
+            day_utc, count = row[0], int(row[1])
+            if day_utc != today:
+                await db.execute(
+                    "UPDATE generation_limits SET day_utc = ?, count = 1 WHERE user_id = ?",
+                    (today, user_id),
+                )
+            else:
+                await db.execute(
+                    "UPDATE generation_limits SET count = count + 1 WHERE user_id = ?",
+                    (user_id,),
+                )
+        await db.commit()
 
 
 async def get_user(user_id: int) -> Optional[Dict[str, Any]]:
@@ -65,7 +131,7 @@ async def create_or_update_user(
     """
     Обновляет или создаёт пользователя.
     """
-    now = dt.datetime.utcnow().isoformat()
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """

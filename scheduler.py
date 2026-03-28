@@ -1,4 +1,3 @@
-import asyncio
 import datetime as dt
 import json
 import logging
@@ -10,10 +9,16 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 from aiogram.types import FSInputFile
 
+from config import get_settings
 from database import get_due_subscriptions
 from keyboards.inline import subscription_after_keyboard
-from services.openai_image import generate_image
-from services.yandex_gpt import generate_affirmations
+from monitoring import (
+    log_generation_fail,
+    log_generation_ok,
+    log_image_prompt_llm_fallback,
+)
+from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from utils import gender_display
 
 logger = logging.getLogger(__name__)
@@ -76,9 +81,10 @@ async def send_daily_affirmations(bot: Bot) -> None:
             style = random.choice(SUBSCRIPTION_STYLES)
 
         gender_hint = gender_display(gender, language=language)
+        settings = get_settings()
 
         try:
-            affirmations_task = generate_affirmations(
+            affirmations = await generate_affirmations(
                 sphere=sphere,
                 language=language,
                 user_text=None,
@@ -86,16 +92,33 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 gender_hint=gender_hint,
                 gender=gender,
             )
-            image_task = generate_image(
+            color_mood = random.choice(_COLOR_MOODS)
+            composition_hint = random.choice(_COMPOSITION_HINTS)
+            prompt_final, prompt_trace = await build_enriched_image_prompt(
+                style=style,
+                sphere=sphere,
+                subsphere=subsphere,
+                user_text=None,
+                custom_style_description=None,
+                affirmations=affirmations,
+                color_mood=color_mood,
+                composition_hint=composition_hint,
+                use_llm=settings.llm_image_prompt_enabled,
+            )
+            if prompt_trace == "template_fallback":
+                log_image_prompt_llm_fallback("subscription_llm_fallback")
+            image_path = await generate_image(
                 style=style,
                 sphere=sphere,
                 user_text=None,
                 subsphere=subsphere,
-                add_variety=True,
+                custom_style_description=None,
+                prompt_override=prompt_final,
+                image_prompt_trace=prompt_trace,
             )
-            affirmations, image_path = await asyncio.gather(affirmations_task, image_task)
         except Exception as exc:
             logger.exception("Daily generation failed for user %s: %s", user_id, exc)
+            log_generation_fail(user_id, "subscription", "daily", str(exc))
             continue
 
         text_lines = []
@@ -144,9 +167,11 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 caption=caption,
                 reply_markup=keyboard,
             )
+            log_generation_ok(user_id, "subscription", prompt_trace)
             logger.info("Sent daily affirmation to user %s with TTS button", user_id)
         except Exception as exc:
             logger.exception("Failed to send daily affirmation to user %s: %s", user_id, exc)
+            log_generation_fail(user_id, "subscription", "send", str(exc))
 
 
 def setup_scheduler(bot: Bot) -> None:

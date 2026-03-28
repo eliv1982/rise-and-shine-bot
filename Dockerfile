@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py database.py states.py utils.py bot.py scheduler.py ./
+COPY config.py database.py states.py utils.py bot.py scheduler.py monitoring.py cleanup_outputs.py ./
 COPY handlers ./handlers
 COPY keyboards ./keyboards
 COPY services ./services

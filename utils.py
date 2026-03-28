@@ -1,5 +1,22 @@
 import re
-from typing import Optional
+from typing import Literal, Optional
+
+GenderKey = Literal["male", "female"]
+
+
+def normalize_gender(gender: Optional[str]) -> Optional[GenderKey]:
+    """
+    Приводит значение пола из БД/интерфейса к 'male' | 'female'.
+    Любой другой ввод — None (тогда можно опереться только на gender_hint).
+    """
+    if not gender:
+        return None
+    g = str(gender).strip().lower()
+    if g in ("female", "f", "woman", "женский", "жен", "девушка"):
+        return "female"
+    if g in ("male", "m", "man", "мужской", "муж", "парень"):
+        return "male"
+    return None
 
 
 def extract_name_from_introduction(text: str) -> Optional[str]:
@@ -69,7 +86,9 @@ def extract_name_from_introduction(text: str) -> Optional[str]:
 def gender_display(gender: Optional[str], language: str = "ru") -> str:
     """
     Возвращает строку для описания рода в промпте.
+    Не возвращает пустую строку: при неизвестном поле — формулировка для мужского рода (как запасной вариант).
     """
+    g = normalize_gender(gender)
     if language == "en":
         mapping = {
             "male": "for a man",
@@ -80,5 +99,5 @@ def gender_display(gender: Optional[str], language: str = "ru") -> str:
             "male": "для мужчины",
             "female": "для женщины",
         }
-    return mapping.get(gender or "", mapping.get("male", "for a man"))
+    return mapping.get(g or "male", mapping["male"])
 

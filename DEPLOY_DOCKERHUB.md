@@ -2,7 +2,9 @@
 
 Образ хранится на Docker Hub. Подставь **свой логин Docker Hub** и **хост/IP сервера** в команды ниже.
 
-**Кратко (обновление после изменений в коде):** локально `docker build` + `docker push`, на сервере `docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`.
+Используется **один** файл [docker-compose.yml](docker-compose.yml): локально он собирает образ (`build`), на сервере с тем же файлом и переменной `DOCKERHUB_IMAGE` в `.env` выполняется `pull` готового образа (сборка на сервере не нужна).
+
+**Кратко (обновление после изменений в коде):** локально `docker build` + `docker push` (или `docker compose build && docker compose push` при заданном `DOCKERHUB_IMAGE` в `.env`), на сервере `docker compose pull && docker compose up -d`.
 
 ---
 
@@ -14,25 +16,30 @@
 ```bash
 docker login
 ```
-Ввести свой логин и пароль от Docker Hub.
 
-**Сборка и пуш образа** (подставь свой логин вместо `DOCKERHUB_USERNAME`):
+**Вариант А — вручную** (подставь свой логин вместо `DOCKERHUB_USERNAME`):
 ```bash
 docker build -t DOCKERHUB_USERNAME/rise-and-shine-bot:latest .
 docker push DOCKERHUB_USERNAME/rise-and-shine-bot:latest
 ```
 
-После каждого изменения кода: снова выполнить эти две команды, затем на сервере подтянуть образ и перезапустить (см. раздел 4).
+**Вариант Б — через Compose** (в `.env` должна быть строка `DOCKERHUB_IMAGE=DOCKERHUB_USERNAME/rise-and-shine-bot:latest`):
+```bash
+docker compose build
+docker compose push
+```
+
+После каждого изменения кода снова собери и запушь образ, затем на сервере подтяни образ и перезапусти контейнер (раздел 4).
 
 ---
 
 ## 2. Подключение к серверу
 
-**Вводить в своём терминале (PowerShell или cmd):**
+**В своём терминале (PowerShell или cmd):**
 ```bash
 ssh root@SERVER_HOST
 ```
-Вместо `SERVER_HOST` — IP или доменное имя сервера. Дальше все команды — **уже на сервере** (в этой SSH-сессии).
+Вместо `SERVER_HOST` — IP или домен. Дальше команды выполняются **на сервере**.
 
 ---
 
@@ -44,12 +51,17 @@ mkdir -p /opt/rise-and-shine
 cd /opt/rise-and-shine
 ```
 
-**Создать файл с переменными окружения:**
+**Положить в каталог файл `docker-compose.yml`** из репозитория (scp, git clone или скопировать содержимое с GitHub) — тот же файл, что в проекте.
+
+**Создать `.env`:**
 ```bash
 nano .env
 ```
-Вставить (подставить свои значения):
+
+Вставить (подставь свои значения; **обязательно** укажи образ с Hub):
+
 ```
+DOCKERHUB_IMAGE=DOCKERHUB_USERNAME/rise-and-shine-bot:latest
 BOT_TOKEN=токен_от_BotFather
 YANDEX_API_KEY=твой_яндекс_ключ
 YANDEX_FOLDER_ID=твой_folder_id
@@ -57,29 +69,12 @@ YANDEX_SPEECHKIT_API_KEY=твой_speechkit_ключ
 PROXI_API_KEY=твой_proxi_ключ
 PROXI_BASE_URL=https://openai.api.proxyapi.ru/v1
 ```
+
+Остальные переменные — по необходимости из `.env.example` в репозитории.
+
 Сохранить: `Ctrl+O`, Enter, выход: `Ctrl+X`.
 
-**Создать production compose (образ с Docker Hub):**
-```bash
-nano docker-compose.prod.yml
-```
-Вставить (подставь свой логин Docker Hub вместо `DOCKERHUB_USERNAME`):
-```yaml
-services:
-  bot:
-    image: DOCKERHUB_USERNAME/rise-and-shine-bot:latest
-    container_name: rise-and-shine-bot
-    restart: unless-stopped
-    env_file: .env
-    volumes:
-      - bot_data:/app/data
-    environment:
-      - BOT_DATA_DIR=/app/data
-
-volumes:
-  bot_data:
-```
-Сохранить: `Ctrl+O`, Enter, выход: `Ctrl+X`.
+Compose подставит `DOCKERHUB_IMAGE` в поле `image:` сервиса `bot` и подтянет образ с Docker Hub. Секция `build` в том же файле на сервере не используется, если не запускать `docker compose build`.
 
 ---
 
@@ -88,55 +83,53 @@ volumes:
 **Первый запуск:**
 ```bash
 cd /opt/rise-and-shine
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 **Проверка:**
 ```bash
-docker compose -f docker-compose.prod.yml ps
-docker compose -f docker-compose.prod.yml logs -f bot
+docker compose ps
+docker compose logs -f bot
 ```
 Выход из логов: `Ctrl+C`.
 
-**После того как на локальной машине сделали `docker build` и `docker push` — обновить бота на сервере:**
+**После `docker push` с локальной машины — обновить бота:**
 ```bash
 cd /opt/rise-and-shine
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 ---
 
 ## 5. Автоперезапуск при перезагрузке сервера
 
-Уже настроено: в compose указано `restart: unless-stopped`. После перезагрузки сервера контейнер поднимется сам.
+В compose указано `restart: unless-stopped`. После перезагрузки сервера контейнер поднимется сам.
 
 ---
 
 ## 6. Автообновление по расписанию (по желанию)
 
-Чтобы сервер сам периодически подтягивал новый образ и перезапускал контейнер:
-
 ```bash
 crontab -e
 ```
-Добавить строку (например, раз в 10 минут):
+
+Пример (раз в 10 минут):
 ```
-*/10 * * * * cd /opt/rise-and-shine && docker compose -f docker-compose.prod.yml pull -q && docker compose -f docker-compose.prod.yml up -d >> /var/log/rise-and-shine-deploy.log 2>&1
+*/10 * * * * cd /opt/rise-and-shine && docker compose pull -q && docker compose up -d >> /var/log/rise-and-shine-deploy.log 2>&1
 ```
-Сохранить и выйти.
 
 ---
 
 ## 7. Полезные команды на сервере
 
-| Действие              | Команда |
-|-----------------------|--------|
-| Логи бота             | `cd /opt/rise-and-shine && docker compose -f docker-compose.prod.yml logs -f bot` |
-| Остановить            | `cd /opt/rise-and-shine && docker compose -f docker-compose.prod.yml down` |
-| Запустить             | `cd /opt/rise-and-shine && docker compose -f docker-compose.prod.yml up -d` |
-| Перезапустить         | `cd /opt/rise-and-shine && docker compose -f docker-compose.prod.yml restart bot` |
-| Подтянуть образ и перезапустить | `cd /opt/rise-and-shine && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d` |
+| Действие | Команда |
+|----------|---------|
+| Логи бота | `cd /opt/rise-and-shine && docker compose logs -f bot` |
+| Остановить | `cd /opt/rise-and-shine && docker compose down` |
+| Запустить | `cd /opt/rise-and-shine && docker compose up -d` |
+| Перезапустить | `cd /opt/rise-and-shine && docker compose restart bot` |
+| Подтянуть образ и перезапустить | `cd /opt/rise-and-shine && docker compose pull && docker compose up -d` |
 
-Все команды выполнять **на сервере** после подключения по SSH.
+Все команды выполнять **на сервере** после SSH.

@@ -123,6 +123,14 @@ def _build_image_prompt(
     )
 
 
+def _ensure_no_text_clause(prompt: str) -> str:
+    p = prompt.strip()
+    low = p.lower()
+    if "no text" in low or "no words" in low or "without text" in low:
+        return p
+    return p.rstrip(" .") + ". No text, no words on the image."
+
+
 async def generate_image(
     style: str,
     sphere: str,
@@ -131,6 +139,8 @@ async def generate_image(
     custom_style_description: Optional[str] = None,
     output_dir: Optional[str] = None,
     file_basename: Optional[str] = None,
+    prompt_override: Optional[str] = None,
+    image_prompt_trace: Optional[str] = None,
 ) -> str:
     """
     Асинхронно вызывает OpenAI-совместимый image API через ProxiAPI и сохраняет PNG.
@@ -146,21 +156,25 @@ async def generate_image(
 
     color_mood = random.choice(_COLOR_MOODS)
     composition_hint = random.choice(_COMPOSITION_HINTS)
-    prompt = _build_image_prompt(
-        style=style,
-        sphere=sphere,
-        subsphere=subsphere,
-        user_text=user_text,
-        custom_style_description=custom_style_description,
-        color_mood=color_mood,
-        composition_hint=composition_hint,
-    )
+    if prompt_override:
+        prompt = _ensure_no_text_clause(prompt_override)
+    else:
+        prompt = _build_image_prompt(
+            style=style,
+            sphere=sphere,
+            subsphere=subsphere,
+            user_text=user_text,
+            custom_style_description=custom_style_description,
+            color_mood=color_mood,
+            composition_hint=composition_hint,
+        )
+    trace = image_prompt_trace or ("override" if prompt_override else "template")
 
     payload = {
-        "model": "gpt-image-1-mini",
+        "model": settings.image_model,
         "prompt": prompt,
         "n": 1,
-        "size": "1024x1024",
+        "size": settings.image_size,
         "response_format": "b64_json",
     }
 
@@ -171,8 +185,8 @@ async def generate_image(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # Генерация изображения может занимать 2–3 минуты, таймаут 4 мин
-    timeout = aiohttp.ClientTimeout(total=240)
+    timeout_sec = max(30, settings.image_api_timeout_seconds)
+    timeout = aiohttp.ClientTimeout(total=timeout_sec)
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, json=payload, timeout=timeout) as resp:
@@ -182,7 +196,7 @@ async def generate_image(
                     raise RuntimeError(f"Image generation failed with status {resp.status}")
                 data = await resp.json()
     except asyncio.TimeoutError as exc:
-        logger.warning("Image API timeout after 240s")
+        logger.warning("Image API timeout after %ss", timeout_sec)
         raise RuntimeError(
             "Генерация изображения заняла слишком много времени. Сервер перегружен — попробуй через минуту."
         ) from exc
@@ -212,13 +226,14 @@ async def generate_image(
 
     meta = {
         "prompt": prompt,
+        "prompt_source": trace,
         "style": style,
         "sphere": sphere,
         "subsphere": subsphere,
         "user_text": user_text,
         "custom_style_description": custom_style_description,
-        "model": "gpt-image-1-mini",
-        "size": "1024x1024",
+        "model": settings.image_model,
+        "size": settings.image_size,
     }
     meta_path = os.path.join(output_dir, f"{file_basename}_meta.json")
     with open(meta_path, "w", encoding="utf-8") as f:

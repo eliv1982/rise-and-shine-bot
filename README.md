@@ -71,6 +71,8 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+Локально имя образа по умолчанию — `rise-and-shine-bot:latest`. Для публикации в Docker Hub задай в `.env` переменную `DOCKERHUB_IMAGE=логин/rise-and-shine-bot:latest`, затем `docker compose build && docker compose push`.
+
 Логи: `docker compose logs -f bot`
 
 ## Переменные окружения
@@ -89,7 +91,7 @@ docker compose up -d --build
 ## Деплой на сервер
 
 - **[DEPLOY.md](DEPLOY.md)** — общий деплой (Docker, скрипты, cron).
-- **[DEPLOY_DOCKERHUB.md](DEPLOY_DOCKERHUB.md)** — деплой через образ на Docker Hub (сборка и `docker push` локально, на сервере — `docker compose -f docker-compose.prod.yml pull && up -d`).
+- **[DEPLOY_DOCKERHUB.md](DEPLOY_DOCKERHUB.md)** — деплой через образ на Docker Hub (один `docker-compose.yml`, на сервере в `.env` задаётся `DOCKERHUB_IMAGE`).
 
 Важно: с одним токеном бота должен работать только один экземпляр (локально или на сервере), иначе Telegram вернёт ошибку Conflict.
 
@@ -105,8 +107,7 @@ docker compose up -d --build
 ├── keyboards/          # Inline-клавиатуры
 ├── services/           # Yandex GPT, SpeechKit, генерация изображений
 ├── Dockerfile
-├── docker-compose.yml
-└── docker-compose.prod.yml   # Для запуска образа с Docker Hub
+└── docker-compose.yml        # локальная сборка и прод с Docker Hub (DOCKERHUB_IMAGE в .env)
 ```
 
 ## Лицензия
