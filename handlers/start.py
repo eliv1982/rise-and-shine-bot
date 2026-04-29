@@ -344,9 +344,15 @@ async def main_menu_voice_router(message: Message, state: FSMContext) -> None:
         return
 
     if language == "ru":
-        await message.answer("Могу помочь создать настрой дня, открыть подписки или профиль. Выбери действие ниже 👇", reply_markup=main_reply_keyboard(language))
+        await message.answer(
+            "Я распознала голос, но не уверена, что именно нужно сделать 🌿\nМожешь выбрать действие в меню ниже.",
+            reply_markup=main_reply_keyboard(language),
+        )
     else:
-        await message.answer("I can create your daily focus, open subscriptions, or show your profile. Choose an action below 👇", reply_markup=main_reply_keyboard(language))
+        await message.answer(
+            "I recognized your voice message, but I’m not sure what action you want 🌿\nPlease choose an option from the menu below.",
+            reply_markup=main_reply_keyboard(language),
+        )
 
 
 @router.message(Command("cancel"))

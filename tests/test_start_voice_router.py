@@ -79,7 +79,7 @@ def test_main_menu_voice_unknown_intent_returns_friendly_hint(monkeypatch):
     asyncio.run(start.main_menu_voice_router(msg, state))
 
     assert any("🎙️ Распознала:" in text for text, _ in msg.answers)
-    assert any("Могу помочь создать настрой дня" in text for text, _ in msg.answers)
+    assert any("Я распознала голос, но не уверена, что именно нужно сделать 🌿" in text for text, _ in msg.answers)
 
 
 def test_registration_name_voice_uses_recognized_name(monkeypatch):
