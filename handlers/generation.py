@@ -44,12 +44,11 @@ from services.ritual_config import (
     resolve_style,
     visual_mode_for_style,
 )
-from services.speechkit import transcribe_audio
-from services.speechkit_stt import get_stt_debug_info
+from services.speechkit_stt import transcribe_audio_with_meta
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
-from utils import gender_display
+from utils import display_name_for_language, gender_display
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -84,8 +83,8 @@ def _voice_recognized_echo_text(language: str, recognized_text: str) -> str:
     if len(clipped) > 140:
         clipped = clipped[:137] + "..."
     if language == "ru":
-        return f"🎙️ Распознала: \"{clipped}\""
-    return f"🎙️ I recognized: \"{clipped}\""
+        return f"🎙️ Распознано: \"{clipped}\""
+    return f"🎙️ Recognized: \"{clipped}\""
 
 
 def _build_image_debug_block(meta: dict, *, model: str, image_size: str) -> str:
@@ -188,12 +187,13 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
     local_path = os.path.join(dest_dir, f"voice_theme_{message.from_user.id}_{voice.file_unique_id}.ogg")
     await message.bot.download_file(file.file_path, destination=local_path)
     try:
-        recognized = await transcribe_audio(local_path, language=language)
+        stt_meta = await transcribe_audio_with_meta(local_path, language=language)
+        recognized = str(stt_meta.get("recognized_text_final") or "")
     except Exception as exc:
         logger.exception("STT failed (theme early): %s", exc)
         await message.answer(_voice_recognition_failed_text(language))
         return
-    await state.update_data(last_stt_meta=get_stt_debug_info(language), last_recognized_text=recognized)
+    await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
     await message.answer(_voice_recognized_echo_text(language, recognized))
     await state.update_data(theme_text=recognized, sphere="inner_peace", subsphere=None)
     await state.set_state(GenerationState.choosing_visual_mode)
@@ -329,12 +329,13 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
     local_path = os.path.join(dest_dir, f"voice_style_{message.from_user.id}_{voice.file_unique_id}.ogg")
     await message.bot.download_file(file.file_path, destination=local_path)
     try:
-        recognized = await transcribe_audio(local_path, language=language)
+        stt_meta = await transcribe_audio_with_meta(local_path, language=language)
+        recognized = str(stt_meta.get("recognized_text_final") or "")
     except Exception as exc:
         logger.exception("STT failed for custom style: %s", exc)
         await message.answer(_voice_recognition_failed_text(language))
         return
-    await state.update_data(last_stt_meta=get_stt_debug_info(language), last_recognized_text=recognized)
+    await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
     await message.answer(_voice_recognized_echo_text(language, recognized))
     await state.update_data(custom_style_description=recognized)
     data = await state.get_data()
@@ -416,8 +417,12 @@ async def _run_generation(
     gender_hint = gender_display(gender, language=language)
     today = dt.datetime.now().date()
     focus = get_focus_for_date(uid, sphere, today)
-    focus_text = focus["en"] if language == "en" else focus["ru"]
-    micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
+    if theme_text and theme_text.strip():
+        focus_text = theme_text.strip()
+        micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
+    else:
+        focus_text = focus["en"] if language == "en" else focus["ru"]
+        micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
     image_hint = focus.get("image_hint_en")
     resolved_style = resolve_style(
         style,
@@ -512,7 +517,7 @@ async def _run_generation(
         return
 
     text_lines = []
-    name = (user or {}).get("name")
+    name = display_name_for_language((user or {}).get("name"), language)
     if language == "ru":
         if name:
             text_lines.append(f"{name}, твой настрой на сегодня 🌿")
@@ -568,7 +573,13 @@ async def _run_generation(
             meta["stt_model"] = last_stt_meta.get("stt_model")
             meta["stt_language"] = last_stt_meta.get("recognized_language")
             meta["recognized_language"] = last_stt_meta.get("recognized_language")
-            meta["recognized_text"] = data.get("last_recognized_text")
+            meta["recognized_text_raw"] = last_stt_meta.get("recognized_text_raw")
+            meta["recognized_text_final"] = last_stt_meta.get("recognized_text_final") or data.get("last_recognized_text")
+            meta["stt_attempt_count"] = last_stt_meta.get("stt_attempt_count")
+            meta["stt_language_attempts"] = last_stt_meta.get("stt_language_attempts")
+            meta["theme_source"] = "custom_theme" if (theme_text and theme_text.strip()) else "sphere"
+            meta["preserved_user_theme"] = bool(theme_text and theme_text.strip())
+            meta["coastal_hint_detected"] = bool(has_coastal_intent(theme_text) or has_coastal_intent(custom_style_description))
             image_meta = meta
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(meta, f, ensure_ascii=False, indent=2)

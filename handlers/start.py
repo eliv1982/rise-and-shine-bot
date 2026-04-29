@@ -26,10 +26,9 @@ from keyboards.inline import (
 )
 from database import MAX_ACTIVE_SUBSCRIPTIONS
 from services.subscription_ui import build_subscription_summary, build_subscriptions_summary, gender_profile_label
-from services.speechkit import transcribe_audio
-from services.speechkit_stt import get_stt_debug_info
+from services.speechkit_stt import transcribe_audio_with_meta
 from states import RegistrationState
-from utils import extract_name_from_introduction
+from utils import display_name_for_language, extract_name_from_introduction
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -77,17 +76,37 @@ def _voice_recognized_echo_text(language: str, recognized_text: str) -> str:
     if len(clipped) > 140:
         clipped = clipped[:137] + "..."
     if language == "ru":
-        return f"🎙️ Распознала: \"{clipped}\""
-    return f"🎙️ I recognized: \"{clipped}\""
+        return f"🎙️ Распознано: \"{clipped}\""
+    return f"🎙️ Recognized: \"{clipped}\""
 
 
 def _voice_intent(recognized_text: str) -> str:
     low = recognized_text.lower()
-    if any(token in low for token in ("подпис", "subscription", "subscribe", "subs")):
+    if any(token in low for token in ("подпис", "subscription", "subscriptions", "subscribe", "manage subscriptions", "subs")):
         return "subscriptions"
     if any(token in low for token in ("профил", "profile", "account")):
         return "profile"
-    if any(token in low for token in ("созд", "new", "create", "ритуал", "настрой", "affirmation", "focus")):
+    if any(
+        token in low
+        for token in (
+            "созд",
+            "создай настрой",
+            "новый настрой",
+            "nastroi",
+            "nastroj",
+            "sozday",
+            "new",
+            "create",
+            "create new",
+            "create mood",
+            "create focus",
+            "new focus",
+            "ритуал",
+            "настрой",
+            "affirmation",
+            "focus",
+        )
+    ):
         return "create"
     return "unknown"
 
@@ -102,7 +121,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         await state.clear()
         lang = (user or {}).get("language", "ru")
         if lang == "en":
-            name = user.get("name") or "there"
+            name = display_name_for_language(user.get("name"), "en") or "there"
             text = (
                 f"Welcome back, {name} 🌿\n\n"
                 "Would you like to create a new daily focus or check your subscriptions?"
@@ -153,7 +172,8 @@ async def process_name_voice(message: Message, state: FSMContext) -> None:
     local_path = f"{dest_dir}/voice_name_{message.from_user.id}_{voice.file_unique_id}.ogg"
     try:
         await message.bot.download_file(file.file_path, destination=local_path)
-        recognized = await transcribe_audio(local_path, language="ru")
+        stt_meta = await transcribe_audio_with_meta(local_path, language="ru")
+        recognized = str(stt_meta.get("recognized_text_final") or "")
     except Exception:
         await message.answer(_voice_recognition_failed_text("ru"))
         return
@@ -237,6 +257,7 @@ async def cmd_language_callback(callback: CallbackQuery, state: FSMContext) -> N
         await callback.answer()
         return
     await update_user_language(callback.from_user.id, lang)
+    await state.clear()
     if lang == "ru":
         await callback.message.edit_text("Язык изменён на русский. Дальше буду общаться по-русски.")
         await callback.message.answer("🌿 Язык обновлён. Нижнее меню тоже переключилось на русский.", reply_markup=main_reply_keyboard("ru"))
@@ -254,7 +275,7 @@ async def cmd_profile(message: Message, state: FSMContext) -> None:
         return
 
     lang = (user or {}).get("language", "ru")
-    name = user.get("name") or "—"
+    name = display_name_for_language(user.get("name"), lang) or "—"
     gender_label = gender_profile_label(user.get("gender"), lang)
     subscriptions = await get_active_subscriptions(message.from_user.id)
     subscriptions_summary = build_subscriptions_summary(subscriptions, lang)
@@ -319,12 +340,12 @@ async def main_menu_voice_router(message: Message, state: FSMContext) -> None:
     local_path = f"{dest_dir}/voice_menu_{message.from_user.id}_{voice.file_unique_id}.ogg"
     try:
         await message.bot.download_file(file.file_path, destination=local_path)
-        recognized = await transcribe_audio(local_path, language=language)
+        stt_meta = await transcribe_audio_with_meta(local_path, language=language)
+        recognized = str(stt_meta.get("recognized_text_final") or "")
     except Exception:
         await message.answer(_voice_recognition_failed_text(language), reply_markup=main_reply_keyboard(language))
         return
 
-    stt_meta = get_stt_debug_info(language)
     await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
     await message.answer(_voice_recognized_echo_text(language, recognized), reply_markup=main_reply_keyboard(language))
 

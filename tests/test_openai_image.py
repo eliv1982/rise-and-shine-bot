@@ -286,6 +286,10 @@ def test_photo_auto_with_coastal_user_intent_prefers_coastal_constraints():
     assert "real coastal photograph" in prompt
     assert "visible shoreline" in prompt
     assert "avoid inland lakes" in prompt
+    assert "not a lake" in prompt or "avoid inland lakes" in prompt
+    assert "not a river" in prompt or "rivers" in prompt
+    assert "interior window" in prompt
+    assert "botanical still life" in prompt
 
 
 def test_generate_image_meta_contains_debug_fields(monkeypatch, tmp_path):

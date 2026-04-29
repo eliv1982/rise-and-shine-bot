@@ -52,3 +52,30 @@ def test_money_affirmation_prompt_discourages_cliches_and_magic_abundance():
     assert "изобилие приходит ко мне" in prompt
     assert "гарантий богатства" in prompt
     assert "порядок без тревоги" in prompt
+
+
+def test_prompt_preserves_theme_across_input_language():
+    prompt = _build_prompt(
+        sphere="inner_peace",
+        subsphere=None,
+        language="en",
+        user_text="Достоинство и вера в себя",
+        focus="dignity and self-trust",
+        micro_theme="one honest confident step",
+    )
+    assert "Language: English." in prompt
+    assert "Interpret user-provided theme in its original language" in prompt
+    assert "Preserve semantic closeness to user theme" in prompt
+
+
+def test_custom_theme_kept_as_primary_anchor():
+    prompt = _build_prompt(
+        sphere="inner_peace",
+        subsphere=None,
+        language="ru",
+        user_text="Достоинство и вера в себя",
+        focus="достоинство и вера в себя",
+        micro_theme="мягкий шаг",
+    )
+    assert "Достоинство и вера в себя" in prompt
+    assert "не подменяй её нерелевантными встроенными категориями" in prompt
