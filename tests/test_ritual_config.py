@@ -1,17 +1,23 @@
 import datetime as dt
 
 from services.ritual_config import (
+    ILLUSTRATION_STYLE_KEYS,
     MAIN_SPHERES,
     PHOTO_RECOMMENDED_STYLES,
+    PHOTO_SCENE_PRESETS,
+    PHOTO_SCENE_ROUTING,
     PHOTO_STYLE_KEYS,
     RECOMMENDED_STYLES,
+    STYLE_DESCRIPTIONS,
     VALID_VISUAL_MODES,
     get_focus_for_date,
     get_focuses,
     get_recommended_styles,
     get_weekly_balance_sphere,
+    has_coastal_intent,
     is_tts_available,
     normalize_visual_mode,
+    resolve_photo_scene_preset,
     resolve_style,
 )
 
@@ -62,6 +68,17 @@ def test_auto_photo_uses_only_photo_styles():
     style = resolve_style("auto", "money", user_id=42, day=day, visual_mode="photo")
     assert style in PHOTO_RECOMMENDED_STYLES["money"]
     assert style in PHOTO_STYLE_KEYS
+    assert style not in ILLUSTRATION_STYLE_KEYS
+
+
+def test_photo_auto_prefers_stable_interior_styles_for_money_and_career():
+    monday = dt.date.fromisocalendar(2030, 12, 1)
+    tuesday = dt.date.fromisocalendar(2030, 12, 2)
+    sunday = dt.date.fromisocalendar(2030, 12, 7)
+    assert resolve_style("auto", "money", user_id=42, day=monday, visual_mode="photo") == "light_interior_photo"
+    assert resolve_style("auto", "career", user_id=42, day=monday, visual_mode="photo") == "light_interior_photo"
+    assert resolve_style("auto", "money", user_id=42, day=tuesday, visual_mode="photo") == "calm_lifestyle_photo"
+    assert resolve_style("auto", "career", user_id=42, day=sunday, visual_mode="photo") == "sea_coast_photo"
 
 
 def test_auto_illustration_uses_illustration_styles():
@@ -78,6 +95,92 @@ def test_mixed_mode_selects_a_supported_branch():
     assert set(styles) <= (set(PHOTO_RECOMMENDED_STYLES["money"]) | set(RECOMMENDED_STYLES["money"]))
 
 
+def test_photo_style_keys_are_separate_photo_directions():
+    assert PHOTO_STYLE_KEYS == [
+        "sunny_photo_scene",
+        "living_nature_photo",
+        "sea_coast_photo",
+        "light_interior_photo",
+        "calm_lifestyle_photo",
+    ]
+    assert not (set(PHOTO_STYLE_KEYS) & set(ILLUSTRATION_STYLE_KEYS))
+
+
+def test_photo_style_descriptions_avoid_illustration_language():
+    banned = [
+        "illustration",
+        "painterly",
+        "watercolor",
+        "gouache",
+        "collage",
+        "artwork",
+        "artistic render",
+        "dreamy",
+        "ethereal",
+        "card",
+    ]
+    for style in PHOTO_STYLE_KEYS:
+        description = STYLE_DESCRIPTIONS[style].lower()
+        assert "photo" in description or "photography" in description
+        for word in banned:
+            assert word not in description
+
+
+def test_photo_scene_presets_are_concrete_and_photographic():
+    assert set(PHOTO_SCENE_PRESETS) >= {
+        "window_still_life",
+        "calm_workspace",
+        "botanical_corner",
+        "outdoor_path",
+        "restful_daily_scene",
+        "relationship_table_scene",
+        "ocean_sunrise",
+        "seaside_sunset",
+        "quiet_beach_morning",
+        "rocky_coast",
+        "dunes_and_seabirds",
+        "coastal_path",
+    }
+    for preset in PHOTO_SCENE_PRESETS.values():
+        low = preset.lower()
+        assert "photo" in low or "photography" in low
+        assert "real" in low or "realistic" in low
+
+
+def test_photo_scene_routing_prefers_workspace_for_money_and_career():
+    for sphere in ("money", "career"):
+        scenes = PHOTO_SCENE_ROUTING[sphere]
+        assert scenes[0] == "calm_workspace"
+        assert "outdoor_path" not in scenes
+
+
+def test_photo_scene_routing_relationships_uses_concrete_table_scene():
+    scenes = PHOTO_SCENE_ROUTING["relationships"]
+    assert scenes[0] == "relationship_table_scene"
+
+
+def test_resolve_photo_scene_uses_style_compatible_presets():
+    assert resolve_photo_scene_preset("money", "light_interior_photo") in {"window_still_life", "calm_workspace", "botanical_corner"}
+    assert resolve_photo_scene_preset("inner_peace", "living_nature_photo") in {"outdoor_path", "botanical_corner"}
+    assert resolve_photo_scene_preset("money", "sea_coast_photo") in {
+        "ocean_sunrise",
+        "seaside_sunset",
+        "quiet_beach_morning",
+        "rocky_coast",
+        "dunes_and_seabirds",
+        "coastal_path",
+    }
+
+
+def test_photo_auto_rotates_across_categories_where_applicable():
+    monday = dt.date.fromisocalendar(2030, 12, 1)
+    styles = {
+        resolve_style("auto", "inner_peace", user_id=42, day=monday + dt.timedelta(days=i), visual_mode="photo")
+        for i in range(7)
+    }
+    assert {"light_interior_photo", "sea_coast_photo", "living_nature_photo", "calm_lifestyle_photo"} <= styles
+
+
 def test_auto_style_rotates_across_week():
     monday = dt.date.fromisocalendar(2030, 12, 1)
     styles = {
@@ -91,3 +194,31 @@ def test_auto_style_rotates_across_week():
 def test_tts_availability_by_language():
     assert is_tts_available("ru") is True
     assert is_tts_available("en") is False
+
+
+def test_coastal_intent_keywords_detected():
+    assert has_coastal_intent("walk on the ocean coast at sunset")
+    assert has_coastal_intent("Хочу спокойное побережье моря")
+    assert not has_coastal_intent("quiet botanical still life by a window")
+
+
+def test_resolve_style_avoids_recent_photo_repetition():
+    day = dt.date.fromisocalendar(2030, 12, 1)
+    style = resolve_style(
+        "auto",
+        "inner_peace",
+        user_id=42,
+        day=day,
+        visual_mode="photo",
+        recent_styles=["light_interior_photo", "sea_coast_photo"],
+    )
+    assert style not in {"light_interior_photo", "sea_coast_photo"}
+
+
+def test_resolve_scene_avoids_recent_scene_repetition():
+    scene = resolve_photo_scene_preset(
+        "inner_peace",
+        "sea_coast_photo",
+        recent_scene_presets=["ocean_sunrise", "seaside_sunset", "quiet_beach_morning"],
+    )
+    assert scene in {"rocky_coast", "dunes_and_seabirds", "coastal_path"}

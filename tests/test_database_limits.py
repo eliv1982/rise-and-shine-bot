@@ -149,6 +149,40 @@ def test_deactivate_subscription_deactivates_only_selected(monkeypatch, tmp_path
     asyncio.run(run())
 
 
+def test_update_subscription_changes_only_selected_subscription(monkeypatch, tmp_path):
+    async def run():
+        monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "multi_update.db"))
+        await db.init_db()
+        await db.create_or_update_user(25, "u", name="Multi")
+        first_id = await db.create_subscription(25, "random", None, "auto", "ru", 8, 0)
+        second_id = await db.create_subscription(25, "money", None, "auto", "ru", 18, 0)
+        updated = await db.update_subscription(
+            subscription_id=second_id,
+            user_id=25,
+            sphere="money",
+            subsphere=None,
+            image_style="bright_photo_card",
+            language="en",
+            hour=19,
+            minute=30,
+            subscription_mode="sphere_focus",
+            subscription_sphere="money",
+            subscription_style_mode="bright_photo_card",
+            visual_mode="photo",
+        )
+        assert updated is True
+        first = await db.get_subscription_by_id(first_id, 25)
+        second = await db.get_subscription_by_id(second_id, 25)
+        assert first["hour"] == 8
+        assert first["image_style"] == "auto"
+        assert second["hour"] == 19
+        assert second["minute"] == 30
+        assert second["language"] == "en"
+        assert second["visual_mode"] == "photo"
+
+    asyncio.run(run())
+
+
 def test_due_subscriptions_returns_multiple_for_same_user(monkeypatch, tmp_path):
     async def run():
         monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "due.db"))

@@ -10,10 +10,17 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message, PhotoSize
 
-from config import get_outputs_dir, get_settings
+from config import (
+    get_image_provider_config,
+    get_outputs_dir,
+    get_settings,
+    get_text_provider_config,
+    get_tts_provider_config,
+)
 from database import can_start_interactive_generation, get_user, record_interactive_generation
 from keyboards.inline import (
     after_generation_keyboard,
+    main_reply_keyboard,
     relationships_subsphere_keyboard,
     sphere_keyboard,
     style_cancel_keyboard,
@@ -31,12 +38,14 @@ from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_ima
 from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
+    has_coastal_intent,
     is_tts_available,
     normalize_visual_mode,
     resolve_style,
     visual_mode_for_style,
 )
 from services.speechkit import transcribe_audio
+from services.speechkit_stt import get_stt_debug_info
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
@@ -62,6 +71,51 @@ def _style_choice_text(language: str) -> str:
 
 def _creating_text(language: str) -> str:
     return "🌿 Создаю твой настрой дня..." if language == "ru" else "🌿 Creating your daily focus..."
+
+
+def _voice_recognition_failed_text(language: str) -> str:
+    if language == "ru":
+        return "Не получилось распознать голос 😕\nПопробуй ещё раз или отправь текстом."
+    return "I couldn’t recognize the voice message 😕\nPlease try again or send it as text."
+
+
+def _voice_recognized_echo_text(language: str, recognized_text: str) -> str:
+    clipped = recognized_text.strip()
+    if len(clipped) > 140:
+        clipped = clipped[:137] + "..."
+    if language == "ru":
+        return f"🎙️ Распознала: \"{clipped}\""
+    return f"🎙️ I recognized: \"{clipped}\""
+
+
+def _build_image_debug_block(meta: dict, *, model: str, image_size: str) -> str:
+    lines = [
+        "DEBUG:",
+        f"visual_mode: {meta.get('visual_mode') or '—'}",
+        f"requested_style: {meta.get('requested_style') or '—'}",
+        f"selected_style: {meta.get('selected_style') or meta.get('resolved_style') or '—'}",
+        f"prompt_branch: {meta.get('prompt_branch') or '—'}",
+    ]
+    scene_preset = meta.get("scene_preset") or meta.get("photo_scene_preset")
+    if scene_preset:
+        lines.append(f"scene_preset: {scene_preset}")
+    lines.extend(
+        [
+            f"text_provider: {meta.get('text_provider') or '—'}",
+            f"image_provider: {meta.get('image_provider') or '—'}",
+            f"tts_provider: {meta.get('tts_provider') or '—'}",
+            f"text_model: {meta.get('text_model') or '—'}",
+            f"model: {meta.get('model') or model}",
+            f"tts_model: {meta.get('tts_model') or '—'}",
+            f"voice: {meta.get('voice') or '—'}",
+            f"stt_provider: {meta.get('stt_provider') or '—'}",
+            f"stt_model: {meta.get('stt_model') or '—'}",
+            f"stt_language: {meta.get('stt_language') or '—'}",
+            f"recognized_language: {meta.get('recognized_language') or '—'}",
+            f"image_size: {meta.get('image_size') or meta.get('size') or image_size}",
+        ]
+    )
+    return "\n".join(lines)
 
 
 @router.callback_query(F.data == "cmd:new")
@@ -137,10 +191,10 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
         recognized = await transcribe_audio(local_path, language=language)
     except Exception as exc:
         logger.exception("STT failed (theme early): %s", exc)
-        await message.answer(
-            "Не удалось распознать голос. Напиши текстом." if language == "ru" else "Could not recognize. Please type."
-        )
+        await message.answer(_voice_recognition_failed_text(language))
         return
+    await state.update_data(last_stt_meta=get_stt_debug_info(language), last_recognized_text=recognized)
+    await message.answer(_voice_recognized_echo_text(language, recognized))
     await state.update_data(theme_text=recognized, sphere="inner_peace", subsphere=None)
     await state.set_state(GenerationState.choosing_visual_mode)
     await message.answer(
@@ -245,9 +299,7 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     style = callback.data.split(":", maxsplit=1)[1]
     await state.update_data(style=style, custom_style_description=None)
     data = await state.get_data()
-    await callback.message.edit_text(
-        _creating_text(language)
-    )
+    await callback.message.edit_text(_creating_text(language))
     await callback.answer()
     await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
 
@@ -280,13 +332,13 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
         recognized = await transcribe_audio(local_path, language=language)
     except Exception as exc:
         logger.exception("STT failed for custom style: %s", exc)
-        await message.answer(
-            "Не удалось распознать голос. Напиши текстом." if language == "ru" else "Could not recognize. Please type."
-        )
+        await message.answer(_voice_recognition_failed_text(language))
         return
+    await state.update_data(last_stt_meta=get_stt_debug_info(language), last_recognized_text=recognized)
+    await message.answer(_voice_recognized_echo_text(language, recognized))
     await state.update_data(custom_style_description=recognized)
     data = await state.get_data()
-    await message.answer(_creating_text(language))
+    await message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
     await _run_generation(message, state, theme_text=data.get("theme_text"))
 
 
@@ -300,7 +352,7 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(custom_style_description=text)
     data = await state.get_data()
-    await message.answer(_creating_text(language))
+    await message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
     await _run_generation(message, state, theme_text=data.get("theme_text"))
 
 
@@ -324,12 +376,19 @@ async def _run_generation(
     gender = (user or {}).get("gender")
     data = await state.get_data()
     settings = get_settings()
+    text_provider = get_text_provider_config()
+    image_provider = get_image_provider_config()
+    tts_provider = get_tts_provider_config()
 
     sphere = data.get("sphere")
     subsphere = data.get("subsphere")
     style = data.get("style") or "nature"
     visual_mode = normalize_visual_mode(data.get("visual_mode"))
     custom_style_description = data.get("custom_style_description")
+    last_stt_meta = data.get("last_stt_meta") or {}
+    history = list(data.get("recent_generation_history") or [])
+    recent_styles = [item.get("selected_style") for item in history[-3:] if item.get("selected_style")]
+    recent_scenes = [item.get("scene_preset") for item in history[-2:] if item.get("scene_preset")]
 
     if not sphere:
         await message.answer("Что-то пошло не так, попробуй начать заново с /new.")
@@ -360,7 +419,17 @@ async def _run_generation(
     focus_text = focus["en"] if language == "en" else focus["ru"]
     micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
     image_hint = focus.get("image_hint_en")
-    resolved_style = resolve_style(style, sphere, user_id=uid, day=today, focus_key=focus["key"], visual_mode=visual_mode)
+    resolved_style = resolve_style(
+        style,
+        sphere,
+        user_id=uid,
+        day=today,
+        focus_key=focus["key"],
+        visual_mode=visual_mode,
+        recent_styles=recent_styles,
+    )
+    if normalize_visual_mode(visual_mode) == "photo" and style == "auto" and has_coastal_intent(theme_text):
+        resolved_style = "sea_coast_photo"
     effective_visual_mode = visual_mode_for_style(visual_mode, resolved_style)
 
     try:
@@ -422,6 +491,7 @@ async def _run_generation(
             focus_key=focus["key"],
             color_mood=color_mood,
             composition_hint=composition_hint,
+            recent_scene_presets=recent_scenes,
         )
     except Exception as exc:
         logger.exception("Image generation failed: %s", exc)
@@ -470,6 +540,7 @@ async def _run_generation(
     caption = "\n\n".join(text_lines)
 
     meta_path = image_path.replace(".png", "_meta.json")
+    image_meta = {}
     if os.path.isfile(meta_path):
         try:
             with open(meta_path, "r", encoding="utf-8") as f:
@@ -486,10 +557,26 @@ async def _run_generation(
             meta["focus_key"] = focus["key"]
             meta["color_palette"] = color_mood
             meta["composition_hint"] = composition_hint
+            meta["text_provider"] = text_provider.provider
+            meta["image_provider"] = image_provider.provider
+            meta["tts_provider"] = tts_provider.provider
+            meta["text_model"] = text_provider.model
+            meta["image_model"] = image_provider.model
+            meta["tts_model"] = tts_provider.model
+            meta["voice"] = tts_provider.voice or None
+            meta["stt_provider"] = last_stt_meta.get("stt_provider")
+            meta["stt_model"] = last_stt_meta.get("stt_model")
+            meta["stt_language"] = last_stt_meta.get("recognized_language")
+            meta["recognized_language"] = last_stt_meta.get("recognized_language")
+            meta["recognized_text"] = data.get("last_recognized_text")
+            image_meta = meta
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(meta, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.warning("Could not update meta file %s: %s", meta_path, e)
+
+    if settings.show_image_debug:
+        caption = f"{caption}\n\n{_build_image_debug_block(image_meta, model=settings.image_model, image_size=settings.image_size)}"
 
     photo = FSInputFile(image_path)
     await message.answer_photo(photo=photo, caption=caption, reply_markup=after_generation_keyboard(language))
@@ -511,6 +598,13 @@ async def _run_generation(
             "focus_key": focus["key"],
         }
     )
+    history.append(
+        {
+            "selected_style": resolved_style,
+            "scene_preset": image_meta.get("scene_preset") or image_meta.get("photo_scene_preset"),
+        }
+    )
+    await state.update_data(recent_generation_history=history[-5:])
     await state.set_state(GenerationState.after_result)
 
 
@@ -538,9 +632,8 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         visual_mode=last.get("visual_mode") or "illustration",
         custom_style_description=last.get("custom_style_description"),
     )
-    await callback.message.answer(
-        _creating_text((await get_user(callback.from_user.id) or {}).get("language", "ru"))
-    )
+    again_language = (await get_user(callback.from_user.id) or {}).get("language", "ru")
+    await callback.message.answer(_creating_text(again_language), reply_markup=main_reply_keyboard(again_language))
     await _run_generation(callback.message, state, theme_text=last.get("theme_text"), user_telegram_id=callback.from_user.id)
 
 

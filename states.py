@@ -26,4 +26,5 @@ class SubscriptionState(StatesGroup):
     choosing_hour = State()
     choosing_minute = State()
     confirming = State()
+    choosing_edit_action = State()
 

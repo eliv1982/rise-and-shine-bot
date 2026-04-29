@@ -25,9 +25,13 @@ from keyboards.inline import (
     subscription_dashboard_keyboard,
     subscription_delete_confirm_keyboard,
     subscription_edit_keyboard,
+    subscription_edit_done_keyboard,
+    subscription_language_edit_keyboard,
+    subscription_mode_sphere_info_keyboard,
     subscription_mode_keyboard,
     subscription_saved_keyboard,
     subscription_select_keyboard,
+    subscription_visual_style_followup_keyboard,
     subscription_confirm_keyboard,
     subscription_time_keyboard_hours,
     subscription_time_keyboard_minutes,
@@ -137,6 +141,65 @@ async def _start_subscription_setup(
     await callback.answer()
 
 
+def _subscription_update_kwargs(subscription: dict, **overrides) -> dict:
+    data = {
+        "sphere": subscription.get("sphere") or "random",
+        "subsphere": subscription.get("subsphere"),
+        "image_style": subscription.get("image_style") or "auto",
+        "language": subscription.get("language") or "ru",
+        "hour": int(subscription.get("hour", 0)),
+        "minute": int(subscription.get("minute", 0)),
+        "subscription_mode": subscription.get("subscription_mode")
+        or ("weekly_balance" if subscription.get("sphere") == "random" else "sphere_focus"),
+        "subscription_sphere": subscription.get("subscription_sphere"),
+        "subscription_style_mode": subscription.get("subscription_style_mode") or subscription.get("image_style") or "auto",
+        "visual_mode": normalize_visual_mode(subscription.get("visual_mode")),
+    }
+    data.update(overrides)
+    return data
+
+
+async def _update_subscription_fields(user_id: int, subscription_id: int, **overrides) -> Optional[dict]:
+    subscription = await get_subscription_by_id(subscription_id, user_id)
+    if not subscription:
+        return None
+    values = _subscription_update_kwargs(subscription, **overrides)
+    await update_subscription(
+        subscription_id=subscription_id,
+        user_id=user_id,
+        **values,
+    )
+    return await get_subscription_by_id(subscription_id, user_id)
+
+
+async def _send_edit_confirmation(
+    message: Message,
+    user_id: int,
+    subscription_id: int,
+    language: str,
+    *,
+    kind: str,
+) -> None:
+    subscription = await get_subscription_by_id(subscription_id, user_id)
+    if not subscription:
+        await message.answer("Подписка не найдена." if language == "ru" else "Subscription not found.")
+        return
+    labels = {
+        "time": ("Готово ⏰\n\nВремя подписки обновлено:", "Done ⏰\n\nSubscription time updated:"),
+        "language": ("Готово 🌍\n\nЯзык подписки обновлён:", "Done 🌍\n\nSubscription language updated:"),
+        "visual": ("Готово 🎨\n\nВизуальный режим обновлён:", "Done 🎨\n\nVisual mode updated:"),
+        "style": ("Готово ✨\n\nСтиль обновлён:", "Done ✨\n\nStyle updated:"),
+        "sphere": ("Готово 🧭\n\nСфера обновлена:", "Done 🧭\n\nArea updated:"),
+        "mode": ("Готово 🌿\n\nРежим подписки обновлён:", "Done 🌿\n\nSubscription mode updated:"),
+    }
+    title_ru, title_en = labels.get(kind, labels["style"])
+    text = title_ru if language == "ru" else title_en
+    await message.answer(
+        f"{text}\n{build_subscription_summary(subscription, language)}",
+        reply_markup=subscription_edit_done_keyboard(language, subscription_id),
+    )
+
+
 @router.message(Command("subscribe"))
 async def cmd_subscribe(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
@@ -155,7 +218,7 @@ async def sub_cancel_dashboard(callback: CallbackQuery, state: FSMContext) -> No
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     await state.clear()
-    await callback.message.edit_text("Готово." if language == "ru" else "Done.")
+    await callback.message.edit_text("✅ Меню подписок закрыто." if language == "ru" else "✅ Subscriptions menu closed.")
     await callback.answer()
 
 
@@ -196,6 +259,33 @@ async def sub_choose_mode(callback: CallbackQuery, state: FSMContext) -> None:
     language = _sub_language(data, user)
     mode = callback.data.split(":", maxsplit=1)[1]
     if mode not in ("weekly_balance", "sphere_focus"):
+        await callback.answer()
+        return
+    if data.get("partial_edit_field") == "mode":
+        subscription_id = int(data["edit_subscription_id"])
+        if mode == "weekly_balance":
+            updated = await _update_subscription_fields(
+                callback.from_user.id,
+                subscription_id,
+                sphere="random",
+                subsphere=None,
+                subscription_mode="weekly_balance",
+                subscription_sphere=None,
+            )
+            await state.clear()
+            if not updated:
+                await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
+            else:
+                await callback.message.edit_text("✅ Изменение сохранено." if language == "ru" else "✅ Change saved.")
+                await _send_edit_confirmation(callback.message, callback.from_user.id, subscription_id, language, kind="mode")
+            await callback.answer()
+            return
+        await state.update_data(partial_edit_field="mode_sphere", subscription_mode="sphere_focus")
+        await state.set_state(SubscriptionState.choosing_sphere)
+        await callback.message.edit_text(
+            "🧭 Выбери сферу для подписки:" if language == "ru" else "🧭 Choose an area for this subscription:",
+            reply_markup=sphere_keyboard_for_subscription(language),
+        )
         await callback.answer()
         return
     await state.update_data(subscription_mode=mode)
@@ -241,6 +331,25 @@ async def sub_choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     language = _sub_language(data, user)
     sphere = callback.data.split(":", maxsplit=1)[1]
+    if data.get("partial_edit_field") in ("sphere", "mode_sphere"):
+        subscription_id = int(data["edit_subscription_id"])
+        updated = await _update_subscription_fields(
+            callback.from_user.id,
+            subscription_id,
+            sphere=sphere,
+            subsphere=None,
+            subscription_mode="sphere_focus",
+            subscription_sphere=sphere,
+        )
+        await state.clear()
+        if not updated:
+            await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
+        else:
+            await callback.message.edit_text("✅ Изменение сохранено." if language == "ru" else "✅ Change saved.")
+            kind = "mode" if data.get("partial_edit_field") == "mode_sphere" else "sphere"
+            await _send_edit_confirmation(callback.message, callback.from_user.id, subscription_id, language, kind=kind)
+        await callback.answer()
+        return
     await state.update_data(sphere=sphere, subsphere=None)
     await state.set_state(SubscriptionState.choosing_visual_mode)
     await callback.message.edit_text(
@@ -271,6 +380,31 @@ async def sub_choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> 
     data = await state.get_data()
     language = _sub_language(data, user)
     visual_mode = normalize_visual_mode(callback.data.split(":", maxsplit=1)[1])
+    if data.get("partial_edit_field") == "visual":
+        subscription_id = int(data["edit_subscription_id"])
+        updated = await _update_subscription_fields(
+            callback.from_user.id,
+            subscription_id,
+            image_style="auto",
+            subscription_style_mode="auto",
+            visual_mode=visual_mode,
+        )
+        await state.update_data(visual_mode=visual_mode)
+        if not updated:
+            await state.clear()
+            await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
+        else:
+            text = (
+                "Визуальный режим обновлён. Хочешь также сменить стиль под новый визуальный режим?"
+                if language == "ru"
+                else "Visual mode updated. Would you also like to choose a style for the new visual mode?"
+            )
+            await callback.message.edit_text(
+                text,
+                reply_markup=subscription_visual_style_followup_keyboard(language, subscription_id),
+            )
+        await callback.answer()
+        return
     await state.update_data(visual_mode=visual_mode)
     await state.set_state(SubscriptionState.choosing_style)
     await callback.message.edit_text(
@@ -286,6 +420,22 @@ async def sub_choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     language = _sub_language(data, user)
     style = callback.data.split(":", maxsplit=1)[1]
+    if data.get("partial_edit_field") == "style":
+        subscription_id = int(data["edit_subscription_id"])
+        updated = await _update_subscription_fields(
+            callback.from_user.id,
+            subscription_id,
+            image_style=style,
+            subscription_style_mode=style,
+        )
+        await state.clear()
+        if not updated:
+            await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
+        else:
+            await callback.message.edit_text("✅ Изменение сохранено." if language == "ru" else "✅ Change saved.")
+            await _send_edit_confirmation(callback.message, callback.from_user.id, subscription_id, language, kind="style")
+        await callback.answer()
+        return
     await state.update_data(style=style)
     await state.set_state(SubscriptionState.choosing_hour)
     await callback.message.edit_text(
@@ -301,6 +451,15 @@ async def sub_choose_hour(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     language = _sub_language(data, user)
     hour = int(callback.data.split(":", maxsplit=1)[1])
+    if data.get("partial_edit_field") == "time":
+        await state.update_data(hour=hour)
+        await state.set_state(SubscriptionState.choosing_minute)
+        await callback.message.edit_text(
+            "⏰ Выбери минуты:" if language == "ru" else "⏰ Choose minutes:",
+            reply_markup=subscription_time_keyboard_minutes(language),
+        )
+        await callback.answer()
+        return
     await state.update_data(hour=hour)
     await state.set_state(SubscriptionState.choosing_minute)
     await callback.message.edit_text(
@@ -316,6 +475,22 @@ async def sub_choose_minute(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     language = _sub_language(data, user)
     minute = int(callback.data.split(":", maxsplit=1)[1])
+    if data.get("partial_edit_field") == "time":
+        subscription_id = int(data["edit_subscription_id"])
+        updated = await _update_subscription_fields(
+            callback.from_user.id,
+            subscription_id,
+            hour=int(data["hour"]),
+            minute=minute,
+        )
+        await state.clear()
+        if not updated:
+            await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
+        else:
+            await callback.message.edit_text("✅ Изменение сохранено." if language == "ru" else "✅ Change saved.")
+            await _send_edit_confirmation(callback.message, callback.from_user.id, subscription_id, language, kind="time")
+        await callback.answer()
+        return
     await state.update_data(minute=minute)
     await state.set_state(SubscriptionState.confirming)
     data = await state.get_data()
@@ -463,7 +638,7 @@ async def sub_edit_callback(callback: CallbackQuery, state: FSMContext) -> None:
     if len(subscriptions) == 1:
         subscription_id = int(subscriptions[0]["id"])
         await callback.message.answer(
-            "✏️ Что изменить?" if language == "ru" else "✏️ What would you like to change?",
+            "✏️ Что изменить в подписке?" if language == "ru" else "✏️ What would you like to change in this subscription?",
             reply_markup=subscription_edit_keyboard(language, subscription_id),
         )
         return
@@ -485,22 +660,114 @@ async def sub_edit_selected(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer("Подписка не найдена." if language == "ru" else "Subscription not found.")
         return
     await callback.message.answer(
-        "✏️ Что изменить?" if language == "ru" else "✏️ What would you like to change?",
+        "✏️ Что изменить в подписке?" if language == "ru" else "✏️ What would you like to change in this subscription?",
         reply_markup=subscription_edit_keyboard(language, subscription_id),
     )
 
 
-@router.callback_query(F.data.startswith("subreconf:"))
-async def sub_reconfigure_selected(callback: CallbackQuery, state: FSMContext) -> None:
-    subscription_id = int(callback.data.split(":", maxsplit=1)[1])
+@router.callback_query(F.data.startswith("subfield:"))
+async def sub_edit_field(callback: CallbackQuery, state: FSMContext) -> None:
+    _, subscription_id_raw, field = callback.data.split(":", maxsplit=2)
+    subscription_id = int(subscription_id_raw)
     subscription = await get_subscription_by_id(subscription_id, callback.from_user.id)
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
     if not subscription:
-        user = await get_user(callback.from_user.id)
-        language = (user or {}).get("language", "ru")
         await callback.message.answer("Подписка не найдена." if language == "ru" else "Subscription not found.")
         await callback.answer()
         return
-    await _start_subscription_setup(callback, state, action="edit", subscription_id=subscription_id)
+    await state.clear()
+    await state.update_data(edit_subscription_id=subscription_id, partial_edit_field=field)
+    if field == "time":
+        await state.set_state(SubscriptionState.choosing_hour)
+        await callback.message.answer(
+            "⏰ Выбери новый час:" if language == "ru" else "⏰ Choose a new hour:",
+            reply_markup=subscription_time_keyboard_hours(language),
+        )
+    elif field == "language":
+        await callback.message.answer(
+            "🌍 Выбери язык подписки:" if language == "ru" else "🌍 Choose subscription language:",
+            reply_markup=subscription_language_edit_keyboard(language, subscription_id),
+        )
+    elif field == "visual":
+        await state.set_state(SubscriptionState.choosing_visual_mode)
+        await callback.message.answer(
+            _visual_mode_text(language),
+            reply_markup=visual_mode_keyboard(language, for_subscription=True),
+        )
+    elif field == "style":
+        visual_mode = normalize_visual_mode(subscription.get("visual_mode"))
+        await state.update_data(visual_mode=visual_mode)
+        await state.set_state(SubscriptionState.choosing_style)
+        await callback.message.answer(
+            _style_choice_text(language),
+            reply_markup=style_keyboard_for_subscription(language, visual_mode=visual_mode),
+        )
+    elif field == "mode":
+        await state.set_state(SubscriptionState.choosing_mode)
+        text = (
+            "🌿 Выбери режим подписки:" if language == "ru" else "🌿 Choose subscription mode:"
+        )
+        await callback.message.answer(text, reply_markup=subscription_mode_keyboard(language))
+    elif field == "sphere":
+        mode = subscription.get("subscription_mode") or ("weekly_balance" if subscription.get("sphere") == "random" else "sphere_focus")
+        if mode == "weekly_balance":
+            await state.clear()
+            await callback.message.answer(
+                "У этой подписки режим «Баланс недели», поэтому отдельная сфера не выбирается."
+                if language == "ru"
+                else "This subscription uses Weekly balance, so a single area is not selected.",
+                reply_markup=subscription_mode_sphere_info_keyboard(language, subscription_id),
+            )
+        else:
+            await state.set_state(SubscriptionState.choosing_sphere)
+            await callback.message.answer(
+                "🧭 Выбери новую сферу:" if language == "ru" else "🧭 Choose a new area:",
+                reply_markup=sphere_keyboard_for_subscription(language),
+            )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sublangedit:"))
+async def sub_edit_language_selected(callback: CallbackQuery, state: FSMContext) -> None:
+    _, subscription_id_raw, language = callback.data.split(":", maxsplit=2)
+    subscription_id = int(subscription_id_raw)
+    updated = await _update_subscription_fields(callback.from_user.id, subscription_id, language=language)
+    await state.clear()
+    if not updated:
+        await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
+    else:
+        await callback.message.edit_text("✅ Изменение сохранено." if language == "ru" else "✅ Change saved.")
+        await _send_edit_confirmation(callback.message, callback.from_user.id, subscription_id, language, kind="language")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("substylepick:"))
+async def sub_visual_style_followup(callback: CallbackQuery, state: FSMContext) -> None:
+    _, subscription_id_raw, choice = callback.data.split(":", maxsplit=2)
+    subscription_id = int(subscription_id_raw)
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    subscription = await get_subscription_by_id(subscription_id, callback.from_user.id)
+    if not subscription:
+        await state.clear()
+        await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
+        await callback.answer()
+        return
+    visual_mode = normalize_visual_mode(subscription.get("visual_mode"))
+    if choice == "yes":
+        await state.clear()
+        await state.update_data(edit_subscription_id=subscription_id, partial_edit_field="style", visual_mode=visual_mode)
+        await state.set_state(SubscriptionState.choosing_style)
+        await callback.message.edit_text(
+            _style_choice_text(language),
+            reply_markup=style_keyboard_for_subscription(language, visual_mode=visual_mode),
+        )
+    else:
+        await state.clear()
+        await callback.message.edit_text("✅ Изменение сохранено." if language == "ru" else "✅ Change saved.")
+        await _send_edit_confirmation(callback.message, callback.from_user.id, subscription_id, language, kind="visual")
+    await callback.answer()
 
 
 @router.callback_query(F.data == "sub:delete")

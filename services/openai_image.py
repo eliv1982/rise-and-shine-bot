@@ -9,8 +9,17 @@ from typing import Optional
 
 import aiohttp
 
-from config import get_outputs_dir, get_settings
-from services.ritual_config import STYLE_DESCRIPTIONS, normalize_visual_mode, resolve_style, visual_mode_for_style
+from config import get_image_provider_config, get_outputs_dir
+from services.ritual_config import (
+    PHOTO_SCENE_PRESETS,
+    STYLE_DESCRIPTIONS,
+    has_coastal_intent,
+    normalize_style_key,
+    normalize_visual_mode,
+    resolve_photo_scene_preset,
+    resolve_style,
+    visual_mode_for_style,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +85,56 @@ def _build_default_image_theme(sphere: str, subsphere: Optional[str]) -> str:
     if sphere_key == "health":
         return "fresh greenery, sunlight through leaves, water, air, morning freshness, soft movement in nature, bright restorative mood"
     if sphere_key == "money":
-        return "calm abundance through light and order, warm sunlight, organized peaceful setting, natural prosperity metaphors, no dark room and no literal finance symbols"
+        return (
+            "calm order, morning light, clarity, dignity, enoughness and stability; "
+            "bright organized desk without financial props, sunlight on a clean table, notebook without readable text, "
+            "ceramic cup, plant, open window, calm interior and peaceful natural light"
+        )
     if sphere_key == "spirituality":
         return "a grounded luminous scene with candles, soft geometry, quiet ritual and subtle light, without exaggerated mysticism"
     return "an atmospheric, elegant scene suggesting inner balance, dignity and quiet hope through poetic visual metaphor"
+
+
+def _build_photo_image_theme(sphere: str, subsphere: Optional[str]) -> str:
+    """
+    Photo mode converts abstract themes into concrete scenes that can plausibly be photographed.
+    """
+    sphere_key = sphere.lower()
+    subsphere_key = (subsphere or "").lower()
+
+    if sphere_key == "career":
+        return "realistic editorial photo of a bright workspace, open window, real desk, notebook without readable text, cup, plant, morning daylight, clean perspective and calm professional order"
+    if sphere_key == "self_worth":
+        return "real-life photo of a sunlit room corner, real flowers or botanical branch, linen, ceramic cup, window light, quiet dignity and enough space around the subject"
+    if sphere_key == "self_realization":
+        return "realistic lifestyle photo of a creative desk or studio corner, sketchbook without readable text, pencils, paper, natural daylight, window, plants, signs of active creative work"
+    if sphere_key == "inner_peace":
+        return "realistic nature photo of a riverside, quiet lake edge, morning park path, meadow or room corner with window light, clear real-world subject and natural daylight"
+    if sphere_key == "relationships":
+        if subsphere_key == "partner":
+            return "realistic interior photo of a shared tea table with two cups, two chairs, warm window light, real ceramics and linen, respectful closeness without greeting-card romance"
+        if subsphere_key == "colleagues":
+            return "realistic editorial photo of a calm shared workspace, two notebooks without readable text, cups, plants, natural daylight, clean surfaces and collaborative atmosphere"
+        if subsphere_key == "friends":
+            return "realistic lifestyle photo of a cozy table with cups, linen, fruit or flowers, soft daylight, real materials and friendly presence without drawn symbols"
+        return "realistic interior photo of two cups on a bright table, real chairs, window light, plants and warm domestic atmosphere"
+    if sphere_key == "health":
+        return "realistic nature or lifestyle photo with fresh greenery, glass of water, linen, sunlight through leaves, morning air, real botanical corner or park path"
+    if sphere_key == "money":
+        return (
+            "realistic interior still life photo of calm order and stability, bright organized desk without financial props, "
+            "sunlight on a clean table, notebook without readable text, ceramic cup, plant, open window, real wood, linen and glass"
+        )
+    if sphere_key == "spirituality":
+        return "realistic still life photo of a quiet grounded ritual corner, candle, ceramic bowl, linen, plant, natural window light, physically real objects and believable shadows"
+    return "realistic lifestyle photo of a real table, window light, plant, ceramic cup, linen and calm everyday scene with a clear photographed subject"
 
 
 def _style_to_phrase(style: str) -> str:
     """
     Преобразует выбранный стиль в фразу для промпта.
     """
-    style = style.lower()
+    style = normalize_style_key(style.lower())
     mapping = {
         "realistic": "realistic style, detailed, soft natural light",
         "cartoon": "soft cartoon style, friendly lines, gentle colors",
@@ -95,10 +143,11 @@ def _style_to_phrase(style: str) -> str:
         "nature": "lush nature scene, trees, sky, soft sun rays",
         "cosmos": "cosmic scene with stars, galaxies, soft glowing nebulae",
         "abstract": "abstract art, flowing shapes, harmonious colors",
-        "bright_photo_card": STYLE_DESCRIPTIONS["bright_photo_card"],
-        "sunny_nature_photo": STYLE_DESCRIPTIONS["sunny_nature_photo"],
+        "sunny_photo_scene": STYLE_DESCRIPTIONS["sunny_photo_scene"],
+        "living_nature_photo": STYLE_DESCRIPTIONS["living_nature_photo"],
+        "sea_coast_photo": STYLE_DESCRIPTIONS["sea_coast_photo"],
         "light_interior_photo": STYLE_DESCRIPTIONS["light_interior_photo"],
-        "cinematic_real_photo": STYLE_DESCRIPTIONS["cinematic_real_photo"],
+        "calm_lifestyle_photo": STYLE_DESCRIPTIONS["calm_lifestyle_photo"],
         "bright_nature_card": STYLE_DESCRIPTIONS["bright_nature_card"],
         "quiet_interior": STYLE_DESCRIPTIONS["quiet_interior"],
         "textured_collage": STYLE_DESCRIPTIONS["textured_collage"],
@@ -117,14 +166,7 @@ def _style_to_phrase(style: str) -> str:
 
 def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration") -> str:
     if visual_mode == "photo":
-        base = (
-            "Avoid: no text, no letters, no numbers, no typography, no logos, no watermarks, "
-            "no charts, no arrows, no currency symbols, no coins, no piggy banks, "
-            "no illustration, no painting, no drawing, no watercolor, no gouache, no painterly brushwork, "
-            "no digital art, no fantasy art, no 3D render, no CGI, no cartoon, no vector art, no flat art, "
-            "no poster, no greeting card illustration, no artificial painterly texture, no corporate illustration, "
-            "no gloomy mood, no underexposed image, no low-contrast scene, no cheap stock-business vibe."
-        )
+        base = _build_photo_negative_prompt()
     else:
         base = (
             "Avoid: stock photo vibe, corporate illustration vibe, clipart icons, infographic elements, "
@@ -141,8 +183,12 @@ def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration"
     if sphere_key == "money":
         return (
             base
-            + " For money, do not use dollar signs, coins, stacks of money, charts, arrows or piggy banks; "
-            "use bright order, warm sunlight, organized peaceful setting, natural prosperity metaphors and calm enoughness."
+            + " For money and stability, do not show money literally. Do not include coins, stacks of coins, money, "
+            "banknotes, cash, wallets, piggy banks, dollar signs, euro signs, currency symbols, charts, arrows, "
+            "financial icons, payment cards, calculators as the main symbol, or business success props. "
+            "Use visual metaphors of calm order, morning light, clarity, dignity, enoughness and stability instead. "
+            "Prefer a bright organized desk without financial props, sunlight on a clean table, notebook without readable text, "
+            "ceramic cup, plant, open window, calm interior, natural light and a peaceful sense of order and stability."
         )
     if sphere_key == "career":
         return (
@@ -166,6 +212,78 @@ def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration"
     return base
 
 
+def _build_photo_negative_prompt() -> str:
+    return (
+        "Photo negative prompt: no text, no letters, no numbers, no typography, no logos, no watermarks, "
+        "no charts, no arrows, no currency symbols, no coins, no piggy banks, "
+        "no illustration, no painting, no watercolor, no gouache, no oil painting, no canvas texture, "
+        "no painterly, no brush strokes, no brushstrokes, no drawn image, no digital art, no digital painting, no digital illustration, "
+        "no stylized artwork, no pastel illustration, no poster art, no poster look, no poster-like image, no poster illustration, "
+        "no greeting card art, no greeting card illustration, no greeting-card illustration, no decorative illustration, no storybook look, "
+        "no dreamy painterly haze, no dreamy painted haze, no soft painterly haze, no soft painterly look, no overly soft art look, "
+        "no flat vector, no fantasy art, no 3D render, no CGI, no cartoon, no vector art, no flat art, "
+        "no overly smooth AI art look, not an art print, not a drawn scene, not stylized artwork, not a painting-like scene, "
+        "no gloomy mood, no underexposed image, no low-contrast scene, no cheap stock-business vibe."
+    )
+
+
+def _build_photo_prompt(
+    *,
+    base_theme: str,
+    photo_scene: str,
+    extra: str,
+    style_phrase: str,
+    color_part: str,
+    comp_part: str,
+    avoid_clause: str,
+    coastal_clause: str = "",
+) -> str:
+    return (
+        f"{base_theme}.{extra} "
+        f"{photo_scene} "
+        "PHOTO BRANCH ONLY. Create a genuine realistic photo, not artwork. "
+        "The final image must read immediately as a real photograph and a real photographic scene. "
+        "Use realistic photography, lifestyle or editorial photo aesthetic, camera-like realism, "
+        "natural daylight or believable indoor daylight, physically plausible lighting, realistic lens optics, "
+        "believable depth of field, authentic photographic detail, realistic textures and materials, "
+        "realistic composition, subtle imperfections of real photography, clean but real composition, "
+        "candid but composed framing, and serene but real atmosphere. "
+        "Translate abstract emotions into concrete real-world scenes: room corner with natural light, "
+        "table still life that looks photographed, realistic desk with notebook and cup, real botanical corner, "
+        "riverside or meadow photo, park path, morning field, or believable interior lifestyle scene. "
+        "If nature appears, it must be realistic nature photography or a believable landscape photo. "
+        "If an interior appears, it must be a realistic interior photo with real ceramics, wood, linen, glass, paper or plants. "
+        "If the scene is symbolic still life, it must look physically photographed, with real objects and believable shadows. "
+        "Do not create a greeting card image, decorative art print, drawn scene or stylized AI illustration. "
+        f"{coastal_clause}"
+        f"Photo style direction: {style_phrase}.{color_part}{comp_part} "
+        f"{avoid_clause}"
+    )
+
+
+def _augment_photo_override_prompt(prompt: str, photo_scene: str, avoid_clause: str) -> str:
+    p = _ensure_no_text_clause(prompt)
+    return (
+        f"{p} "
+        f"{photo_scene} "
+        "Strict photo branch: realistic photograph, real scene, editorial lifestyle photography, "
+        "camera-like image, believable lens optics, realistic materials and textures, "
+        "physically plausible natural light, authentic photographic detail, subtle imperfections of real photography. "
+        f"{avoid_clause}"
+    )
+
+
+def _coastal_photo_clause() -> str:
+    return (
+        "Coastal realism is mandatory: clearly visible sea or ocean coastline, open horizon over water, visible shoreline, "
+        "waves, surf or sea foam, and at least one explicit coastal element such as sand beach, dunes, rocky shore, driftwood, "
+        "seashells, cliffs, coastal path, boardwalk or seabirds. "
+        "Avoid inland lakes, rivers, generic botanical still life, landlocked meadow scenes, and interior window scenes unless explicitly requested. "
+        "If user intent implies a walk at sunset by the ocean, allow subtle human presence only (footprints, distant solitary figure from behind, "
+        "walking path, or edge of dress), calm contemplative mood, no dominant portrait."
+    )
+
+
 def _build_image_prompt(
     style: str,
     sphere: str,
@@ -176,16 +294,33 @@ def _build_image_prompt(
     composition_hint: Optional[str] = None,
     image_hint: Optional[str] = None,
     visual_mode: Optional[str] = None,
+    focus_key: Optional[str] = None,
+    photo_scene_preset: Optional[str] = None,
 ) -> str:
     """
     Формирует англоязычный промпт для генерации изображения.
     Случайные color_mood и composition_hint добавляют разнообразие при каждой генерации.
     """
+    requested_style = style
     style = resolve_style(style, sphere, visual_mode=visual_mode)
+    coastal_intent = has_coastal_intent(user_text) or has_coastal_intent(image_hint)
+    if normalize_visual_mode(visual_mode) == "photo" and requested_style == "auto" and coastal_intent:
+        style = "sea_coast_photo"
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), style)
-    base_theme = _build_default_image_theme(sphere, subsphere)
+    base_theme = (
+        _build_photo_image_theme(sphere, subsphere)
+        if effective_visual_mode == "photo"
+        else _build_default_image_theme(sphere, subsphere)
+    )
     if image_hint:
         base_theme = f"{base_theme}; focus visual hint: {image_hint}"
+    photo_scene = ""
+    if effective_visual_mode == "photo":
+        if coastal_intent and style == "sea_coast_photo":
+            scene_key = photo_scene_preset or resolve_photo_scene_preset(sphere, "sea_coast_photo", focus_key=focus_key)
+        else:
+            scene_key = photo_scene_preset or resolve_photo_scene_preset(sphere, style, focus_key=focus_key)
+        photo_scene = PHOTO_SCENE_PRESETS.get(scene_key, PHOTO_SCENE_PRESETS["window_still_life"])
 
     if style.lower() == "custom" and custom_style_description:
         style_phrase = f"in the style: {custom_style_description}"
@@ -204,16 +339,16 @@ def _build_image_prompt(
     avoid_clause = _avoid_literal_symbols_clause(sphere, effective_visual_mode)
 
     if effective_visual_mode == "photo":
-        return (
-            f"{base_theme}.{extra} "
-            "Create a bright photorealistic image suitable for a Telegram daily affirmation message. "
-            "The image must look like a real high-quality photo, not an illustration. "
-            "Use natural light, realistic colors, realistic textures, realistic depth of field and clear details. "
-            "The mood should be warm, fresh, optimistic, calm and emotionally supportive. "
-            "The image should be clear and pleasant on a phone screen, with natural composition, bright exposure, realistic sunlight and a clear readable image. "
-            f"Photo style: {style_phrase}.{color_part}{comp_part} "
-            "No text, no letters, no numbers, no typography, no logos, no watermarks. "
-            f"{avoid_clause}"
+        coastal_clause = _coastal_photo_clause() if (style == "sea_coast_photo" or coastal_intent) else ""
+        return _build_photo_prompt(
+            base_theme=base_theme,
+            photo_scene=photo_scene,
+            extra=extra,
+            style_phrase=style_phrase,
+            color_part=color_part,
+            comp_part=comp_part,
+            avoid_clause=avoid_clause,
+            coastal_clause=coastal_clause,
         )
 
     return (
@@ -256,28 +391,45 @@ async def generate_image(
     focus_key: Optional[str] = None,
     color_mood: Optional[str] = None,
     composition_hint: Optional[str] = None,
+    recent_scene_presets: Optional[list[str]] = None,
 ) -> str:
     """
     Асинхронно вызывает OpenAI-совместимый image API через ProxiAPI и сохраняет PNG.
     Случайные цвет и композиция добавляют разнообразие при каждой генерации.
     Возвращает путь к файлу.
     """
-    settings = get_settings()
     resolved_style = resolved_style_override or resolve_style(style, sphere, focus_key=focus_key, visual_mode=visual_mode)
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), resolved_style)
+    photo_scene_preset = None
+    if effective_visual_mode == "photo":
+        photo_scene_preset = resolve_photo_scene_preset(
+            sphere,
+            resolved_style,
+            focus_key=focus_key,
+            recent_scene_presets=recent_scene_presets,
+        )
     if output_dir is None:
         output_dir = get_outputs_dir()
 
-    base_url = settings.proxi_base_url.rstrip("/")
+    image_provider = get_image_provider_config()
+    base_url = image_provider.base_url.rstrip("/")
     url = f"{base_url}/images/generations"
 
     color_mood = color_mood or random.choice(_COLOR_MOODS)
     composition_hint = composition_hint or random.choice(_COMPOSITION_HINTS)
     if prompt_override:
-        prompt = _ensure_no_text_clause(prompt_override)
+        if effective_visual_mode == "photo":
+            scene_text = PHOTO_SCENE_PRESETS.get(photo_scene_preset or "", PHOTO_SCENE_PRESETS["window_still_life"])
+            prompt = _augment_photo_override_prompt(
+                prompt_override,
+                scene_text,
+                _avoid_literal_symbols_clause(sphere, effective_visual_mode),
+            )
+        else:
+            prompt = _ensure_no_text_clause(prompt_override)
     else:
         prompt = _build_image_prompt(
-            style=style,
+            style=resolved_style,
             sphere=sphere,
             subsphere=subsphere,
             user_text=user_text,
@@ -286,25 +438,27 @@ async def generate_image(
             composition_hint=composition_hint,
             image_hint=image_hint,
             visual_mode=effective_visual_mode,
+            focus_key=focus_key,
+            photo_scene_preset=photo_scene_preset,
         )
     trace = image_prompt_trace or ("override" if prompt_override else "template")
 
     payload = {
-        "model": settings.image_model,
+        "model": image_provider.model,
         "prompt": prompt,
         "n": 1,
-        "size": settings.image_size,
+        "size": image_provider.size,
         "response_format": "b64_json",
     }
 
     headers = {
-        "Authorization": f"Bearer {settings.proxi_api_key}",
+        "Authorization": f"Bearer {image_provider.api_key}",
         "Content-Type": "application/json",
     }
 
     os.makedirs(output_dir, exist_ok=True)
 
-    timeout_sec = max(30, settings.image_api_timeout_seconds)
+    timeout_sec = max(30, image_provider.timeout_seconds)
     timeout = aiohttp.ClientTimeout(total=timeout_sec)
     try:
         async with aiohttp.ClientSession() as session:
@@ -345,6 +499,10 @@ async def generate_image(
 
     meta = {
         "prompt": prompt,
+        "final_prompt": prompt,
+        "prompt_branch": effective_visual_mode,
+        "photo_scene_preset": photo_scene_preset,
+        "scene_preset": photo_scene_preset,
         "prompt_source": trace,
         "requested_style": style,
         "selected_style": resolved_style,
@@ -356,10 +514,12 @@ async def generate_image(
         "focus_key": focus_key,
         "color_palette": color_mood,
         "composition_hint": composition_hint,
+        "image_size": image_provider.size,
         "user_text": user_text,
         "custom_style_description": custom_style_description,
-        "model": settings.image_model,
-        "size": settings.image_size,
+        "model": image_provider.model,
+        "size": image_provider.size,
+        "image_provider": image_provider.provider,
     }
     meta_path = os.path.join(output_dir, f"{file_basename}_meta.json")
     with open(meta_path, "w", encoding="utf-8") as f:

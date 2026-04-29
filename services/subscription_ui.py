@@ -7,14 +7,14 @@ from services.ritual_config import get_sphere_label, get_style_label, get_visual
 def gender_profile_label(gender: Optional[str], language: str) -> str:
     if language == "en":
         if gender == "female":
-            return "feminine"
+            return "👩 She"
         if gender == "male":
-            return "masculine"
+            return "👨 He"
         return "not specified"
     if gender == "female":
-        return "женский род"
+        return "👩 Она"
     if gender == "male":
-        return "мужской род"
+        return "👨 Он"
     return "не указано"
 
 

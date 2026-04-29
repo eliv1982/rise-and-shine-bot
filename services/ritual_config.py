@@ -110,7 +110,7 @@ FOCUSES = {
         },
         {
             "key": "inner_support",
-            "ru": "внутренняя опора",
+            "ru": "опора на себя",
             "en": "inner support",
             "micro_step_ru": "Напомни себе, что твоя ценность не зависит от результата дня.",
             "micro_step_en": "Remind yourself that your worth is not decided by today's outcome.",
@@ -404,11 +404,18 @@ FOCUSES = {
 VALID_VISUAL_MODES = ("photo", "illustration", "mixed")
 
 PHOTO_STYLE_KEYS = [
-    "bright_photo_card",
-    "sunny_nature_photo",
+    "sunny_photo_scene",
+    "living_nature_photo",
+    "sea_coast_photo",
     "light_interior_photo",
-    "cinematic_real_photo",
+    "calm_lifestyle_photo",
 ]
+
+PHOTO_STYLE_ALIASES = {
+    "bright_photo_card": "sunny_photo_scene",
+    "sunny_nature_photo": "living_nature_photo",
+    "cinematic_real_photo": "calm_lifestyle_photo",
+}
 
 ILLUSTRATION_STYLE_KEYS = [
     "bright_nature_card",
@@ -428,10 +435,14 @@ LEGACY_STYLE_KEYS = ["realistic", "nature", "cosmos", "mandala", "sacred_geometr
 STYLE_LABELS = {
     "auto": {"ru": "Автоподбор", "en": "Auto"},
     "random_suitable": {"ru": "Разные подходящие стили", "en": "Different suitable styles"},
-    "bright_photo_card": {"ru": "Солнечная фотокарточка", "en": "Sunny photo card"},
-    "sunny_nature_photo": {"ru": "Солнечная природа", "en": "Sunny nature"},
+    "sunny_photo_scene": {"ru": "Солнечная фотосцена", "en": "Sunny photo scene"},
+    "living_nature_photo": {"ru": "Живая природа", "en": "Living nature"},
+    "sea_coast_photo": {"ru": "Побережье моря / океана", "en": "Sea & ocean coast"},
     "light_interior_photo": {"ru": "Светлый интерьер", "en": "Light interior"},
-    "cinematic_real_photo": {"ru": "Кинематографичное фото", "en": "Cinematic photo"},
+    "calm_lifestyle_photo": {"ru": "Спокойный lifestyle", "en": "Calm lifestyle"},
+    "bright_photo_card": {"ru": "Солнечная фотосцена", "en": "Sunny photo scene"},
+    "sunny_nature_photo": {"ru": "Живая природа", "en": "Living nature"},
+    "cinematic_real_photo": {"ru": "Спокойный lifestyle", "en": "Calm lifestyle"},
     "bright_nature_card": {"ru": "Светлая открытка дня", "en": "Bright daily card"},
     "dreamy_painterly": {"ru": "Мягкая акварель", "en": "Dreamy painterly"},
     "quiet_interior": {"ru": "Тихий интерьер", "en": "Quiet interior"},
@@ -450,10 +461,14 @@ STYLE_LABELS = {
 }
 
 STYLE_DESCRIPTIONS = {
-    "bright_photo_card": "bright photorealistic daily image, natural photography look, realistic sunlight, realistic colors, clear details, fresh optimistic atmosphere, beautiful natural or lifestyle scene, pleasant and readable on a phone screen",
-    "sunny_nature_photo": "photorealistic sunny nature photography, clear sky, warm sunlight, fresh air, trees, flowers, meadow, sea, lake or gentle landscape, vibrant but natural colors, uplifting morning mood",
-    "light_interior_photo": "photorealistic light interior photography, natural window light, cozy elegant room, flowers, cup, notebook without visible text, soft fabrics, plants, warm realistic shadows, calm welcoming atmosphere",
-    "cinematic_real_photo": "cinematic photorealistic scene, realistic natural light, shallow depth of field, elegant composition, warm hopeful mood, realistic textures, no posing, no direct eye contact portrait",
+    "sunny_photo_scene": "warm real-life photo, sunlit atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
+    "living_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
+    "sea_coast_photo": "real coastal photograph, sea or ocean coastline photography, realistic natural light, realistic sky and cloud formations, believable wave and water behavior, natural atmospheric perspective, camera realism, editorial landscape photography feel, calm restorative airy mood",
+    "light_interior_photo": "realistic interior and lifestyle photo, soft daylight through a window, real ceramics, wood, linen, glass, plants, believable shadows, camera realism, notebook without visible text",
+    "calm_lifestyle_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
+    "bright_photo_card": "warm real-life photo, sunlit atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
+    "sunny_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
+    "cinematic_real_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
     "bright_nature_card": "bright uplifting daily card, warm natural light, beautiful nature or light airy scene, fresh atmosphere, photorealistic or soft semi-realistic quality, optimistic and emotionally supportive mood, clear composition",
     "dreamy_painterly": "light dreamy painterly artwork, airy watercolor and gouache texture, luminous pastel atmosphere, soft but clear forms, warm and hopeful mood, delicate artistic charm",
     "quiet_interior": "light-filled quiet interior, natural window light, elegant still life, notebooks, cup, fabrics, plants, soft morning or late-afternoon glow, calm and welcoming atmosphere, no dominant portrait",
@@ -476,17 +491,97 @@ ILLUSTRATION_RECOMMENDED_STYLES = {
 }
 
 PHOTO_RECOMMENDED_STYLES = {
-    "inner_peace": ["sunny_nature_photo", "bright_photo_card", "cinematic_real_photo"],
-    "self_worth": ["bright_photo_card", "light_interior_photo", "sunny_nature_photo"],
-    "health": ["sunny_nature_photo", "bright_photo_card", "light_interior_photo"],
-    "career": ["light_interior_photo", "cinematic_real_photo", "bright_photo_card"],
-    "money": ["light_interior_photo", "bright_photo_card", "sunny_nature_photo"],
-    "relationships": ["light_interior_photo", "sunny_nature_photo", "cinematic_real_photo"],
-    "self_realization": ["bright_photo_card", "light_interior_photo", "cinematic_real_photo", "sunny_nature_photo"],
-    "spirituality": ["sunny_nature_photo", "bright_photo_card", "cinematic_real_photo"],
+    "inner_peace": ["light_interior_photo", "sea_coast_photo", "living_nature_photo", "calm_lifestyle_photo"],
+    "self_worth": ["light_interior_photo", "calm_lifestyle_photo", "sea_coast_photo", "sunny_photo_scene"],
+    "health": ["calm_lifestyle_photo", "sea_coast_photo", "living_nature_photo", "light_interior_photo", "sunny_photo_scene"],
+    "career": ["light_interior_photo", "calm_lifestyle_photo", "sunny_photo_scene", "sea_coast_photo"],
+    "money": ["light_interior_photo", "calm_lifestyle_photo", "sunny_photo_scene", "sea_coast_photo"],
+    "relationships": ["calm_lifestyle_photo", "light_interior_photo", "sea_coast_photo", "sunny_photo_scene"],
+    "self_realization": ["calm_lifestyle_photo", "sea_coast_photo", "light_interior_photo", "sunny_photo_scene"],
+    "spirituality": ["light_interior_photo", "sea_coast_photo", "calm_lifestyle_photo", "living_nature_photo"],
 }
 
 RECOMMENDED_STYLES = ILLUSTRATION_RECOMMENDED_STYLES
+
+PHOTO_SCENE_PRESETS = {
+    "window_still_life": (
+        "Photo scene preset: window_still_life. Realistic still life by a window, natural daylight, "
+        "glass, ceramic, linen and wood, calm real home atmosphere, editorial interior photography, "
+        "believable materials, perspective and shadows."
+    ),
+    "calm_workspace": (
+        "Photo scene preset: calm_workspace. Realistic clean workspace with desk, notebook without readable text, "
+        "pen, laptop or book, cup, daylight from a window, calm lifestyle/editorial photography, "
+        "real textures and realistic composition."
+    ),
+    "botanical_corner": (
+        "Photo scene preset: botanical_corner. Real plant or branches in a vase on a windowsill or table, "
+        "natural daylight, close realistic photo, believable glass, leaves, water, wood and linen."
+    ),
+    "outdoor_path": (
+        "Photo scene preset: outdoor_path. Real nature photograph of a path, park, riverside, lakeside bank "
+        "or meadow edge, documentary-style natural scene, real lens rendering, crisp natural detail, "
+        "believable depth and lighting, not painted and not dreamy illustration."
+    ),
+    "restful_daily_scene": (
+        "Photo scene preset: restful_daily_scene. Water glass, tea, blanket, chair, book or soft daylight, "
+        "realistic cozy recovery scene, lifestyle photography, calm but clearly photographic."
+    ),
+    "relationship_table_scene": (
+        "Photo scene preset: relationship_table_scene. Two cups, two chairs, table setting or shared space, "
+        "realistic intimate but non-portrait scene, calm daylight, real textures, editorial lifestyle photography."
+    ),
+    "ocean_sunrise": (
+        "Photo scene preset: ocean_sunrise. Real coastal photograph of sunrise over the ocean, soft cool-warm light, "
+        "realistic sky and cloud formations, calm horizon line, believable atmospheric perspective and camera realism."
+    ),
+    "seaside_sunset": (
+        "Photo scene preset: seaside_sunset. Real coastal photography at golden hour sunset, reflections on seawater, "
+        "soft clouds, believable wave and water behavior, natural light and editorial landscape photography feel."
+    ),
+    "quiet_beach_morning": (
+        "Photo scene preset: quiet_beach_morning. Empty beach in the morning, wave marks on sand, soft sky, "
+        "light natural haze, real photo, realistic shoreline textures and calm restorative mood."
+    ),
+    "rocky_coast": (
+        "Photo scene preset: rocky_coast. Real photograph of a rocky sea coast, waves, clouds, wet stone, "
+        "real natural textures, believable water motion and realistic outdoor light."
+    ),
+    "dunes_and_seabirds": (
+        "Photo scene preset: dunes_and_seabirds. Real photography of coastal dunes, beach grass, sand and seabirds "
+        "in the sky or far distance, natural daylight, airy space, not decorative illustration."
+    ),
+    "coastal_path": (
+        "Photo scene preset: coastal_path. Realistic outdoor photo of a path along the sea or ocean coast, "
+        "water visible in the background, calm reflective mood, natural perspective and camera realism."
+    ),
+}
+
+PHOTO_SCENE_ROUTING = {
+    "inner_peace": ["window_still_life", "botanical_corner", "ocean_sunrise", "coastal_path", "outdoor_path", "restful_daily_scene"],
+    "self_worth": ["botanical_corner", "window_still_life", "calm_workspace", "quiet_beach_morning", "restful_daily_scene"],
+    "health": ["restful_daily_scene", "botanical_corner", "ocean_sunrise", "quiet_beach_morning", "outdoor_path", "window_still_life"],
+    "career": ["calm_workspace", "window_still_life", "botanical_corner"],
+    "money": ["calm_workspace", "window_still_life", "botanical_corner"],
+    "relationships": ["relationship_table_scene", "window_still_life", "botanical_corner", "coastal_path", "quiet_beach_morning", "outdoor_path"],
+    "self_realization": ["calm_workspace", "coastal_path", "botanical_corner", "window_still_life", "outdoor_path"],
+    "spirituality": ["window_still_life", "botanical_corner", "ocean_sunrise", "restful_daily_scene"],
+}
+
+PHOTO_STYLE_SCENE_HINTS = {
+    "sunny_photo_scene": ["calm_workspace", "botanical_corner", "outdoor_path", "window_still_life"],
+    "living_nature_photo": ["outdoor_path", "botanical_corner"],
+    "sea_coast_photo": [
+        "ocean_sunrise",
+        "seaside_sunset",
+        "quiet_beach_morning",
+        "rocky_coast",
+        "dunes_and_seabirds",
+        "coastal_path",
+    ],
+    "light_interior_photo": ["window_still_life", "botanical_corner", "relationship_table_scene", "calm_workspace"],
+    "calm_lifestyle_photo": ["restful_daily_scene", "calm_workspace", "relationship_table_scene", "window_still_life"],
+}
 
 
 def get_sphere_label(sphere: str, language: str = "ru") -> str:
@@ -497,15 +592,42 @@ def get_style_label(style: str, language: str = "ru") -> str:
     return STYLE_LABELS.get(style, {"ru": style, "en": style}).get(language, style)
 
 
+def normalize_style_key(style: Optional[str]) -> str:
+    if not style:
+        return "auto"
+    return PHOTO_STYLE_ALIASES.get(style, style)
+
+
 def normalize_visual_mode(visual_mode: Optional[str]) -> str:
     if visual_mode in VALID_VISUAL_MODES:
         return visual_mode
     return "illustration"
 
 
+def has_coastal_intent(text: Optional[str]) -> bool:
+    if not text:
+        return False
+    low = text.lower()
+    markers = (
+        "море",
+        "океан",
+        "побереж",
+        "берег",
+        "beach",
+        "coast",
+        "coastline",
+        "shore",
+        "seaside",
+        "ocean",
+        "sea",
+        "sunset by the ocean",
+    )
+    return any(marker in low for marker in markers)
+
+
 def get_visual_mode_label(visual_mode: str, language: str = "ru") -> str:
     labels = {
-        "photo": {"ru": "📷 Фотореализм", "en": "📷 Photo realism"},
+        "photo": {"ru": "📷 Фото-стиль", "en": "📷 Photo style"},
         "illustration": {"ru": "🖌 Мягкая иллюстрация", "en": "🖌 Soft illustration"},
         "mixed": {"ru": "🔀 Смешивать стили", "en": "🔀 Mix styles"},
     }
@@ -563,8 +685,61 @@ def get_recommended_styles(
     return mapping.get(sphere, mapping["inner_peace"])
 
 
+def get_photo_scene_presets(sphere: str, style: Optional[str] = None) -> List[str]:
+    sphere_presets = PHOTO_SCENE_ROUTING.get(sphere, PHOTO_SCENE_ROUTING["inner_peace"])
+    style_key = normalize_style_key(style)
+    style_presets = PHOTO_STYLE_SCENE_HINTS.get(style_key)
+    if not style_presets:
+        return sphere_presets
+    if style_key == "sea_coast_photo":
+        return style_presets
+    matched = [preset for preset in sphere_presets if preset in style_presets]
+    return matched or sphere_presets
+
+
+def resolve_photo_scene_preset(
+    sphere: str,
+    style: Optional[str] = None,
+    user_id: Optional[int] = None,
+    day: Optional[dt.date] = None,
+    focus_key: Optional[str] = None,
+    recent_scene_presets: Optional[List[str]] = None,
+) -> str:
+    presets = get_photo_scene_presets(sphere, style)
+    if recent_scene_presets:
+        filtered = [p for p in presets if p not in set(recent_scene_presets)]
+        if filtered:
+            presets = filtered
+    if len(presets) == 1:
+        return presets[0]
+    if user_id is not None and day is not None:
+        iso_year, iso_week, weekday = day.isocalendar()
+        rng = random.Random(
+            f"photo-scene-{user_id}-{sphere}-{normalize_style_key(style)}-{focus_key or ''}-{iso_year}-{iso_week}-{weekday}"
+        )
+        return presets[rng.randrange(len(presets))]
+    seed = f"photo-scene-{sphere}-{normalize_style_key(style)}-{focus_key or ''}"
+    idx = sum(ord(ch) for ch in seed) % len(presets)
+    return presets[idx]
+
+
+def _resolve_photo_auto_style(recommended: List[str], sphere: str, weekday: int) -> str:
+    if not recommended:
+        return "light_interior_photo"
+    if sphere in ("money", "career"):
+        # Keep work/finance grounded in interiors; coast is occasional, never dominant.
+        if weekday == 7 and "sea_coast_photo" in recommended:
+            return "sea_coast_photo"
+        if weekday in (2, 5) and "calm_lifestyle_photo" in recommended:
+            return "calm_lifestyle_photo"
+        return recommended[0]
+    idx = (weekday - 1) % len(recommended)
+    return recommended[idx]
+
+
 def visual_mode_for_style(visual_mode: Optional[str], selected_style: Optional[str] = None) -> str:
     mode = normalize_visual_mode(visual_mode)
+    selected_style = normalize_style_key(selected_style)
     if mode == "mixed":
         if selected_style in PHOTO_STYLE_KEYS:
             return "photo"
@@ -581,17 +756,26 @@ def resolve_style(
     day: Optional[dt.date] = None,
     focus_key: Optional[str] = None,
     visual_mode: Optional[str] = None,
+    recent_styles: Optional[List[str]] = None,
 ) -> str:
+    style = normalize_style_key(style)
     if style == "random":
         style = "random_suitable"
     mode = normalize_visual_mode(visual_mode)
     recommended = get_recommended_styles(sphere, mode, user_id=user_id, day=day)
     if style in ("auto", "random_suitable"):
+        recent_set = set((recent_styles or []))
+        if recent_set:
+            filtered_recommended = [candidate for candidate in recommended if candidate not in recent_set]
+            if filtered_recommended:
+                recommended = filtered_recommended
         if user_id is not None and day is not None:
             iso_year, iso_week, weekday = day.isocalendar()
             salt = "auto-style" if style == "auto" else "suitable-style"
             rng = random.Random(f"{salt}-{mode}-{user_id}-{sphere}-{focus_key or ''}-{iso_year}-{iso_week}-{weekday}")
-            if style == "auto" and recommended and recommended[0] in ("bright_nature_card", "bright_photo_card"):
+            if mode == "photo" and style == "auto":
+                return _resolve_photo_auto_style(recommended, sphere, weekday)
+            if style == "auto" and recommended and recommended[0] in ("bright_nature_card", "sunny_photo_scene"):
                 if weekday in (1, 3, 5, 7):
                     return recommended[0]
                 return rng.choice(recommended[1:] or recommended)
