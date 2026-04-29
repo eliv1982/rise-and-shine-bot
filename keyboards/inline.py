@@ -20,7 +20,7 @@ def _sphere_buttons(b: InlineKeyboardBuilder, language: str, include_custom_them
     for sphere in MAIN_SPHERES:
         b.button(text=get_sphere_label(sphere, language), callback_data=f"sphere:{sphere}")
     if include_custom_theme:
-        b.button(text=_t(language, "Своя тема", "Custom theme"), callback_data="sphere:custom_theme")
+        b.button(text=_t(language, "✍️ Своя тема", "✍️ Custom theme"), callback_data="sphere:custom_theme")
     b.adjust(1)
 
 
@@ -126,29 +126,29 @@ def theme_choice_keyboard(language: str) -> InlineKeyboardMarkup:
 
 def theme_cancel_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Отмена", "Cancel"), callback_data="theme:cancel")
+    b.button(text=_t(language, "❌ Отмена", "❌ Cancel"), callback_data="theme:cancel")
     b.adjust(1)
     return b.as_markup()
 
 
 def theme_early_cancel_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Отмена", "Cancel"), callback_data="theme_early:cancel")
+    b.button(text=_t(language, "❌ Отмена", "❌ Cancel"), callback_data="theme_early:cancel")
     b.adjust(1)
     return b.as_markup()
 
 
 def style_cancel_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Отмена", "Cancel"), callback_data="style:cancel")
+    b.button(text=_t(language, "❌ Отмена", "❌ Cancel"), callback_data="style:cancel")
     b.adjust(1)
     return b.as_markup()
 
 
 def gender_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Мужской", "Male"), callback_data="gender:male")
-    b.button(text=_t(language, "Женский", "Female"), callback_data="gender:female")
+    b.button(text=_t(language, "♂️ Мужской", "♂️ Male"), callback_data="gender:male")
+    b.button(text=_t(language, "♀️ Женский", "♀️ Female"), callback_data="gender:female")
     b.adjust(2)
     return b.as_markup()
 
@@ -156,8 +156,8 @@ def gender_keyboard(language: str) -> InlineKeyboardMarkup:
 def language_keyboard() -> InlineKeyboardMarkup:
     """Выбор языка: русский / English (для /language и для подписки)."""
     b = InlineKeyboardBuilder()
-    b.button(text="Русский", callback_data="lang:ru")
-    b.button(text="English", callback_data="lang:en")
+    b.button(text="🇷🇺 Русский", callback_data="lang:ru")
+    b.button(text="🇬🇧 English", callback_data="lang:en")
     b.adjust(2)
     return b.as_markup()
 
@@ -165,7 +165,7 @@ def language_keyboard() -> InlineKeyboardMarkup:
 def new_affirmation_keyboard(language: str) -> InlineKeyboardMarkup:
     """Кнопка создания нового настроя дня после регистрации."""
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "🌿 Создать настрой дня", "🌿 Create daily focus"), callback_data="cmd:new")
+    b.button(text=_t(language, "🌿 Создать настрой", "🌿 Create focus"), callback_data="cmd:new")
     b.adjust(1)
     return b.as_markup()
 
@@ -176,7 +176,7 @@ def after_generation_keyboard(language: str) -> InlineKeyboardMarkup:
         b.button(text="🔊 Озвучить", callback_data="tts:yes")
     b.button(text=_t(language, "✨ Ещё настрой", "✨ More"), callback_data="again:yes")
     b.button(text=_t(language, "🔁 Создать новый", "🔁 Create new"), callback_data="new:yes")
-    b.button(text=_t(language, "⚙️ Настроить подписку", "⚙️ Subscription settings"), callback_data="sub:open")
+    b.button(text=_t(language, "⚙️ Настроить подписки", "⚙️ Manage subscriptions"), callback_data="sub:open")
     b.adjust(1)
     return b.as_markup()
 
@@ -199,8 +199,8 @@ def subscription_time_keyboard_minutes(language: str) -> InlineKeyboardMarkup:
 
 def subscription_confirm_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Подтвердить", "Confirm"), callback_data="sub:confirm")
-    b.button(text=_t(language, "Отмена", "Cancel"), callback_data="sub:cancel")
+    b.button(text=_t(language, "✅ Подтвердить", "✅ Confirm"), callback_data="sub:confirm")
+    b.button(text=_t(language, "❌ Отмена", "❌ Cancel"), callback_data="sub:cancel")
     b.adjust(2)
     return b.as_markup()
 
@@ -215,11 +215,11 @@ def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
         callback_data="sub_more:yes",
     )
     b.button(
-        text=_t(language, "🔁 Создать новую", "Create new"),
+        text=_t(language, "🔁 Создать новый", "🔁 Create new"),
         callback_data="sub_new:yes",
     )
     b.button(
-        text=_t(language, "⚙️ Настроить подписку", "Subscription settings"),
+        text=_t(language, "⚙️ Настроить подписки", "⚙️ Manage subscriptions"),
         callback_data="sub:change",
     )
     b.adjust(1)
@@ -228,11 +228,69 @@ def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
 
 def profile_keyboard(language: str, has_subscription: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "⚙️ Настроить подписку", "⚙️ Subscription settings"), callback_data="sub:change")
-    if has_subscription:
-        b.button(text=_t(language, "🗑 Отменить подписку", "🗑 Cancel subscription"), callback_data="sub:unsubscribe")
-    b.button(text=_t(language, "Мужской", "Male"), callback_data="gender:male")
-    b.button(text=_t(language, "Женский", "Female"), callback_data="gender:female")
+    b.button(text=_t(language, "⚙️ Настроить подписки", "⚙️ Manage subscriptions"), callback_data="sub:dash")
+    b.button(text=_t(language, "♂️ Мужской", "♂️ Male"), callback_data="gender:male")
+    b.button(text=_t(language, "♀️ Женский", "♀️ Female"), callback_data="gender:female")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def subscription_dashboard_keyboard(language: str, count: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if count < 3:
+        b.button(text=_t(language, "➕ Добавить подписку", "➕ Add subscription"), callback_data="sub:add")
+    if count > 0:
+        b.button(text=_t(language, "✏️ Изменить подписку", "✏️ Edit subscription"), callback_data="sub:edit")
+        b.button(text=_t(language, "🗑 Удалить подписку", "🗑 Delete subscription"), callback_data="sub:delete")
+    b.button(text=_t(language, "❌ Отмена", "❌ Cancel"), callback_data="sub:cancel_dash")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def subscription_saved_keyboard(language: str, count: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if count < 3:
+        b.button(text=_t(language, "➕ Добавить ещё", "➕ Add another"), callback_data="sub:add")
+    b.button(text=_t(language, "🧾 Мои подписки", "🧾 My subscriptions"), callback_data="sub:dash")
+    b.button(text=_t(language, "🌿 Создать настрой", "🌿 Create focus"), callback_data="sub_new:yes")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def subscription_select_keyboard(subscriptions: list[dict], language: str, action: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    prefix = "subedit" if action == "edit" else "subdel"
+    for idx, sub in enumerate(subscriptions, start=1):
+        mode = sub.get("subscription_mode") or ("weekly_balance" if sub.get("sphere") == "random" else "sphere_focus")
+        if mode == "weekly_balance":
+            title = _t(language, "🌿 Баланс недели", "🌿 Weekly balance")
+        else:
+            title = get_sphere_label(sub.get("subscription_sphere") or sub.get("sphere") or "inner_peace", language)
+        time_str = f"{int(sub.get('hour', 0)):02d}:{int(sub.get('minute', 0)):02d}"
+        visual = sub.get("visual_mode") or "illustration"
+        visual_icon = {"photo": "📷", "illustration": "🖌", "mixed": "🔀"}.get(visual, "🖌")
+        b.button(text=f"{idx}. {title} — {time_str} — {visual_icon}", callback_data=f"{prefix}:{sub['id']}")
+    b.button(text=_t(language, "↩️ Назад", "↩️ Back"), callback_data="sub:dash")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def subscription_edit_keyboard(language: str, subscription_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(
+        text=_t(language, "🔁 Пересобрать настройки", "🔁 Reconfigure"),
+        callback_data=f"subreconf:{subscription_id}",
+    )
+    b.button(text=_t(language, "🗑 Удалить эту подписку", "🗑 Delete this subscription"), callback_data=f"subdel:{subscription_id}")
+    b.button(text=_t(language, "↩️ Назад", "↩️ Back"), callback_data="sub:edit")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def subscription_delete_confirm_keyboard(language: str, subscription_id: int) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text=_t(language, "🗑 Да, удалить", "🗑 Yes, delete"), callback_data=f"subdelok:{subscription_id}")
+    b.button(text=_t(language, "↩️ Назад", "↩️ Back"), callback_data="sub:dash")
     b.adjust(1)
     return b.as_markup()
 

@@ -1,4 +1,4 @@
-from handlers.start import build_subscription_summary
+from services.subscription_ui import build_dashboard_text, build_subscription_summary, build_subscriptions_summary
 from services.ritual_config import (
     ILLUSTRATION_STYLE_KEYS,
     PHOTO_STYLE_KEYS,
@@ -27,9 +27,9 @@ def test_profile_summary_subscription_with_visual_mode_ru():
         "ru",
     )
     assert "🌿 Баланс недели" in summary
-    assert "Время: 09:00" in summary
-    assert "Визуал: 📷 Фотореализм" in summary
-    assert "Стиль: 🎨 Автоподбор" in summary
+    assert "⏰ Время: 09:00" in summary
+    assert "🎨 Визуал: 📷 Фотореализм" in summary
+    assert "✨ Стиль: 🎨 Автоподбор" in summary
 
 
 def test_profile_summary_missing_visual_mode_defaults_to_illustration():
@@ -44,7 +44,38 @@ def test_profile_summary_missing_visual_mode_defaults_to_illustration():
         },
         "ru",
     )
-    assert "Визуал: 🖌 Мягкая иллюстрация" in summary
+    assert "🎨 Визуал: 🖌 Мягкая иллюстрация" in summary
+
+
+def test_profile_summary_lists_multiple_subscriptions():
+    summary = build_subscriptions_summary(
+        [
+            {"sphere": "random", "image_style": "auto", "hour": 9, "minute": 0, "subscription_mode": "weekly_balance"},
+            {
+                "sphere": "money",
+                "image_style": "bright_nature_card",
+                "hour": 15,
+                "minute": 0,
+                "subscription_mode": "sphere_focus",
+                "subscription_sphere": "money",
+                "visual_mode": "illustration",
+            },
+        ],
+        "ru",
+    )
+    assert "1. 🌿 Баланс недели" in summary
+    assert "2. 🎯 Фокус на сфере" in summary
+    assert "Сфера: 💰 Деньги и устойчивость" in summary
+
+
+def test_dashboard_summary_contains_count_and_emojis():
+    text = build_dashboard_text(
+        [{"sphere": "random", "image_style": "auto", "hour": 9, "minute": 0, "subscription_mode": "weekly_balance"}],
+        "ru",
+    )
+    assert "🧾 Твои подписки" in text
+    assert "Активных подписок: 1/3" in text
+    assert "🌿 Баланс недели" in text
 
 
 def test_sphere_labels_do_not_use_inner_support_as_sphere():

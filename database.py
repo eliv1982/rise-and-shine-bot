@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import aiosqlite
 
 logger = logging.getLogger(__name__)
+MAX_ACTIVE_SUBSCRIPTIONS = 3
 
 # В Docker задают BOT_DATA_DIR (например /app/data) — тогда БД там
 _data_dir = os.getenv("BOT_DATA_DIR", "").strip()
@@ -187,7 +188,42 @@ async def get_subscription(user_id: int) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
-async def upsert_subscription(
+async def get_active_subscriptions(user_id: int) -> List[Dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM subscriptions WHERE user_id = ? AND is_active = 1 ORDER BY hour, minute, id",
+            (user_id,),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+    return [dict(row) for row in rows]
+
+
+async def count_active_subscriptions(user_id: int) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM subscriptions WHERE user_id = ? AND is_active = 1",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+    return int(row[0]) if row else 0
+
+
+async def get_subscription_by_id(subscription_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM subscriptions WHERE id = ? AND user_id = ? AND is_active = 1",
+            (subscription_id, user_id),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+    return dict(row) if row else None
+
+
+async def create_subscription(
     user_id: int,
     sphere: str,
     subsphere: Optional[str],
@@ -199,13 +235,20 @@ async def upsert_subscription(
     subscription_sphere: Optional[str] = None,
     subscription_style_mode: str = "auto",
     visual_mode: str = "illustration",
-) -> None:
+) -> int:
     """
-    Создаёт новую активную подписку и деактивирует старые.
+    Создаёт новую активную подписку и возвращает её id.
     """
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
-        await db.execute(
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM subscriptions WHERE user_id = ? AND is_active = 1",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if int(row[0]) >= MAX_ACTIVE_SUBSCRIPTIONS:
+            raise ValueError("active_subscription_limit_reached")
+        cur = await db.execute(
             """
             INSERT INTO subscriptions (
                 user_id, sphere, subsphere, image_style, language, hour, minute, is_active,
@@ -227,12 +270,96 @@ async def upsert_subscription(
                 visual_mode,
             ),
         )
+        subscription_id = int(cur.lastrowid)
+        await cur.close()
         await db.commit()
+    return subscription_id
 
 
-async def deactivate_subscription(user_id: int) -> None:
+async def update_subscription(
+    subscription_id: int,
+    user_id: int,
+    sphere: str,
+    subsphere: Optional[str],
+    image_style: str,
+    language: str,
+    hour: int,
+    minute: int,
+    subscription_mode: str = "weekly_balance",
+    subscription_sphere: Optional[str] = None,
+    subscription_style_mode: str = "auto",
+    visual_mode: str = "illustration",
+) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
+        cur = await db.execute(
+            """
+            UPDATE subscriptions
+            SET sphere = ?, subsphere = ?, image_style = ?, language = ?, hour = ?, minute = ?,
+                subscription_mode = ?, subscription_sphere = ?, subscription_style_mode = ?, visual_mode = ?
+            WHERE id = ? AND user_id = ? AND is_active = 1
+            """,
+            (
+                sphere,
+                subsphere,
+                image_style,
+                language,
+                hour,
+                minute,
+                subscription_mode,
+                subscription_sphere,
+                subscription_style_mode,
+                visual_mode,
+                subscription_id,
+                user_id,
+            ),
+        )
+        changed = cur.rowcount > 0
+        await cur.close()
+        await db.commit()
+    return changed
+
+
+async def upsert_subscription(
+    user_id: int,
+    sphere: str,
+    subsphere: Optional[str],
+    image_style: str,
+    language: str,
+    hour: int,
+    minute: int,
+    subscription_mode: str = "weekly_balance",
+    subscription_sphere: Optional[str] = None,
+    subscription_style_mode: str = "auto",
+    visual_mode: str = "illustration",
+) -> int:
+    """
+    Backward-compatible alias. It now creates another active subscription
+    instead of replacing existing ones.
+    """
+    return await create_subscription(
+        user_id=user_id,
+        sphere=sphere,
+        subsphere=subsphere,
+        image_style=image_style,
+        language=language,
+        hour=hour,
+        minute=minute,
+        subscription_mode=subscription_mode,
+        subscription_sphere=subscription_sphere,
+        subscription_style_mode=subscription_style_mode,
+        visual_mode=visual_mode,
+    )
+
+
+async def deactivate_subscription(user_id: int, subscription_id: Optional[int] = None) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        if subscription_id is None:
+            await db.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
+        else:
+            await db.execute(
+                "UPDATE subscriptions SET is_active = 0 WHERE id = ? AND user_id = ?",
+                (subscription_id, user_id),
+            )
         await db.commit()
 
 
