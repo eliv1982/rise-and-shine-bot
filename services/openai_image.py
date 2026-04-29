@@ -19,7 +19,6 @@ _COLOR_MOODS = [
     "cool blue and soft lavender tones, peaceful morning light",
     "earthy greens and soft browns, natural forest atmosphere",
     "pastel soft colors, gentle pink and peach hues",
-    "vibrant sunset colors, orange and deep purple gradient",
     "misty morning atmosphere, soft grey and pale green",
     "deep twilight, indigo and silver accents",
     "warm terracotta and sand tones, mediterranean feel",
@@ -27,6 +26,14 @@ _COLOR_MOODS = [
     "rich burgundy and gold accents, cozy and warm",
     "soft aqua and white, clean and airy",
     "warm candlelight glow, ochre and soft yellow",
+    "muted sage, cream and warm beige",
+    "dusty rose and soft clay",
+    "champagne gold and ivory",
+    "misty blue grey and pearl",
+    "olive green and linen white",
+    "cocoa, amber and candlelight",
+    "muted terracotta and pale peach",
+    "deep indigo and warm moonlight",
 ]
 
 # Варианты композиции
@@ -37,6 +44,12 @@ _COMPOSITION_HINTS = [
     "layered depth, foreground and distant elements",
     "minimalist composition, lots of negative space",
     "dynamic angle, gentle movement in the scene",
+    "editorial card composition with calm negative space",
+    "intimate still life with symbolic objects, no text",
+    "quiet interior scene with natural window light",
+    "poetic landscape with layered depth",
+    "minimal centered composition with soft atmosphere",
+    "cinematic close-up with gentle depth of field",
 ]
 
 
@@ -48,26 +61,26 @@ def _build_default_image_theme(sphere: str, subsphere: Optional[str]) -> str:
     subsphere_key = (subsphere or "").lower()
 
     if sphere_key == "career":
-        return "a peaceful yet inspiring scene symbolizing professional growth and confidence"
+        return "a refined workspace in calm natural light, suggesting clarity, professional dignity and sustainable progress"
     if sphere_key == "self_realization":
-        return "a creative, expressive scene symbolizing self-realization, talent and inspiration"
+        return "a creative studio with an open window, sketchbook, warm light and flowing curtains, suggesting personal voice and imperfect artistic process"
     if sphere_key == "inner_peace":
-        return "a serene, meditative scene symbolizing inner peace and tranquility"
+        return "a quiet lake with mist, soft morning light and breathing space, suggesting emotional steadiness"
     if sphere_key == "relationships":
         if subsphere_key == "partner":
-            return "a warm, intimate atmosphere symbolizing deep trust and romantic connection"
+            return "a shared tea table and two chairs in warm domestic light, subtle closeness with respectful distance"
         if subsphere_key == "colleagues":
-            return "a friendly, collaborative workspace symbolizing respectful teamwork"
+            return "a calm shared workspace with warm light, clear surfaces and a respectful sense of collaboration"
         if subsphere_key == "friends":
-            return "a cozy gathering of friends symbolizing support and joy"
-        return "soft, kind human connections and trust between people"
+            return "a cozy table with cups, linen and soft light, suggesting friendship, support and honest presence"
+        return "a shared tea table, two chairs, warm domestic light, hands and subtle closeness without romantic clichés"
     if sphere_key == "health":
-        return "a gentle wellness scene symbolizing balance, vitality and self-care"
+        return "morning air, clear water, linen, green leaves and gentle movement, creating a restorative atmosphere"
     if sphere_key == "money":
-        return "a calm, abundant atmosphere symbolizing stability, prosperity and wise decisions"
+        return "a refined interior with warm light, calm order, a beautiful desk, open notebook and sunlight, suggesting enoughness, stability and dignity"
     if sphere_key == "spirituality":
-        return "a serene, luminous scene symbolizing inner peace, intuition and spiritual growth"
-    return "a harmonious, uplifting scene symbolizing inner balance and hope"
+        return "a grounded luminous scene with candles, soft geometry, quiet ritual and subtle light, without exaggerated mysticism"
+    return "an atmospheric, elegant scene suggesting inner balance, dignity and quiet hope through poetic visual metaphor"
 
 
 def _style_to_phrase(style: str) -> str:
@@ -83,8 +96,60 @@ def _style_to_phrase(style: str) -> str:
         "nature": "lush nature scene, trees, sky, soft sun rays",
         "cosmos": "cosmic scene with stars, galaxies, soft glowing nebulae",
         "abstract": "abstract art, flowing shapes, harmonious colors",
+        "soft_editorial": (
+            "soft editorial illustration, premium wellness aesthetic, muted colors, "
+            "elegant composition, gentle natural light"
+        ),
+        "dreamy_painterly": (
+            "dreamy painterly illustration, visible soft brushwork, poetic atmosphere, "
+            "warm depth, refined color palette"
+        ),
+        "minimal_botanical": (
+            "minimal botanical composition, sage green, cream and beige palette, "
+            "clean meditative design, organic shapes"
+        ),
+        "cinematic_light": (
+            "cinematic natural light, emotional realism, soft shadows, quiet storytelling, refined composition"
+        ),
+        "ethereal_landscape": (
+            "ethereal misty landscape, contemplative stillness, atmospheric depth, quiet beauty, soft morning light"
+        ),
+        "symbolic_luxe": (
+            "refined abstract symbolic art, subtle luxury mood, harmonious textures, soft glow, no literal icons"
+        ),
     }
     return mapping.get(style, "soft, inspiring, visually harmonious style")
+
+
+def _avoid_literal_symbols_clause(sphere: str) -> str:
+    base = (
+        "Avoid: stock photo vibe, corporate illustration vibe, clipart icons, infographic elements, "
+        "typography, dollar signs, coins, piggy banks, charts, arrows, currency symbols, "
+        "generic business success icons, generic silhouette with arms wide open at sunset unless explicitly requested, "
+        "cheap AI fantasy poster look, oversaturated colors, cluttered composition."
+    )
+    sphere_key = sphere.lower()
+    if sphere_key == "money":
+        return (
+            base
+            + " For money, do not use dollar signs, coins, stacks of money, charts, arrows or piggy banks; "
+            "use refined interior, warm light, calm order, beautiful desk, open notebook, sunlight, stable grounded atmosphere, subtle enoughness and dignity."
+        )
+    if sphere_key == "self_realization":
+        return (
+            base
+            + " For self-realization, avoid the cliché of a person at sunset with arms wide open; "
+            "prefer creative studio, open window, sketchbook, warm light, flowing curtains and artistic process."
+        )
+    if sphere_key == "relationships":
+        return (
+            base
+            + " For relationships, avoid hearts and romantic greeting-card clichés; "
+            "prefer shared tea table, two chairs, warm domestic light, subtle closeness, respectful distance, hands and soft atmosphere."
+        )
+    if sphere_key == "spirituality":
+        return base + " For spirituality, avoid exaggerated mysticism and glowing third-eye imagery."
+    return base
 
 
 def _build_image_prompt(
@@ -102,7 +167,7 @@ def _build_image_prompt(
     """
     base_theme = _build_default_image_theme(sphere, subsphere)
 
-    if style == "custom" and custom_style_description:
+    if style.lower() == "custom" and custom_style_description:
         style_phrase = f"in the style: {custom_style_description}"
     else:
         style_phrase = _style_to_phrase(style)
@@ -116,10 +181,16 @@ def _build_image_prompt(
     color_part = f" Color and lighting: {color_mood}." if color_mood else ""
     comp_part = f" Composition: {composition_hint}." if composition_hint else ""
 
+    avoid_clause = _avoid_literal_symbols_clause(sphere)
+
     return (
         f"{base_theme}.{extra} "
-        f"Atmosphere: uplifting, calm, hopeful, suitable for affirmation practice about {sphere}. "
-        f"Visual style: {style_phrase}.{color_part}{comp_part} No text, no words on the image."
+        "Create an atmospheric, elegant, emotionally resonant illustration for a daily affirmation card. "
+        "Use a refined, calm, artistic and visually cohesive scene with poetic visual metaphor instead of literal symbols. "
+        f"Atmosphere: premium wellness, editorial, painterly, calm and hopeful, suitable for affirmation practice about {sphere}. "
+        f"Visual style: {style_phrase}.{color_part}{comp_part} "
+        "No text, no words, no letters, no numbers. "
+        f"{avoid_clause}"
     )
 
 

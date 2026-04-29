@@ -19,7 +19,7 @@ from monitoring import (
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
-from utils import gender_display
+from utils import build_focus_of_day, gender_display
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +133,12 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 text_lines.append(f"{name}, your daily affirmation:")
             else:
                 text_lines.append("Your daily affirmation:")
+
+        focus = build_focus_of_day(sphere, language=language, subsphere=subsphere)
+        if language == "ru":
+            text_lines.append(f"Фокус дня: {focus}")
+        else:
+            text_lines.append(f"Focus of the day: {focus}")
 
         for a in affirmations:
             text_lines.append(f"• {a}")

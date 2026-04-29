@@ -1,4 +1,4 @@
-from utils import gender_display, normalize_gender
+from utils import build_focus_of_day, gender_display, normalize_gender
 
 
 def test_normalize_gender_basic():
@@ -15,3 +15,16 @@ def test_gender_display_never_empty():
     assert gender_display(None, "ru")
     assert "мужч" in gender_display(None, "ru").lower() or "для" in gender_display(None, "ru")
     assert gender_display("female", "ru") == "для женщины"
+
+
+def test_focus_of_day_is_localized_and_non_empty():
+    assert build_focus_of_day("money", "ru") in {
+        "спокойная финансовая опора",
+        "зрелое отношение к деньгам",
+        "достоинство и устойчивость",
+    }
+    assert build_focus_of_day("money", "en") in {
+        "calm financial ground",
+        "mature relationship with money",
+        "dignity and stability",
+    }

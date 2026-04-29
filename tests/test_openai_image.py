@@ -1,4 +1,4 @@
-from services.openai_image import _build_image_prompt, _ensure_no_text_clause
+from services.openai_image import _build_image_prompt, _ensure_no_text_clause, _style_to_phrase
 
 
 def test_ensure_no_text_clause_adds_suffix():
@@ -23,3 +23,37 @@ def test_build_image_prompt_contains_sphere_and_no_text():
     )
     assert "inner_peace" in prompt or "affirmation" in prompt.lower()
     assert "no text" in prompt.lower()
+
+
+def test_build_image_prompt_avoids_literal_money_symbols():
+    prompt = _build_image_prompt(
+        style="soft_editorial",
+        sphere="money",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        color_mood="champagne gold and ivory",
+        composition_hint="editorial card composition with calm negative space",
+    ).lower()
+    assert "no text" in prompt
+    assert "dollar signs" in prompt
+    assert "coins" in prompt
+    assert "charts" in prompt
+    assert "piggy banks" in prompt
+
+
+def test_old_style_keys_still_work():
+    for style in ("realistic", "cartoon", "mandala", "sacred_geometry", "nature", "cosmos", "abstract"):
+        assert _style_to_phrase(style)
+
+
+def test_new_style_keys_return_non_empty_phrases():
+    for style in (
+        "soft_editorial",
+        "dreamy_painterly",
+        "minimal_botanical",
+        "cinematic_light",
+        "ethereal_landscape",
+        "symbolic_luxe",
+    ):
+        assert _style_to_phrase(style)

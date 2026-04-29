@@ -31,7 +31,7 @@ from services.speechkit import transcribe_audio
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
-from utils import gender_display
+from utils import build_focus_of_day, gender_display
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -481,6 +481,12 @@ async def _run_generation(
             text_lines.append(f"{name}, here are your affirmations:")
         else:
             text_lines.append("Here are your affirmations:")
+
+    focus = build_focus_of_day(sphere, language=language, subsphere=subsphere)
+    if language == "ru":
+        text_lines.append(f"Фокус дня: {focus}")
+    else:
+        text_lines.append(f"Focus of the day: {focus}")
 
     for a in affirmations:
         text_lines.append(f"• {a}")
