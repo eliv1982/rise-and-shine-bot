@@ -106,26 +106,10 @@ def build_focus_of_day(sphere: str, language: str = "ru", subsphere: Optional[st
     """
     Возвращает короткий фокус дня без дополнительного LLM-вызова.
     """
-    ru = {
-        "money": ["спокойная финансовая опора", "зрелое отношение к деньгам", "достоинство и устойчивость"],
-        "inner_peace": ["тишина внутри", "мягкая ясность", "спокойное возвращение к себе"],
-        "self_realization": ["свой голос", "смелость проявляться", "творчество без идеальности"],
-        "relationships": ["тепло и границы", "честная близость", "уважение к себе и другому"],
-        "health": ["бережное восстановление", "забота без давления", "мягкая энергия"],
-        "career": ["спокойная уверенность", "ясное движение вперёд", "профессиональная опора"],
-        "spirituality": ["заземлённая интуиция", "тихое доверие", "смысл и внутренняя опора"],
-    }
-    en = {
-        "money": ["calm financial ground", "mature relationship with money", "dignity and stability"],
-        "inner_peace": ["inner quiet", "soft clarity", "a calm return to myself"],
-        "self_realization": ["my own voice", "courage to be visible", "creativity without perfection"],
-        "relationships": ["warmth and boundaries", "honest closeness", "respect for myself and others"],
-        "health": ["gentle restoration", "care without pressure", "soft energy"],
-        "career": ["calm confidence", "clear movement forward", "professional dignity"],
-        "spirituality": ["grounded intuition", "quiet trust", "meaning and inner support"],
-    }
-    mapping = en if language == "en" else ru
-    options = mapping.get((sphere or "").lower(), mapping["inner_peace"])
+    from services.ritual_config import get_focuses
+
+    focuses = get_focuses((sphere or "").lower())
+    options = [focus.get(language, focus["ru"]) for focus in focuses]
     seed = f"{sphere}:{subsphere or ''}:{language}"
     idx = sum(ord(ch) for ch in seed) % len(options)
     return options[idx]

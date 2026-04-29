@@ -1,3 +1,4 @@
+from services.ritual_config import get_focuses
 from utils import build_focus_of_day, gender_display, normalize_gender
 
 
@@ -18,13 +19,5 @@ def test_gender_display_never_empty():
 
 
 def test_focus_of_day_is_localized_and_non_empty():
-    assert build_focus_of_day("money", "ru") in {
-        "спокойная финансовая опора",
-        "зрелое отношение к деньгам",
-        "достоинство и устойчивость",
-    }
-    assert build_focus_of_day("money", "en") in {
-        "calm financial ground",
-        "mature relationship with money",
-        "dignity and stability",
-    }
+    assert build_focus_of_day("money", "ru") in {focus["ru"] for focus in get_focuses("money")}
+    assert build_focus_of_day("money", "en") in {focus["en"] for focus in get_focuses("money")}

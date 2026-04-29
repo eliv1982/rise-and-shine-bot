@@ -1,19 +1,16 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from services.ritual_config import CURATED_STYLE_KEYS, MAIN_SPHERES, get_sphere_label, get_style_label, is_tts_available
+
 
 def _t(language: str, ru: str, en: str) -> str:
     return ru if language == "ru" else en
 
 
 def _sphere_buttons(b: InlineKeyboardBuilder, language: str, include_custom_theme: bool = True) -> None:
-    b.button(text=_t(language, "Карьера и успех", "Career & success"), callback_data="sphere:career")
-    b.button(text=_t(language, "Здоровье и энергия", "Health & energy"), callback_data="sphere:health")
-    b.button(text=_t(language, "Финансовое благополучие", "Financial well-being"), callback_data="sphere:money")
-    b.button(text=_t(language, "Отношения", "Relationships"), callback_data="sphere:relationships")
-    b.button(text=_t(language, "Самореализация и творчество", "Self-realization & creativity"), callback_data="sphere:self_realization")
-    b.button(text=_t(language, "Духовный рост", "Spiritual growth"), callback_data="sphere:spirituality")
-    b.button(text=_t(language, "Внутренний покой", "Inner peace"), callback_data="sphere:inner_peace")
+    for sphere in MAIN_SPHERES:
+        b.button(text=get_sphere_label(sphere, language), callback_data=f"sphere:{sphere}")
     if include_custom_theme:
         b.button(text=_t(language, "Своя тема", "Custom theme"), callback_data="sphere:custom_theme")
     b.adjust(1)
@@ -26,13 +23,18 @@ def sphere_keyboard(language: str) -> InlineKeyboardMarkup:
 
 
 def sphere_keyboard_for_subscription(language: str) -> InlineKeyboardMarkup:
-    """Сферы для подписки (без «Своя тема») + опция «разные сферы каждый день»."""
+    """Основные сферы для режима фокуса на одной сфере."""
     b = InlineKeyboardBuilder()
-    _sphere_buttons(b, language, include_custom_theme=False)
-    b.button(
-        text=_t(language, "Разные сферы каждый день", "Different sphere each day"),
-        callback_data="sphere:random",
-    )
+    for sphere in MAIN_SPHERES:
+        b.button(text=get_sphere_label(sphere, language), callback_data=f"sphere:{sphere}")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def subscription_mode_keyboard(language: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text=_t(language, "🌿 Баланс недели", "🌿 Weekly balance"), callback_data="submode:weekly_balance")
+    b.button(text=_t(language, "🎯 Фокус на сфере", "🎯 Focus on one area"), callback_data="submode:sphere_focus")
     b.adjust(1)
     return b.as_markup()
 
@@ -48,32 +50,21 @@ def relationships_subsphere_keyboard(language: str) -> InlineKeyboardMarkup:
 
 def style_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Реалистичный", "Realistic"), callback_data="style:realistic")
-    b.button(text=_t(language, "Мультяшный", "Cartoon"), callback_data="style:cartoon")
-    b.button(text=_t(language, "Мандала", "Mandala"), callback_data="style:mandala")
-    b.button(text=_t(language, "Сакральная геометрия", "Sacred geometry"), callback_data="style:sacred_geometry")
-    b.button(text=_t(language, "Природа", "Nature"), callback_data="style:nature")
-    b.button(text=_t(language, "Космос", "Cosmos"), callback_data="style:cosmos")
-    b.button(text=_t(language, "Абстракция", "Abstract"), callback_data="style:abstract")
+    b.button(text=_t(language, "🎨 Автоподбор", "🎨 Auto"), callback_data="style:auto")
+    for style in CURATED_STYLE_KEYS:
+        b.button(text=get_style_label(style, language), callback_data=f"style:{style}")
     b.button(text=_t(language, "Свой стиль", "Custom style"), callback_data="style:custom")
     b.adjust(1)
     return b.as_markup()
 
 
 def style_keyboard_for_subscription(language: str) -> InlineKeyboardMarkup:
-    """Стили для подписки (без «Свой стиль») + опция «разный стиль каждый день»."""
+    """Curated стили для подписки."""
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Реалистичный", "Realistic"), callback_data="style:realistic")
-    b.button(text=_t(language, "Мультяшный", "Cartoon"), callback_data="style:cartoon")
-    b.button(text=_t(language, "Мандала", "Mandala"), callback_data="style:mandala")
-    b.button(text=_t(language, "Сакральная геометрия", "Sacred geometry"), callback_data="style:sacred_geometry")
-    b.button(text=_t(language, "Природа", "Nature"), callback_data="style:nature")
-    b.button(text=_t(language, "Космос", "Cosmos"), callback_data="style:cosmos")
-    b.button(text=_t(language, "Абстракция", "Abstract"), callback_data="style:abstract")
-    b.button(
-        text=_t(language, "Разный стиль каждый день", "Different style each day"),
-        callback_data="style:random",
-    )
+    b.button(text=_t(language, "🎨 Автоподбор", "🎨 Auto"), callback_data="style:auto")
+    b.button(text=_t(language, "🔀 Разные подходящие стили", "🔀 Different suitable styles"), callback_data="style:random_suitable")
+    for style in CURATED_STYLE_KEYS:
+        b.button(text=get_style_label(style, language), callback_data=f"style:{style}")
     b.adjust(1)
     return b.as_markup()
 
@@ -108,15 +99,6 @@ def style_cancel_keyboard(language: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def style_extra_keyboard(language: str) -> InlineKeyboardMarkup:
-    """После выбора пресетного стиля: добавить описание или продолжить."""
-    b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Добавить описание", "Add description"), callback_data="style_extra:add")
-    b.button(text=_t(language, "Продолжить", "Continue"), callback_data="style_extra:continue")
-    b.adjust(1)
-    return b.as_markup()
-
-
 def gender_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "Мужской", "Male"), callback_data="gender:male")
@@ -144,7 +126,8 @@ def new_affirmation_keyboard(language: str) -> InlineKeyboardMarkup:
 
 def after_generation_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.button(text="🔊 Озвучить", callback_data="tts:yes")
+    if is_tts_available(language):
+        b.button(text="🔊 Озвучить", callback_data="tts:yes")
     b.button(text=_t(language, "Ещё аффирмацию", "More"), callback_data="again:yes")
     b.button(text=_t(language, "Создать новую (другая сфера/стиль)", "Create new (different sphere/style)"), callback_data="new:yes")
     b.button(text=_t(language, "Настроить подписку", "Subscribe"), callback_data="sub:open")
@@ -177,15 +160,20 @@ def subscription_confirm_keyboard(language: str) -> InlineKeyboardMarkup:
 
 
 def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Клавиатура под сообщением по подписке: озвучить, отменить подписку, изменить подписку."""
+    """Клавиатура под сообщением по подписке."""
     b = InlineKeyboardBuilder()
-    b.button(text="🔊 Озвучить", callback_data="sub_tts:yes")
+    if is_tts_available(language):
+        b.button(text="🔊 Озвучить", callback_data="sub_tts:yes")
     b.button(
-        text=_t(language, "Отменить подписку", "Cancel subscription"),
-        callback_data="sub:unsubscribe",
+        text=_t(language, "✨ Ещё аффирмацию", "More"),
+        callback_data="sub_more:yes",
     )
     b.button(
-        text=_t(language, "Изменить подписку", "Change subscription"),
+        text=_t(language, "🔁 Создать новую", "Create new"),
+        callback_data="sub_new:yes",
+    )
+    b.button(
+        text=_t(language, "⚙️ Настроить подписку", "Subscription settings"),
         callback_data="sub:change",
     )
     b.adjust(1)

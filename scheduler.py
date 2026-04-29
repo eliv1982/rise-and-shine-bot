@@ -2,7 +2,6 @@ import datetime as dt
 import json
 import logging
 import os
-import random
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -18,37 +17,18 @@ from monitoring import (
     log_image_prompt_llm_fallback,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.ritual_config import (
+    get_focus_for_date,
+    get_sphere_label,
+    get_weekly_balance_sphere,
+    resolve_style,
+)
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
-from utils import build_focus_of_day, gender_display
+from utils import gender_display
 
 logger = logging.getLogger(__name__)
 
 MOSCOW = ZoneInfo("Europe/Moscow")
-
-# Сферы для опции «разные сферы каждый день»
-SUBSCRIPTION_SPHERES = [
-    "career",
-    "health",
-    "money",
-    "relationships",
-    "self_realization",
-    "spirituality",
-    "inner_peace",
-]
-
-# Подсферы для relationships (при случайной сфере)
-RELATIONSHIP_SUBSPHERES = ["partner", "colleagues", "friends"]
-
-# Стили для опции «разный стиль каждый день»
-SUBSCRIPTION_STYLES = [
-    "realistic",
-    "cartoon",
-    "mandala",
-    "sacred_geometry",
-    "nature",
-    "cosmos",
-    "abstract",
-]
 
 # Планировщик в московском времени, чтобы cron срабатывал по Москве
 scheduler = AsyncIOScheduler(timezone=MOSCOW)
@@ -71,14 +51,21 @@ async def send_daily_affirmations(bot: Bot) -> None:
         style = sub["image_style"]
         language = sub["language"]
         gender = sub.get("user_gender")
+        subscription_mode = sub.get("subscription_mode") or ("weekly_balance" if sphere == "random" else "sphere_focus")
+        today = now.date()
 
-        # Опция «разные сферы каждый день»: выбираем сферу случайно
-        if sphere == "random":
-            sphere = random.choice(SUBSCRIPTION_SPHERES)
-            subsphere = random.choice(RELATIONSHIP_SUBSPHERES) if sphere == "relationships" else None
-        # Опция «разный стиль каждый день»: выбираем стиль случайно
-        if style == "random":
-            style = random.choice(SUBSCRIPTION_STYLES)
+        if subscription_mode == "weekly_balance" or sphere == "random":
+            sphere = get_weekly_balance_sphere(user_id, today)
+            subsphere = None
+        else:
+            sphere = sub.get("subscription_sphere") or sphere
+
+        focus = get_focus_for_date(user_id, sphere, today)
+        focus_text = focus["en"] if language == "en" else focus["ru"]
+        micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
+        image_hint = focus.get("image_hint_en")
+        style_mode = sub.get("subscription_style_mode") or style
+        style = resolve_style(style_mode, sphere, user_id=user_id, day=today, focus_key=focus["key"])
 
         gender_hint = gender_display(gender, language=language)
         settings = get_settings()
@@ -91,6 +78,9 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 subsphere=subsphere,
                 gender_hint=gender_hint,
                 gender=gender,
+                focus=focus_text,
+                micro_theme=micro_step,
+                sphere_label=get_sphere_label(sphere, language),
             )
             color_mood = random.choice(_COLOR_MOODS)
             composition_hint = random.choice(_COMPOSITION_HINTS)
@@ -104,6 +94,9 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 color_mood=color_mood,
                 composition_hint=composition_hint,
                 use_llm=settings.llm_image_prompt_enabled,
+                image_hint=image_hint,
+                focus=focus_text,
+                resolved_style=style,
             )
             if prompt_trace == "template_fallback":
                 log_image_prompt_llm_fallback("subscription_llm_fallback")
@@ -115,6 +108,11 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 custom_style_description=None,
                 prompt_override=prompt_final,
                 image_prompt_trace=prompt_trace,
+                image_hint=image_hint,
+                resolved_style_override=style,
+                focus_key=focus["key"],
+                color_mood=color_mood,
+                composition_hint=composition_hint,
             )
         except Exception as exc:
             logger.exception("Daily generation failed for user %s: %s", user_id, exc)
@@ -125,23 +123,27 @@ async def send_daily_affirmations(bot: Bot) -> None:
         name = sub.get("user_name")
         if language == "ru":
             if name:
-                text_lines.append(f"{name}, твоя ежедневная аффирмация:")
+                text_lines.append(f"{name}, твой настрой на сегодня 🌿")
             else:
-                text_lines.append("Твоя ежедневная аффирмация:")
+                text_lines.append("Твой настрой на сегодня 🌿")
         else:
             if name:
-                text_lines.append(f"{name}, your daily affirmation:")
+                text_lines.append(f"{name}, your focus for today 🌿")
             else:
-                text_lines.append("Your daily affirmation:")
+                text_lines.append("Your focus for today 🌿")
 
-        focus = build_focus_of_day(sphere, language=language, subsphere=subsphere)
         if language == "ru":
-            text_lines.append(f"Фокус дня: {focus}")
+            text_lines.append(f"Фокус дня: {focus_text}")
         else:
-            text_lines.append(f"Focus of the day: {focus}")
+            text_lines.append(f"Focus of the day: {focus_text}")
 
         for a in affirmations:
             text_lines.append(f"• {a}")
+
+        if language == "ru":
+            text_lines.append(f"Мягкий шаг дня:\n{micro_step}")
+        else:
+            text_lines.append(f"Gentle step of the day:\n{micro_step}")
 
         caption = "\n\n".join(text_lines)
 
@@ -154,6 +156,15 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 meta["theme_text"] = None
                 meta["gender"] = gender
                 meta["source"] = "subscription"
+                meta["subscription_mode"] = subscription_mode
+                meta["focus"] = focus
+                meta["focus_key"] = focus["key"]
+                meta["micro_step"] = micro_step
+                meta["style_mode"] = style_mode
+                meta["requested_style"] = style_mode
+                meta["selected_style"] = style
+                meta["color_palette"] = color_mood
+                meta["composition_hint"] = composition_hint
                 with open(meta_path, "w", encoding="utf-8") as f:
                     json.dump(meta, f, ensure_ascii=False, indent=2)
             except Exception as e:
@@ -162,6 +173,11 @@ async def send_daily_affirmations(bot: Bot) -> None:
         last_subscription_affirmations[user_id] = {
             "affirmations": affirmations,
             "gender": gender,
+            "language": language,
+            "sphere": sphere,
+            "subsphere": subsphere,
+            "style": style,
+            "style_mode": style_mode,
         }
 
         try:

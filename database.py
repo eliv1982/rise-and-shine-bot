@@ -13,6 +13,15 @@ _data_dir = os.getenv("BOT_DATA_DIR", "").strip()
 DB_PATH = os.path.join(_data_dir, "bot.db") if _data_dir else "bot.db"
 
 
+async def add_column_if_missing(db: aiosqlite.Connection, table: str, column: str, definition: str) -> None:
+    cur = await db.execute(f"PRAGMA table_info({table})")
+    rows = await cur.fetchall()
+    await cur.close()
+    existing = {row[1] for row in rows}
+    if column not in existing:
+        await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 async def init_db() -> None:
     """
     Инициализация схемы БД (если таблиц ещё нет).
@@ -50,6 +59,9 @@ async def init_db() -> None:
             );
             """
         )
+        await add_column_if_missing(db, "subscriptions", "subscription_mode", "TEXT DEFAULT 'weekly_balance'")
+        await add_column_if_missing(db, "subscriptions", "subscription_sphere", "TEXT")
+        await add_column_if_missing(db, "subscriptions", "subscription_style_mode", "TEXT DEFAULT 'auto'")
         await db.commit()
     logger.info("Database initialized")
 
@@ -182,6 +194,9 @@ async def upsert_subscription(
     language: str,
     hour: int,
     minute: int,
+    subscription_mode: str = "weekly_balance",
+    subscription_sphere: Optional[str] = None,
+    subscription_style_mode: str = "auto",
 ) -> None:
     """
     Создаёт новую активную подписку и деактивирует старые.
@@ -190,10 +205,24 @@ async def upsert_subscription(
         await db.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
         await db.execute(
             """
-            INSERT INTO subscriptions (user_id, sphere, subsphere, image_style, language, hour, minute, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            INSERT INTO subscriptions (
+                user_id, sphere, subsphere, image_style, language, hour, minute, is_active,
+                subscription_mode, subscription_sphere, subscription_style_mode
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
             """,
-            (user_id, sphere, subsphere, image_style, language, hour, minute),
+            (
+                user_id,
+                sphere,
+                subsphere,
+                image_style,
+                language,
+                hour,
+                minute,
+                subscription_mode,
+                subscription_sphere,
+                subscription_style_mode,
+            ),
         )
         await db.commit()
 

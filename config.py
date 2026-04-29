@@ -40,6 +40,7 @@ class Settings:
     proxi_base_url: str
     bot_token: str
     generation_daily_limit: int
+    disable_daily_generation_limit: bool
     output_max_age_days: int
     llm_image_prompt_enabled: bool
     image_model: str
@@ -75,6 +76,7 @@ def get_settings() -> Settings:
     """
     Централизованная загрузка и валидация конфигурации.
     """
+    daily_limit = _get_env_int("DAILY_GENERATION_LIMIT", _get_env_int("GENERATION_DAILY_LIMIT", 5))
     return Settings(
         yandex_api_key=_get_env_var("YANDEX_API_KEY"),
         yandex_folder_id=_get_env_var("YANDEX_FOLDER_ID"),
@@ -82,7 +84,8 @@ def get_settings() -> Settings:
         proxi_api_key=_get_env_var("PROXI_API_KEY"),
         proxi_base_url=_get_env_var("PROXI_BASE_URL", required=False, default="https://api.proxyapi.ru/openai/v1"),
         bot_token=_get_env_var("BOT_TOKEN"),
-        generation_daily_limit=_get_env_int("GENERATION_DAILY_LIMIT", 5),
+        generation_daily_limit=daily_limit,
+        disable_daily_generation_limit=_get_env_bool("DISABLE_DAILY_GENERATION_LIMIT", False),
         output_max_age_days=_get_env_int("OUTPUT_MAX_AGE_DAYS", 7),
         llm_image_prompt_enabled=_get_env_bool("LLM_IMAGE_PROMPT_ENABLED", True),
         image_model=_get_env_var("IMAGE_MODEL", required=False, default="gpt-image-1-mini") or "gpt-image-1-mini",

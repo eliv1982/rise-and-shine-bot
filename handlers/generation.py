@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 import logging
 import os
 import random
@@ -16,7 +17,6 @@ from keyboards.inline import (
     relationships_subsphere_keyboard,
     sphere_keyboard,
     style_cancel_keyboard,
-    style_extra_keyboard,
     style_keyboard,
     theme_early_cancel_keyboard,
 )
@@ -27,11 +27,17 @@ from monitoring import (
     log_rate_limited,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.ritual_config import (
+    get_focus_for_date,
+    get_sphere_label,
+    is_tts_available,
+    resolve_style,
+)
 from services.speechkit import transcribe_audio
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
-from utils import build_focus_of_day, gender_display
+from utils import gender_display
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -43,34 +49,20 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
     await callback.answer()
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
-    current = await state.get_state()
-    # Если уже в сценарии генерации — редактируем текущее сообщение, чтобы не слать лишний блок
-    if current and current.startswith("GenerationState:"):
-        await callback.message.edit_text(
-            "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
-            reply_markup=sphere_keyboard(language),
-        )
-    else:
-        await callback.message.answer(
-            "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
-            reply_markup=sphere_keyboard(language),
-        )
+    await callback.message.answer(
+        "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
+        reply_markup=sphere_keyboard(language),
+    )
 
 
 @router.message(Command("new"))
 async def cmd_new(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
-    current = await state.get_state()
-    # Уже в сценарии генерации — не слать второй блок «Выбери сферу», чтобы не дублировать
-    if current and current.startswith("GenerationState:"):
-        if language == "ru":
-            await message.answer("Продолжи выбор выше: выбери стиль или сферу в предыдущем сообщении.")
-        else:
-            await message.answer("Continue above: choose style or sphere in the previous message.")
-        return
+    await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
     await message.answer(
@@ -217,100 +209,23 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     language = (user or {}).get("language", "ru")
     style = callback.data.split(":", maxsplit=1)[1]
     await state.update_data(style=style, custom_style_description=None)
-    await state.set_state(GenerationState.confirm_style_extra)
-    await callback.message.edit_text(
-        "Добавить описание к стилю картинки или продолжить без него?" if language == "ru" else "Add a description to the image style or continue without?",
-        reply_markup=style_extra_keyboard(language),
-    )
-    await callback.answer()
-
-
-@router.callback_query(GenerationState.confirm_style_extra, F.data == "style_extra:continue")
-async def style_extra_continue(callback: CallbackQuery, state: FSMContext) -> None:
-    user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
     data = await state.get_data()
-    theme_text = data.get("theme_text")
     await callback.message.edit_text(
         "Генерирую аффирмацию и изображение…" if language == "ru" else "Generating affirmation and image…"
     )
     await callback.answer()
-    await _run_generation(callback.message, state, theme_text=theme_text, user_telegram_id=callback.from_user.id)
-
-
-@router.callback_query(GenerationState.confirm_style_extra, F.data == "style_extra:add")
-async def style_extra_add(callback: CallbackQuery, state: FSMContext) -> None:
-    user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
-    await state.set_state(GenerationState.waiting_for_custom_style)
-    await callback.message.edit_text(
-        "Опиши желаемый стиль изображения текстом или отправь голосовое сообщение."
-        if language == "ru"
-        else "Describe the desired image style in text or send a voice message.",
-        reply_markup=style_cancel_keyboard(language),
-    )
-    await callback.answer()
-
-
-@router.message(GenerationState.confirm_style_extra, F.voice)
-async def handle_voice_style_extra(message: Message, state: FSMContext) -> None:
-    """Голос прямо на «Добавить описание или продолжить?» — распознаём и запускаем генерацию."""
-    user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
-    voice = message.voice
-    if not voice:
-        return
-    file = await message.bot.get_file(voice.file_id)
-    dest_dir = get_outputs_dir()
-    os.makedirs(dest_dir, exist_ok=True)
-    local_path = os.path.join(dest_dir, f"voice_style_{message.from_user.id}_{voice.file_unique_id}.ogg")
-    await message.bot.download_file(file.file_path, destination=local_path)
-    try:
-        recognized = await transcribe_audio(local_path, language=language)
-    except Exception as exc:
-        logger.exception("STT failed (style extra): %s", exc)
-        await message.answer(
-            "Не удалось распознать голос. Напиши текстом или нажми «Продолжить»." if language == "ru" else "Could not recognize. Type or press Continue."
-        )
-        return
-    await state.update_data(custom_style_description=recognized)
-    data = await state.get_data()
-    await message.answer("Генерирую аффирмацию и изображение…" if language == "ru" else "Generating affirmation and image…")
-    await _run_generation(message, state, theme_text=data.get("theme_text"))
-
-
-@router.message(GenerationState.confirm_style_extra, F.text)
-async def handle_text_style_extra(message: Message, state: FSMContext) -> None:
-    """Текст прямо на «Добавить описание или продолжить?» — используем как описание и запускаем генерацию."""
-    user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
-    text = (message.text or "").strip()
-    if not text:
-        return
-    await state.update_data(custom_style_description=text)
-    data = await state.get_data()
-    await message.answer("Генерирую аффирмацию и изображение…" if language == "ru" else "Generating affirmation and image…")
-    await _run_generation(message, state, theme_text=data.get("theme_text"))
+    await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
 
 
 @router.callback_query(GenerationState.waiting_for_custom_style, F.data == "style:cancel")
 async def cancel_custom_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
-    data = await state.get_data()
-    # Если пришли из «Добавить описание» (пресет уже выбран) — вернуть к двум кнопкам
-    if data.get("style") and data.get("style") != "custom":
-        await state.set_state(GenerationState.confirm_style_extra)
-        await callback.message.edit_text(
-            "Добавить описание к стилю картинки или продолжить без него?" if language == "ru" else "Add a description or continue without?",
-            reply_markup=style_extra_keyboard(language),
-        )
-    else:
-        await state.set_state(GenerationState.choosing_style)
-        await callback.message.edit_text(
-            "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
-            reply_markup=style_keyboard(language),
-        )
+    await state.set_state(GenerationState.choosing_style)
+    await callback.message.edit_text(
+        "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
+        reply_markup=style_keyboard(language),
+    )
     await callback.answer()
 
 
@@ -385,7 +300,8 @@ async def _run_generation(
         await state.clear()
         return
 
-    if settings.generation_daily_limit > 0:
+    limit_enabled = not settings.disable_daily_generation_limit and settings.generation_daily_limit > 0
+    if limit_enabled:
         allowed, used = await can_start_interactive_generation(uid, settings.generation_daily_limit)
         if not allowed:
             log_rate_limited(uid, used, settings.generation_daily_limit)
@@ -403,6 +319,12 @@ async def _run_generation(
             return
 
     gender_hint = gender_display(gender, language=language)
+    today = dt.datetime.now().date()
+    focus = get_focus_for_date(uid, sphere, today)
+    focus_text = focus["en"] if language == "en" else focus["ru"]
+    micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
+    image_hint = focus.get("image_hint_en")
+    resolved_style = resolve_style(style, sphere, user_id=uid, day=today, focus_key=focus["key"])
 
     try:
         affirmations = await generate_affirmations(
@@ -412,6 +334,9 @@ async def _run_generation(
             subsphere=subsphere,
             gender_hint=gender_hint,
             gender=gender,
+            focus=focus_text,
+            micro_theme=micro_step,
+            sphere_label=get_sphere_label(sphere, language),
         )
     except Exception as exc:
         logger.exception("Affirmations generation failed: %s", exc)
@@ -439,6 +364,9 @@ async def _run_generation(
             color_mood=color_mood,
             composition_hint=composition_hint,
             use_llm=settings.llm_image_prompt_enabled,
+            image_hint=image_hint,
+            focus=focus_text,
+            resolved_style=resolved_style,
         )
         if prompt_trace == "template_fallback":
             log_image_prompt_llm_fallback("llm_unavailable_or_bad_json")
@@ -450,6 +378,11 @@ async def _run_generation(
             custom_style_description=custom_style_description,
             prompt_override=prompt_final,
             image_prompt_trace=prompt_trace,
+            image_hint=image_hint,
+            resolved_style_override=resolved_style,
+            focus_key=focus["key"],
+            color_mood=color_mood,
+            composition_hint=composition_hint,
         )
     except Exception as exc:
         logger.exception("Image generation failed: %s", exc)
@@ -473,23 +406,27 @@ async def _run_generation(
     name = (user or {}).get("name")
     if language == "ru":
         if name:
-            text_lines.append(f"{name}, твои аффирмации:")
+            text_lines.append(f"{name}, твой настрой на сегодня 🌿")
         else:
-            text_lines.append("Твои аффирмации:")
+            text_lines.append("Твой настрой на сегодня 🌿")
     else:
         if name:
-            text_lines.append(f"{name}, here are your affirmations:")
+            text_lines.append(f"{name}, your focus for today 🌿")
         else:
-            text_lines.append("Here are your affirmations:")
+            text_lines.append("Your focus for today 🌿")
 
-    focus = build_focus_of_day(sphere, language=language, subsphere=subsphere)
     if language == "ru":
-        text_lines.append(f"Фокус дня: {focus}")
+        text_lines.append(f"Фокус дня: {focus_text}")
     else:
-        text_lines.append(f"Focus of the day: {focus}")
+        text_lines.append(f"Focus of the day: {focus_text}")
 
     for a in affirmations:
         text_lines.append(f"• {a}")
+
+    if language == "ru":
+        text_lines.append(f"Мягкий шаг дня:\n{micro_step}")
+    else:
+        text_lines.append(f"Gentle step of the day:\n{micro_step}")
 
     caption = "\n\n".join(text_lines)
 
@@ -501,6 +438,14 @@ async def _run_generation(
             meta["affirmations"] = affirmations
             meta["theme_text"] = theme_text
             meta["gender"] = gender
+            meta["focus"] = focus
+            meta["micro_step"] = micro_step
+            meta["requested_style"] = style
+            meta["selected_style"] = resolved_style
+            meta["resolved_style"] = resolved_style
+            meta["focus_key"] = focus["key"]
+            meta["color_palette"] = color_mood
+            meta["composition_hint"] = composition_hint
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(meta, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -509,7 +454,7 @@ async def _run_generation(
     photo = FSInputFile(image_path)
     await message.answer_photo(photo=photo, caption=caption, reply_markup=after_generation_keyboard(language))
 
-    if settings.generation_daily_limit > 0:
+    if limit_enabled:
         await record_interactive_generation(uid)
     log_generation_ok(uid, "interactive", prompt_trace)
 
@@ -518,9 +463,11 @@ async def _run_generation(
             "sphere": sphere,
             "subsphere": subsphere,
             "style": style,
+            "resolved_style": resolved_style,
             "theme_text": theme_text,
             "custom_style_description": custom_style_description,
             "affirmations": affirmations,
+            "focus_key": focus["key"],
         }
     )
     await state.set_state(GenerationState.after_result)
@@ -557,6 +504,13 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
 async def tts_affirmations(callback: CallbackQuery, state: FSMContext) -> None:
     """Озвучить последние аффирмации через SpeechKit TTS и отправить голосовым сообщением."""
     await callback.answer()
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    if not is_tts_available(language):
+        await callback.message.answer(
+            "English audio is coming soon. Audio is currently available in Russian only."
+        )
+        return
     data = await state.get_data()
     last = data.get("last_generation")
     raw = (last or {}).get("affirmations") if last else None
@@ -575,7 +529,6 @@ async def tts_affirmations(callback: CallbackQuery, state: FSMContext) -> None:
             "Нет текста для озвучки. Сначала получи аффирмацию, затем нажми «🔊 Озвучить»."
         )
         return
-    user = await get_user(callback.from_user.id)
     gender = (user or {}).get("gender")
     try:
         audio_path = await synthesize_affirmations_with_pauses(
@@ -600,6 +553,7 @@ async def new_request_from_result(callback: CallbackQuery, state: FSMContext) ->
     await callback.answer()
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
     await callback.message.answer(

@@ -23,6 +23,9 @@ def test_build_image_prompt_contains_sphere_and_no_text():
     )
     assert "inner_peace" in prompt or "affirmation" in prompt.lower()
     assert "no text" in prompt.lower()
+    assert "bright daily affirmation image" in prompt.lower()
+    assert "phone screen" in prompt.lower()
+    assert "no logos" in prompt.lower()
 
 
 def test_build_image_prompt_avoids_literal_money_symbols():
@@ -50,10 +53,13 @@ def test_old_style_keys_still_work():
 def test_new_style_keys_return_non_empty_phrases():
     for style in (
         "soft_editorial",
+        "bright_nature_card",
         "dreamy_painterly",
+        "quiet_interior",
         "minimal_botanical",
         "cinematic_light",
         "ethereal_landscape",
         "symbolic_luxe",
+        "textured_collage",
     ):
         assert _style_to_phrase(style)
