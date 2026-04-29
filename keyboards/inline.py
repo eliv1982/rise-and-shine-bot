@@ -1,7 +1,15 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from services.ritual_config import CURATED_STYLE_KEYS, MAIN_SPHERES, get_sphere_label, get_style_label, is_tts_available
+from services.ritual_config import (
+    ILLUSTRATION_STYLE_KEYS,
+    MAIN_SPHERES,
+    PHOTO_STYLE_KEYS,
+    get_sphere_label,
+    get_style_label,
+    is_tts_available,
+    normalize_visual_mode,
+)
 
 
 def _t(language: str, ru: str, en: str) -> str:
@@ -39,6 +47,15 @@ def subscription_mode_keyboard(language: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
+def visual_mode_keyboard(language: str, *, for_subscription: bool = False) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text=_t(language, "📷 Фотореализм", "📷 Photo realism"), callback_data="visual:photo")
+    b.button(text=_t(language, "🖌 Мягкая иллюстрация", "🖌 Soft illustration"), callback_data="visual:illustration")
+    b.button(text=_t(language, "🔀 Смешивать стили", "🔀 Mix styles"), callback_data="visual:mixed")
+    b.adjust(1)
+    return b.as_markup()
+
+
 def relationships_subsphere_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "С партнёром", "With partner"), callback_data="subsphere:partner")
@@ -48,23 +65,52 @@ def relationships_subsphere_keyboard(language: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def style_keyboard(language: str) -> InlineKeyboardMarkup:
+def _style_keys_for_visual_mode(visual_mode: str) -> list[str]:
+    mode = normalize_visual_mode(visual_mode)
+    if mode == "photo":
+        return PHOTO_STYLE_KEYS
+    if mode == "mixed":
+        return PHOTO_STYLE_KEYS + ILLUSTRATION_STYLE_KEYS
+    return ILLUSTRATION_STYLE_KEYS
+
+
+def _style_button_label(style: str, language: str) -> str:
+    icons = {
+        "bright_photo_card": "🌞",
+        "sunny_nature_photo": "🌿",
+        "light_interior_photo": "🪟",
+        "cinematic_real_photo": "🎬",
+        "bright_nature_card": "🌸",
+        "dreamy_painterly": "🖌",
+        "quiet_interior": "🪟",
+        "minimal_botanical": "🌱",
+        "cinematic_light": "🎬",
+        "ethereal_landscape": "🌫",
+        "symbolic_luxe": "✨",
+        "textured_collage": "🧩",
+    }
+    label = get_style_label(style, language)
+    icon = icons.get(style)
+    return f"{icon} {label}" if icon else label
+
+
+def style_keyboard(language: str, visual_mode: str = "illustration") -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "🎨 Автоподбор", "🎨 Auto"), callback_data="style:auto")
-    for style in CURATED_STYLE_KEYS:
-        b.button(text=get_style_label(style, language), callback_data=f"style:{style}")
+    for style in _style_keys_for_visual_mode(visual_mode):
+        b.button(text=_style_button_label(style, language), callback_data=f"style:{style}")
     b.button(text=_t(language, "Свой стиль", "Custom style"), callback_data="style:custom")
     b.adjust(1)
     return b.as_markup()
 
 
-def style_keyboard_for_subscription(language: str) -> InlineKeyboardMarkup:
+def style_keyboard_for_subscription(language: str, visual_mode: str = "illustration") -> InlineKeyboardMarkup:
     """Curated стили для подписки."""
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "🎨 Автоподбор", "🎨 Auto"), callback_data="style:auto")
     b.button(text=_t(language, "🔀 Разные подходящие стили", "🔀 Different suitable styles"), callback_data="style:random_suitable")
-    for style in CURATED_STYLE_KEYS:
-        b.button(text=get_style_label(style, language), callback_data=f"style:{style}")
+    for style in _style_keys_for_visual_mode(visual_mode):
+        b.button(text=_style_button_label(style, language), callback_data=f"style:{style}")
     b.adjust(1)
     return b.as_markup()
 
@@ -117,9 +163,9 @@ def language_keyboard() -> InlineKeyboardMarkup:
 
 
 def new_affirmation_keyboard(language: str) -> InlineKeyboardMarkup:
-    """Кнопка «Новая аффирмация» после регистрации."""
+    """Кнопка создания нового настроя дня после регистрации."""
     b = InlineKeyboardBuilder()
-    b.button(text=_t(language, "Новая аффирмация", "New affirmation"), callback_data="cmd:new")
+    b.button(text=_t(language, "🌿 Создать настрой дня", "🌿 Create daily focus"), callback_data="cmd:new")
     b.adjust(1)
     return b.as_markup()
 
@@ -128,9 +174,9 @@ def after_generation_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     if is_tts_available(language):
         b.button(text="🔊 Озвучить", callback_data="tts:yes")
-    b.button(text=_t(language, "Ещё аффирмацию", "More"), callback_data="again:yes")
-    b.button(text=_t(language, "Создать новую (другая сфера/стиль)", "Create new (different sphere/style)"), callback_data="new:yes")
-    b.button(text=_t(language, "Настроить подписку", "Subscribe"), callback_data="sub:open")
+    b.button(text=_t(language, "✨ Ещё настрой", "✨ More"), callback_data="again:yes")
+    b.button(text=_t(language, "🔁 Создать новый", "🔁 Create new"), callback_data="new:yes")
+    b.button(text=_t(language, "⚙️ Настроить подписку", "⚙️ Subscription settings"), callback_data="sub:open")
     b.adjust(1)
     return b.as_markup()
 
@@ -165,7 +211,7 @@ def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
     if is_tts_available(language):
         b.button(text="🔊 Озвучить", callback_data="sub_tts:yes")
     b.button(
-        text=_t(language, "✨ Ещё аффирмацию", "More"),
+        text=_t(language, "✨ Ещё настрой", "✨ More"),
         callback_data="sub_more:yes",
     )
     b.button(
@@ -176,6 +222,17 @@ def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
         text=_t(language, "⚙️ Настроить подписку", "Subscription settings"),
         callback_data="sub:change",
     )
+    b.adjust(1)
+    return b.as_markup()
+
+
+def profile_keyboard(language: str, has_subscription: bool) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text=_t(language, "⚙️ Настроить подписку", "⚙️ Subscription settings"), callback_data="sub:change")
+    if has_subscription:
+        b.button(text=_t(language, "🗑 Отменить подписку", "🗑 Cancel subscription"), callback_data="sub:unsubscribe")
+    b.button(text=_t(language, "Мужской", "Male"), callback_data="gender:male")
+    b.button(text=_t(language, "Женский", "Female"), callback_data="gender:female")
     b.adjust(1)
     return b.as_markup()
 

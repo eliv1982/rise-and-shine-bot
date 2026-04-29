@@ -6,8 +6,16 @@ from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from database import create_or_update_user, delete_user_completely, get_user, update_user_language, update_user_profile
-from keyboards.inline import gender_keyboard, language_keyboard, new_affirmation_keyboard
+from database import (
+    create_or_update_user,
+    delete_user_completely,
+    get_subscription,
+    get_user,
+    update_user_language,
+    update_user_profile,
+)
+from keyboards.inline import gender_keyboard, language_keyboard, new_affirmation_keyboard, profile_keyboard
+from services.ritual_config import get_sphere_label, get_style_label, get_visual_mode_label, normalize_visual_mode
 from states import RegistrationState
 from utils import extract_name_from_introduction
 
@@ -23,6 +31,65 @@ def _greet_returning(name: Optional[str], gender: Optional[str]) -> str:
     if name:
         return f"С возвращением, {name}!"
     return "Рад тебя видеть снова!"
+
+
+def _gender_profile_label(gender: Optional[str], language: str) -> str:
+    if language == "en":
+        if gender == "female":
+            return "feminine"
+        if gender == "male":
+            return "masculine"
+        return "not specified"
+    if gender == "female":
+        return "женский род"
+    if gender == "male":
+        return "мужской род"
+    return "не указано"
+
+
+def _subscription_mode_label(mode: str, language: str) -> str:
+    if mode == "sphere_focus":
+        return "🎯 Фокус на сфере" if language == "ru" else "🎯 Focus on one area"
+    return "🌿 Баланс недели" if language == "ru" else "🌿 Weekly balance"
+
+
+def _profile_style_label(style: Optional[str], language: str) -> str:
+    style = style or "auto"
+    if style in ("auto", "random"):
+        return "🎨 Автоподбор" if language == "ru" else "🎨 Auto"
+    if style == "random_suitable":
+        return "🔀 Разные подходящие стили" if language == "ru" else "🔀 Different suitable styles"
+    return get_style_label(style, language)
+
+
+def build_subscription_summary(subscription: Optional[dict], language: str = "ru") -> str:
+    if not subscription:
+        if language == "en":
+            return "No active subscriptions yet.\nYou can set up your daily ritual with /subscribe."
+        return "Пока нет активных подписок.\nНастроить ежедневный ритуал можно командой /subscribe."
+
+    mode = subscription.get("subscription_mode") or (
+        "weekly_balance" if subscription.get("sphere") == "random" else "sphere_focus"
+    )
+    visual_mode = normalize_visual_mode(subscription.get("visual_mode"))
+    style = subscription.get("subscription_style_mode") or subscription.get("image_style") or "auto"
+    hour = int(subscription.get("hour", 0))
+    minute = int(subscription.get("minute", 0))
+    time_str = f"{hour:02d}:{minute:02d}"
+
+    lines = [f"1. {_subscription_mode_label(mode, language)}"]
+    if mode == "sphere_focus":
+        sphere = subscription.get("subscription_sphere") or subscription.get("sphere") or "inner_peace"
+        label = get_sphere_label(sphere, language)
+        lines.append(f"Сфера: {label}" if language == "ru" else f"Area: {label}")
+    lines.append(f"Время: {time_str}" if language == "ru" else f"Time: {time_str}")
+    lines.append(
+        f"Визуал: {get_visual_mode_label(visual_mode, language)}"
+        if language == "ru"
+        else f"Visual: {get_visual_mode_label(visual_mode, language)}"
+    )
+    lines.append(f"Стиль: {_profile_style_label(style, language)}" if language == "ru" else f"Style: {_profile_style_label(style, language)}")
+    return "\n".join(lines)
 
 
 @router.message(CommandStart())
@@ -63,7 +130,7 @@ async def process_name(message: Message, state: FSMContext) -> None:
 
     await state.set_state(RegistrationState.waiting_for_gender)
     await message.answer(
-        f"Приятно познакомиться, {name}! Выбери свой пол (это поможет точнее подбирать аффирмации):",
+        f"Приятно познакомиться, {name}! Выбери обращение — это поможет точнее формулировать настрой дня:",
         reply_markup=gender_keyboard(language="ru"),
     )
 
@@ -79,12 +146,27 @@ async def process_gender_callback(callback: CallbackQuery, state: FSMContext) ->
 
     user = await get_user(user_id)
     name = user.get("name") if user else None
-    text = "Отлично! Теперь ты можешь создать свою первую аффирмацию."
+    text = "Отлично! Теперь ты можешь создать свой первый настрой дня."
     if name:
-        text = f"Отлично, {name}! Теперь ты можешь создать свою первую аффирмацию."
+        text = f"Отлично, {name}! Теперь ты можешь создать свой первый настрой дня."
 
     await callback.message.edit_text(text, reply_markup=new_affirmation_keyboard("ru"))
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("gender:"))
+async def update_gender_from_profile(callback: CallbackQuery, state: FSMContext) -> None:
+    """Обновление обращения из профиля."""
+    current = await state.get_state()
+    if current == RegistrationState.waiting_for_gender.state:
+        return
+    gender = callback.data.split(":", maxsplit=1)[1]
+    await update_user_profile(user_id=callback.from_user.id, gender=gender)
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    text = "Обращение обновлено." if lang == "ru" else "Form of address updated."
+    await callback.answer()
+    await callback.message.answer(text)
 
 
 @router.message(Command("language"))
@@ -130,20 +212,28 @@ async def cmd_profile(message: Message, state: FSMContext) -> None:
 
     lang = (user or {}).get("language", "ru")
     name = user.get("name") or "—"
-    gender = user.get("gender") or "—"
+    gender_label = _gender_profile_label(user.get("gender"), lang)
+    subscription = await get_subscription(message.from_user.id)
+    subscriptions_summary = build_subscription_summary(subscription, lang)
     if lang == "ru":
         text = (
-            f"Твой профиль:\n\nИмя: {name}\nПол: {gender}\n\n"
-            "Чтобы изменить имя — просто напиши его.\n"
-            "Чтобы изменить пол — выбери кнопку ниже."
+            f"👤 Твой профиль\n\n"
+            f"Имя: {name}\n"
+            f"Обращение: {gender_label}\n\n"
+            f"🌿 Подписки:\n{subscriptions_summary}\n\n"
+            "Чтобы изменить имя — просто напиши новое.\n"
+            "Чтобы изменить обращение — выбери кнопку ниже."
         )
     else:
         text = (
-            f"Your profile:\n\nName: {name}\nGender: {gender}\n\n"
-            "To change name — just send it.\n"
-            "To change gender — choose the button below."
+            f"👤 Your profile\n\n"
+            f"Name: {name}\n"
+            f"Form of address: {gender_label}\n\n"
+            f"🌿 Subscriptions:\n{subscriptions_summary}\n\n"
+            "To change your name, just send a new one.\n"
+            "To change form of address, use the buttons below."
         )
-    await message.answer(text, reply_markup=gender_keyboard(lang))
+    await message.answer(text, reply_markup=profile_keyboard(lang, has_subscription=bool(subscription)))
 
 
 @router.message(Command("cancel"))
@@ -157,7 +247,7 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
         return
     await state.clear()
     await message.answer(
-        "Отменено. Напиши /new для новой аффирмации." if lang == "ru" else "Cancelled. Send /new for a new affirmation."
+        "Отменено. Напиши /new, чтобы создать настрой дня." if lang == "ru" else "Cancelled. Send /new to create a daily focus."
     )
 
 

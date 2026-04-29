@@ -53,6 +53,10 @@ def test_old_style_keys_still_work():
 def test_new_style_keys_return_non_empty_phrases():
     for style in (
         "soft_editorial",
+        "bright_photo_card",
+        "sunny_nature_photo",
+        "light_interior_photo",
+        "cinematic_real_photo",
         "bright_nature_card",
         "dreamy_painterly",
         "quiet_interior",
@@ -63,3 +67,18 @@ def test_new_style_keys_return_non_empty_phrases():
         "textured_collage",
     ):
         assert _style_to_phrase(style)
+
+
+def test_photo_prompt_contains_photo_direction_and_negatives():
+    prompt = _build_image_prompt(
+        style="auto",
+        sphere="health",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        visual_mode="photo",
+    ).lower()
+    assert "photorealistic" in prompt
+    assert "real high-quality photo" in prompt
+    assert "no illustration" in prompt
+    assert "no painting" in prompt

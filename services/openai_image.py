@@ -10,7 +10,7 @@ from typing import Optional
 import aiohttp
 
 from config import get_outputs_dir, get_settings
-from services.ritual_config import STYLE_DESCRIPTIONS, resolve_style
+from services.ritual_config import STYLE_DESCRIPTIONS, normalize_visual_mode, resolve_style, visual_mode_for_style
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,10 @@ def _style_to_phrase(style: str) -> str:
         "nature": "lush nature scene, trees, sky, soft sun rays",
         "cosmos": "cosmic scene with stars, galaxies, soft glowing nebulae",
         "abstract": "abstract art, flowing shapes, harmonious colors",
+        "bright_photo_card": STYLE_DESCRIPTIONS["bright_photo_card"],
+        "sunny_nature_photo": STYLE_DESCRIPTIONS["sunny_nature_photo"],
+        "light_interior_photo": STYLE_DESCRIPTIONS["light_interior_photo"],
+        "cinematic_real_photo": STYLE_DESCRIPTIONS["cinematic_real_photo"],
         "bright_nature_card": STYLE_DESCRIPTIONS["bright_nature_card"],
         "quiet_interior": STYLE_DESCRIPTIONS["quiet_interior"],
         "textured_collage": STYLE_DESCRIPTIONS["textured_collage"],
@@ -111,18 +115,28 @@ def _style_to_phrase(style: str) -> str:
     return mapping.get(style, "soft, inspiring, visually harmonious style")
 
 
-def _avoid_literal_symbols_clause(sphere: str) -> str:
-    base = (
-        "Avoid: stock photo vibe, corporate illustration vibe, clipart icons, infographic elements, "
-        "typography, logos, watermarks, dollar signs, coins, piggy banks, charts, arrows, currency symbols, "
-        "generic business success icons, generic silhouette with arms wide open at sunset unless explicitly requested, "
-        "cheap AI fantasy poster look, oversaturated colors, cluttered composition, flat minimal icon art, "
-        "simplistic poster, generic centered portrait, direct eye contact portrait by default, "
-        "centered face dominating the composition, gloomy mood, depressive mood, muddy colors, underexposed dark image, "
-        "low-contrast scene, abstract spiritual fog as the main visual, close-up portrait by default, "
-        "sad lonely human figure as the default motif, solitary person in a vast landscape unless explicitly intended, "
-        "heavy painterly blur, oversimplified beige flower unless the chosen style is minimal_botanical."
-    )
+def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration") -> str:
+    if visual_mode == "photo":
+        base = (
+            "Avoid: no text, no letters, no numbers, no typography, no logos, no watermarks, "
+            "no charts, no arrows, no currency symbols, no coins, no piggy banks, "
+            "no illustration, no painting, no drawing, no watercolor, no gouache, no painterly brushwork, "
+            "no digital art, no fantasy art, no 3D render, no CGI, no cartoon, no vector art, no flat art, "
+            "no poster, no greeting card illustration, no artificial painterly texture, no corporate illustration, "
+            "no gloomy mood, no underexposed image, no low-contrast scene, no cheap stock-business vibe."
+        )
+    else:
+        base = (
+            "Avoid: stock photo vibe, corporate illustration vibe, clipart icons, infographic elements, "
+            "typography, logos, watermarks, dollar signs, coins, piggy banks, charts, arrows, currency symbols, "
+            "generic business success icons, generic silhouette with arms wide open at sunset unless explicitly requested, "
+            "cheap AI fantasy poster look, oversaturated colors, cluttered composition, flat minimal icon art, "
+            "simplistic poster, generic centered portrait, direct eye contact portrait by default, "
+            "centered face dominating the composition, gloomy mood, depressive mood, muddy colors, underexposed dark image, "
+            "low-contrast scene, abstract spiritual fog as the main visual, close-up portrait by default, "
+            "sad lonely human figure as the default motif, solitary person in a vast landscape unless explicitly intended, "
+            "heavy painterly blur, oversimplified beige flower unless the chosen style is minimal_botanical."
+        )
     sphere_key = sphere.lower()
     if sphere_key == "money":
         return (
@@ -161,12 +175,14 @@ def _build_image_prompt(
     color_mood: Optional[str] = None,
     composition_hint: Optional[str] = None,
     image_hint: Optional[str] = None,
+    visual_mode: Optional[str] = None,
 ) -> str:
     """
     Формирует англоязычный промпт для генерации изображения.
     Случайные color_mood и composition_hint добавляют разнообразие при каждой генерации.
     """
-    style = resolve_style(style, sphere)
+    style = resolve_style(style, sphere, visual_mode=visual_mode)
+    effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), style)
     base_theme = _build_default_image_theme(sphere, subsphere)
     if image_hint:
         base_theme = f"{base_theme}; focus visual hint: {image_hint}"
@@ -185,7 +201,20 @@ def _build_image_prompt(
     color_part = f" Color palette and lighting: {color_mood}." if color_mood else ""
     comp_part = f" Composition: {composition_hint}." if composition_hint else ""
 
-    avoid_clause = _avoid_literal_symbols_clause(sphere)
+    avoid_clause = _avoid_literal_symbols_clause(sphere, effective_visual_mode)
+
+    if effective_visual_mode == "photo":
+        return (
+            f"{base_theme}.{extra} "
+            "Create a bright photorealistic image suitable for a Telegram daily affirmation message. "
+            "The image must look like a real high-quality photo, not an illustration. "
+            "Use natural light, realistic colors, realistic textures, realistic depth of field and clear details. "
+            "The mood should be warm, fresh, optimistic, calm and emotionally supportive. "
+            "The image should be clear and pleasant on a phone screen, with natural composition, bright exposure, realistic sunlight and a clear readable image. "
+            f"Photo style: {style_phrase}.{color_part}{comp_part} "
+            "No text, no letters, no numbers, no typography, no logos, no watermarks. "
+            f"{avoid_clause}"
+        )
 
     return (
         f"{base_theme}.{extra} "
@@ -193,7 +222,7 @@ def _build_image_prompt(
         "The image should feel uplifting, calming, warm, clear and emotionally encouraging. "
         "Prefer luminous natural light, open air, fresh morning or golden-hour atmosphere, visible depth, clean composition, natural beauty and a hopeful mood. "
         "The image must look clear and pleasant on a phone screen, with bright exposure, readable subject separation, natural detail and elegant simplicity. "
-        "Use a photorealistic or high-quality soft semi-realistic look. "
+        "Use a high-quality soft semi-realistic or gentle illustration look. "
         "Prefer nature scenes, lake, sea, sky, soft landscape, flowering branches, trees in sunlight, meadow, garden, morning light, bright still life with window light, light workspace without visible text, two cups or warm table for relationships, and gentle symbolic nature metaphors. "
         "If a person appears, keep them small, from behind or side view, not a dominant portrait, with no direct eye contact. "
         f"Atmosphere: bright daily card, elegant, simple, warm and hopeful, suitable for affirmation practice about {sphere}. "
@@ -223,6 +252,7 @@ async def generate_image(
     image_prompt_trace: Optional[str] = None,
     image_hint: Optional[str] = None,
     resolved_style_override: Optional[str] = None,
+    visual_mode: Optional[str] = None,
     focus_key: Optional[str] = None,
     color_mood: Optional[str] = None,
     composition_hint: Optional[str] = None,
@@ -233,7 +263,8 @@ async def generate_image(
     Возвращает путь к файлу.
     """
     settings = get_settings()
-    resolved_style = resolved_style_override or resolve_style(style, sphere, focus_key=focus_key)
+    resolved_style = resolved_style_override or resolve_style(style, sphere, focus_key=focus_key, visual_mode=visual_mode)
+    effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), resolved_style)
     if output_dir is None:
         output_dir = get_outputs_dir()
 
@@ -254,6 +285,7 @@ async def generate_image(
             color_mood=color_mood,
             composition_hint=composition_hint,
             image_hint=image_hint,
+            visual_mode=effective_visual_mode,
         )
     trace = image_prompt_trace or ("override" if prompt_override else "template")
 
@@ -316,6 +348,7 @@ async def generate_image(
         "prompt_source": trace,
         "requested_style": style,
         "selected_style": resolved_style,
+        "visual_mode": effective_visual_mode,
         "style": style,
         "resolved_style": resolved_style,
         "sphere": sphere,

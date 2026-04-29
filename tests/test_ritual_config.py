@@ -2,11 +2,16 @@ import datetime as dt
 
 from services.ritual_config import (
     MAIN_SPHERES,
+    PHOTO_RECOMMENDED_STYLES,
+    PHOTO_STYLE_KEYS,
     RECOMMENDED_STYLES,
+    VALID_VISUAL_MODES,
     get_focus_for_date,
     get_focuses,
+    get_recommended_styles,
     get_weekly_balance_sphere,
     is_tts_available,
+    normalize_visual_mode,
     resolve_style,
 )
 
@@ -44,6 +49,33 @@ def test_sphere_focuses_do_not_repeat_within_week():
 def test_auto_style_uses_recommended_styles():
     assert resolve_style("auto", "money") == "bright_nature_card"
     assert resolve_style("random_suitable", "career", user_id=1, day=dt.date(2030, 1, 1)) in RECOMMENDED_STYLES["career"]
+
+
+def test_visual_mode_values_and_default():
+    assert set(VALID_VISUAL_MODES) == {"photo", "illustration", "mixed"}
+    assert normalize_visual_mode(None) == "illustration"
+    assert normalize_visual_mode("unknown") == "illustration"
+
+
+def test_auto_photo_uses_only_photo_styles():
+    day = dt.date(2030, 1, 1)
+    style = resolve_style("auto", "money", user_id=42, day=day, visual_mode="photo")
+    assert style in PHOTO_RECOMMENDED_STYLES["money"]
+    assert style in PHOTO_STYLE_KEYS
+
+
+def test_auto_illustration_uses_illustration_styles():
+    day = dt.date(2030, 1, 1)
+    style = resolve_style("auto", "money", user_id=42, day=day, visual_mode="illustration")
+    assert style in RECOMMENDED_STYLES["money"]
+    assert style not in PHOTO_STYLE_KEYS
+
+
+def test_mixed_mode_selects_a_supported_branch():
+    day = dt.date(2030, 1, 1)
+    styles = get_recommended_styles("money", visual_mode="mixed", user_id=42, day=day)
+    assert styles
+    assert set(styles) <= (set(PHOTO_RECOMMENDED_STYLES["money"]) | set(RECOMMENDED_STYLES["money"]))
 
 
 def test_auto_style_rotates_across_week():

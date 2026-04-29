@@ -19,6 +19,7 @@ from keyboards.inline import (
     style_cancel_keyboard,
     style_keyboard,
     theme_early_cancel_keyboard,
+    visual_mode_keyboard,
 )
 from monitoring import (
     log_generation_fail,
@@ -31,7 +32,9 @@ from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
     is_tts_available,
+    normalize_visual_mode,
     resolve_style,
+    visual_mode_for_style,
 )
 from services.speechkit import transcribe_audio
 from services.speechkit_tts import synthesize_affirmations_with_pauses
@@ -43,9 +46,27 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 
+def _new_flow_text(language: str) -> str:
+    if language == "ru":
+        return "🌿 Что создаём?\n\nВыбери сферу, для которой собрать настрой дня:"
+    return "🌿 What shall we create?\n\nChoose an area for your daily focus:"
+
+
+def _visual_mode_text(language: str) -> str:
+    return "🎨 Какой визуал тебе ближе?" if language == "ru" else "🎨 Which visual style feels closer to you?"
+
+
+def _style_choice_text(language: str) -> str:
+    return "✨ Выбери стиль изображения:" if language == "ru" else "✨ Choose image style:"
+
+
+def _creating_text(language: str) -> str:
+    return "🌿 Создаю твой настрой дня..." if language == "ru" else "🌿 Creating your daily focus..."
+
+
 @router.callback_query(F.data == "cmd:new")
 async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
-    """Обработка кнопки «Новая аффирмация» после регистрации."""
+    """Обработка кнопки создания нового настроя дня после регистрации."""
     await callback.answer()
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
@@ -53,7 +74,7 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
     await callback.message.answer(
-        "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
+        _new_flow_text(language),
         reply_markup=sphere_keyboard(language),
     )
 
@@ -66,7 +87,7 @@ async def cmd_new(message: Message, state: FSMContext) -> None:
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
     await message.answer(
-        "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
+        _new_flow_text(language),
         reply_markup=sphere_keyboard(language),
     )
 
@@ -94,7 +115,7 @@ async def theme_early_cancel(callback: CallbackQuery, state: FSMContext) -> None
     language = (user or {}).get("language", "ru")
     await state.set_state(GenerationState.choosing_sphere)
     await callback.message.edit_text(
-        "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
+        _new_flow_text(language),
         reply_markup=sphere_keyboard(language),
     )
     await callback.answer()
@@ -121,10 +142,10 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
         )
         return
     await state.update_data(theme_text=recognized, sphere="inner_peace", subsphere=None)
-    await state.set_state(GenerationState.choosing_style)
+    await state.set_state(GenerationState.choosing_visual_mode)
     await message.answer(
-        (f"Тема: «{recognized}». Выбери стиль изображения:" if language == "ru" else f"Theme: “{recognized}”. Choose image style:"),
-        reply_markup=style_keyboard(language),
+        (f"Тема: «{recognized}».\n\n{_visual_mode_text(language)}" if language == "ru" else f"Theme: “{recognized}”.\n\n{_visual_mode_text(language)}"),
+        reply_markup=visual_mode_keyboard(language),
     )
 
 
@@ -137,10 +158,10 @@ async def handle_text_theme_early(message: Message, state: FSMContext) -> None:
         await message.answer("Напиши тему или нажми «Отмена»." if language == "ru" else "Type your theme or press Cancel.")
         return
     await state.update_data(theme_text=text, sphere="inner_peace", subsphere=None)
-    await state.set_state(GenerationState.choosing_style)
+    await state.set_state(GenerationState.choosing_visual_mode)
     await message.answer(
-        (f"Тема: «{text}». Выбери стиль изображения:" if language == "ru" else f"Theme: “{text}”. Choose image style:"),
-        reply_markup=style_keyboard(language),
+        (f"Тема: «{text}».\n\n{_visual_mode_text(language)}" if language == "ru" else f"Theme: “{text}”.\n\n{_visual_mode_text(language)}"),
+        reply_markup=visual_mode_keyboard(language),
     )
 
 
@@ -161,10 +182,10 @@ async def choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
             reply_markup=relationships_subsphere_keyboard(language),
         )
     else:
-        await state.set_state(GenerationState.choosing_style)
+        await state.set_state(GenerationState.choosing_visual_mode)
         await callback.message.edit_text(
-            "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
-            reply_markup=style_keyboard(language),
+            _visual_mode_text(language),
+            reply_markup=visual_mode_keyboard(language),
         )
     await callback.answer()
 
@@ -176,10 +197,24 @@ async def choose_relationship_subsphere(callback: CallbackQuery, state: FSMConte
     subsphere = callback.data.split(":", maxsplit=1)[1]
 
     await state.update_data(subsphere=subsphere)
+    await state.set_state(GenerationState.choosing_visual_mode)
+    await callback.message.edit_text(
+        _visual_mode_text(language),
+        reply_markup=visual_mode_keyboard(language),
+    )
+    await callback.answer()
+
+
+@router.callback_query(GenerationState.choosing_visual_mode, F.data.startswith("visual:"))
+async def choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    visual_mode = normalize_visual_mode(callback.data.split(":", maxsplit=1)[1])
+    await state.update_data(visual_mode=visual_mode)
     await state.set_state(GenerationState.choosing_style)
     await callback.message.edit_text(
-        "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
-        reply_markup=style_keyboard(language),
+        _style_choice_text(language),
+        reply_markup=style_keyboard(language, visual_mode=visual_mode),
     )
     await callback.answer()
 
@@ -211,7 +246,7 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(style=style, custom_style_description=None)
     data = await state.get_data()
     await callback.message.edit_text(
-        "Генерирую аффирмацию и изображение…" if language == "ru" else "Generating affirmation and image…"
+        _creating_text(language)
     )
     await callback.answer()
     await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
@@ -223,8 +258,8 @@ async def cancel_custom_style(callback: CallbackQuery, state: FSMContext) -> Non
     language = (user or {}).get("language", "ru")
     await state.set_state(GenerationState.choosing_style)
     await callback.message.edit_text(
-        "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
-        reply_markup=style_keyboard(language),
+        _style_choice_text(language),
+        reply_markup=style_keyboard(language, visual_mode=(await state.get_data()).get("visual_mode", "illustration")),
     )
     await callback.answer()
 
@@ -251,7 +286,7 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
         return
     await state.update_data(custom_style_description=recognized)
     data = await state.get_data()
-    await message.answer("Генерирую аффирмацию и изображение…" if language == "ru" else "Generating affirmation and image…")
+    await message.answer(_creating_text(language))
     await _run_generation(message, state, theme_text=data.get("theme_text"))
 
 
@@ -265,7 +300,7 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(custom_style_description=text)
     data = await state.get_data()
-    await message.answer("Генерирую аффирмацию и изображение…" if language == "ru" else "Generating affirmation and image…")
+    await message.answer(_creating_text(language))
     await _run_generation(message, state, theme_text=data.get("theme_text"))
 
 
@@ -293,6 +328,7 @@ async def _run_generation(
     sphere = data.get("sphere")
     subsphere = data.get("subsphere")
     style = data.get("style") or "nature"
+    visual_mode = normalize_visual_mode(data.get("visual_mode"))
     custom_style_description = data.get("custom_style_description")
 
     if not sphere:
@@ -307,13 +343,13 @@ async def _run_generation(
             log_rate_limited(uid, used, settings.generation_daily_limit)
             if language == "ru":
                 await message.answer(
-                    f"Сегодня уже {settings.generation_daily_limit} генераций — это дневной лимит. Завтра снова сможешь создавать аффирмации.",
-                    reply_markup=style_keyboard(language),
+                    f"Сегодня уже {settings.generation_daily_limit} генераций — это дневной лимит. Завтра снова сможешь создать настрой дня.",
+                    reply_markup=style_keyboard(language, visual_mode=visual_mode),
                 )
             else:
                 await message.answer(
                     f"You've reached the daily limit of {settings.generation_daily_limit} generations. Try again tomorrow.",
-                    reply_markup=style_keyboard(language),
+                    reply_markup=style_keyboard(language, visual_mode=visual_mode),
                 )
             await state.set_state(GenerationState.choosing_style)
             return
@@ -324,7 +360,8 @@ async def _run_generation(
     focus_text = focus["en"] if language == "en" else focus["ru"]
     micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
     image_hint = focus.get("image_hint_en")
-    resolved_style = resolve_style(style, sphere, user_id=uid, day=today, focus_key=focus["key"])
+    resolved_style = resolve_style(style, sphere, user_id=uid, day=today, focus_key=focus["key"], visual_mode=visual_mode)
+    effective_visual_mode = visual_mode_for_style(visual_mode, resolved_style)
 
     try:
         affirmations = await generate_affirmations(
@@ -342,10 +379,10 @@ async def _run_generation(
         logger.exception("Affirmations generation failed: %s", exc)
         log_generation_fail(uid, "interactive", "affirmations", str(exc))
         await message.answer(
-            "Не удалось сгенерировать текст аффирмаций. Попробуй ещё раз — выбери стиль ниже или /new."
+            "Не удалось собрать текст настроя дня. Попробуй ещё раз — выбери стиль ниже или /new."
             if language == "ru"
-            else "Could not generate affirmation text. Try again — pick a style below or use /new.",
-            reply_markup=style_keyboard(language),
+            else "Could not create the daily focus text. Try again — pick a style below or use /new.",
+            reply_markup=style_keyboard(language, visual_mode=visual_mode),
         )
         await state.set_state(GenerationState.choosing_style)
         return
@@ -367,6 +404,7 @@ async def _run_generation(
             image_hint=image_hint,
             focus=focus_text,
             resolved_style=resolved_style,
+            visual_mode=effective_visual_mode,
         )
         if prompt_trace == "template_fallback":
             log_image_prompt_llm_fallback("llm_unavailable_or_bad_json")
@@ -380,6 +418,7 @@ async def _run_generation(
             image_prompt_trace=prompt_trace,
             image_hint=image_hint,
             resolved_style_override=resolved_style,
+            visual_mode=effective_visual_mode,
             focus_key=focus["key"],
             color_mood=color_mood,
             composition_hint=composition_hint,
@@ -398,7 +437,7 @@ async def _run_generation(
                 msg = err_text + " Try again — pick a style below or /new."
             else:
                 msg = "Could not generate the image. Try again — pick a style below or /new."
-        await message.answer(msg, reply_markup=style_keyboard(language))
+        await message.answer(msg, reply_markup=style_keyboard(language, visual_mode=visual_mode))
         await state.set_state(GenerationState.choosing_style)
         return
 
@@ -411,9 +450,9 @@ async def _run_generation(
             text_lines.append("Твой настрой на сегодня 🌿")
     else:
         if name:
-            text_lines.append(f"{name}, your focus for today 🌿")
+            text_lines.append(f"{name}, your daily focus 🌿")
         else:
-            text_lines.append("Your focus for today 🌿")
+            text_lines.append("Your daily focus 🌿")
 
     if language == "ru":
         text_lines.append(f"Фокус дня: {focus_text}")
@@ -440,6 +479,7 @@ async def _run_generation(
             meta["gender"] = gender
             meta["focus"] = focus
             meta["micro_step"] = micro_step
+            meta["visual_mode"] = effective_visual_mode
             meta["requested_style"] = style
             meta["selected_style"] = resolved_style
             meta["resolved_style"] = resolved_style
@@ -464,6 +504,7 @@ async def _run_generation(
             "subsphere": subsphere,
             "style": style,
             "resolved_style": resolved_style,
+            "visual_mode": visual_mode,
             "theme_text": theme_text,
             "custom_style_description": custom_style_description,
             "affirmations": affirmations,
@@ -484,7 +525,7 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         language = (user or {}).get("language", "ru")
         await state.clear()
         await callback.message.answer(
-            "Не нашла параметры предыдущей аффирмации. Давай начнём заново с /new."
+            "Не нашла параметры предыдущего настроя. Давай начнём заново с /new."
             if language == "ru"
             else "Could not find previous parameters. Please start again with /new."
         )
@@ -494,9 +535,12 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         sphere=last.get("sphere"),
         subsphere=last.get("subsphere"),
         style=last.get("style") or "nature",
+        visual_mode=last.get("visual_mode") or "illustration",
         custom_style_description=last.get("custom_style_description"),
     )
-    await callback.message.answer("Генерирую ещё..." if (await get_user(callback.from_user.id) or {}).get("language", "ru") == "ru" else "Generating more...")
+    await callback.message.answer(
+        _creating_text((await get_user(callback.from_user.id) or {}).get("language", "ru"))
+    )
     await _run_generation(callback.message, state, theme_text=last.get("theme_text"), user_telegram_id=callback.from_user.id)
 
 
@@ -516,7 +560,7 @@ async def tts_affirmations(callback: CallbackQuery, state: FSMContext) -> None:
     raw = (last or {}).get("affirmations") if last else None
     if not raw:
         await callback.message.answer(
-            "Нет текста для озвучки. Сначала получи аффирмацию, затем нажми «🔊 Озвучить»."
+            "Нет текста для озвучки. Сначала создай настрой дня, затем нажми «🔊 Озвучить»."
         )
         return
     # Всегда приводим к списку строк (на случай если FSM сохранил иначе или одна строка с переносами)
@@ -526,7 +570,7 @@ async def tts_affirmations(callback: CallbackQuery, state: FSMContext) -> None:
         affirmations = [s.strip() for s in str(raw).splitlines() if s.strip()]
     if not affirmations:
         await callback.message.answer(
-            "Нет текста для озвучки. Сначала получи аффирмацию, затем нажми «🔊 Озвучить»."
+            "Нет текста для озвучки. Сначала создай настрой дня, затем нажми «🔊 Озвучить»."
         )
         return
     gender = (user or {}).get("gender")
@@ -557,7 +601,7 @@ async def new_request_from_result(callback: CallbackQuery, state: FSMContext) ->
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
     await callback.message.answer(
-        "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
+        _new_flow_text(language),
         reply_markup=sphere_keyboard(language),
     )
 

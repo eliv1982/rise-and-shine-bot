@@ -16,14 +16,33 @@ from keyboards.inline import (
     subscription_confirm_keyboard,
     subscription_time_keyboard_hours,
     subscription_time_keyboard_minutes,
+    visual_mode_keyboard,
 )
 from scheduler import last_subscription_affirmations
 from services.speechkit_tts import synthesize_affirmations_with_pauses
-from services.ritual_config import get_sphere_label, get_style_label, is_tts_available
+from services.ritual_config import get_sphere_label, get_style_label, get_visual_mode_label, is_tts_available, normalize_visual_mode
 from states import SubscriptionState
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+def _new_flow_text(language: str) -> str:
+    if language == "ru":
+        return "🌿 Что создаём?\n\nВыбери сферу, для которой собрать настрой дня:"
+    return "🌿 What shall we create?\n\nChoose an area for your daily focus:"
+
+
+def _visual_mode_text(language: str) -> str:
+    return "🎨 Какой визуал тебе ближе?" if language == "ru" else "🎨 Which visual style feels closer to you?"
+
+
+def _style_choice_text(language: str) -> str:
+    return "✨ Выбери стиль изображения:" if language == "ru" else "✨ Choose image style:"
+
+
+def _creating_text(language: str) -> str:
+    return "🌿 Создаю твой настрой дня..." if language == "ru" else "🌿 Creating your daily focus..."
 
 
 def _sphere_display(sphere: str, language: str) -> str:
@@ -50,8 +69,8 @@ async def cmd_subscribe(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
     await state.set_state(SubscriptionState.choosing_language)
-    text_ru = "Выбери язык для ежедневных аффирмаций:"
-    text_en = "Choose language for your daily affirmations:"
+    text_ru = "🌿 Настроим ежедневный ритуал\n\nВыбери язык подписки:"
+    text_en = "🌿 Let's set up your daily ritual\n\nChoose subscription language:"
     text = text_ru if language == "ru" else text_en
     await message.answer(text, reply_markup=language_keyboard())
 
@@ -65,14 +84,16 @@ async def sub_choose_language(callback: CallbackQuery, state: FSMContext) -> Non
     await state.update_data(language=lang)
     await state.set_state(SubscriptionState.choosing_mode)
     text_ru = (
+        "🌿 Настроим ежедневный ритуал\n\n"
         "Выбери режим подписки:\n\n"
         "🌿 Баланс недели — каждый день новая сфера без повторов в течение недели.\n"
         "🎯 Фокус на сфере — каждый день новый фокус внутри выбранной сферы."
     )
     text_en = (
+        "🌿 Let's set up your daily ritual\n\n"
         "Choose subscription mode:\n\n"
-        "🌿 Weekly balance — a different life area every day, without repeats during the week.\n"
-        "🎯 Focus on one area — a new daily focus within the selected life area."
+        "🌿 Weekly balance — a different area every day, without repeats during the week.\n"
+        "🎯 Focus on one area — a new daily focus within the selected area."
     )
     text = text_ru if lang == "ru" else text_en
     await callback.message.edit_text(text, reply_markup=subscription_mode_keyboard(lang))
@@ -91,10 +112,10 @@ async def sub_choose_mode(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(subscription_mode=mode)
     if mode == "weekly_balance":
         await state.update_data(sphere="random", subsphere=None)
-        await state.set_state(SubscriptionState.choosing_style)
+        await state.set_state(SubscriptionState.choosing_visual_mode)
         await callback.message.edit_text(
-            "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
-            reply_markup=style_keyboard_for_subscription(language),
+            _visual_mode_text(language),
+            reply_markup=visual_mode_keyboard(language, for_subscription=True),
         )
     else:
         await state.set_state(SubscriptionState.choosing_sphere)
@@ -123,10 +144,10 @@ async def sub_choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
     language = _sub_language(data, user)
     sphere = callback.data.split(":", maxsplit=1)[1]
     await state.update_data(sphere=sphere, subsphere=None)
-    await state.set_state(SubscriptionState.choosing_style)
+    await state.set_state(SubscriptionState.choosing_visual_mode)
     await callback.message.edit_text(
-        "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
-        reply_markup=style_keyboard_for_subscription(language),
+        _visual_mode_text(language),
+        reply_markup=visual_mode_keyboard(language, for_subscription=True),
     )
     await callback.answer()
 
@@ -138,10 +159,25 @@ async def sub_choose_relationship_subsphere(callback: CallbackQuery, state: FSMC
     language = _sub_language(data, user)
     subsphere = callback.data.split(":", maxsplit=1)[1]
     await state.update_data(subsphere=subsphere)
+    await state.set_state(SubscriptionState.choosing_visual_mode)
+    await callback.message.edit_text(
+        _visual_mode_text(language),
+        reply_markup=visual_mode_keyboard(language, for_subscription=True),
+    )
+    await callback.answer()
+
+
+@router.callback_query(SubscriptionState.choosing_visual_mode, F.data.startswith("visual:"))
+async def sub_choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    data = await state.get_data()
+    language = _sub_language(data, user)
+    visual_mode = normalize_visual_mode(callback.data.split(":", maxsplit=1)[1])
+    await state.update_data(visual_mode=visual_mode)
     await state.set_state(SubscriptionState.choosing_style)
     await callback.message.edit_text(
-        "Выбери стиль изображения:" if language == "ru" else "Choose image style:",
-        reply_markup=style_keyboard_for_subscription(language),
+        _style_choice_text(language),
+        reply_markup=style_keyboard_for_subscription(language, visual_mode=visual_mode),
     )
     await callback.answer()
 
@@ -187,6 +223,7 @@ async def sub_choose_minute(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     sphere = data.get("sphere")
     style = data.get("style")
+    visual_mode = normalize_visual_mode(data.get("visual_mode"))
     hour = int(data["hour"])
     mode = data.get("subscription_mode", "weekly_balance")
     sphere_label = _sphere_display(sphere, language)
@@ -194,10 +231,12 @@ async def sub_choose_minute(callback: CallbackQuery, state: FSMContext) -> None:
     time_str = f"{hour:02d}:{minute:02d}"
     if language == "ru":
         mode_label = "Баланс недели" if mode == "weekly_balance" else "Фокус на сфере"
-        text = f"Подтверди подписку:\n\n• Режим: {mode_label}\n• Сфера: {sphere_label}\n• Стиль: {style_label}\n• Время: {time_str}"
+        visual_label = get_visual_mode_label(visual_mode, language)
+        text = f"Подтверди подписку:\n\n• Режим: {mode_label}\n• Визуально: {visual_label}\n• Сфера: {sphere_label}\n• Стиль: {style_label}\n• Время: {time_str}"
     else:
         mode_label = "Weekly balance" if mode == "weekly_balance" else "Focus on one area"
-        text = f"Confirm subscription:\n\n• Mode: {mode_label}\n• Area: {sphere_label}\n• Style: {style_label}\n• Time: {time_str}"
+        visual_label = get_visual_mode_label(visual_mode, language)
+        text = f"Confirm subscription:\n\n• Mode: {mode_label}\n• Visual: {visual_label}\n• Area: {sphere_label}\n• Style: {style_label}\n• Time: {time_str}"
     await callback.message.edit_text(text, reply_markup=subscription_confirm_keyboard(language))
     await callback.answer()
 
@@ -235,6 +274,7 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         subscription_mode=subscription_mode,
         subscription_sphere=subscription_sphere,
         subscription_style_mode=data["style"],
+        visual_mode=normalize_visual_mode(data.get("visual_mode")),
     )
     await update_user_language(callback.from_user.id, language)
     await state.clear()
@@ -268,8 +308,8 @@ async def sub_change_callback(callback: CallbackQuery, state: FSMContext) -> Non
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     await state.set_state(SubscriptionState.choosing_language)
-    text_ru = "Изменить подписку. Выбери язык для ежедневных аффирмаций:"
-    text_en = "Change subscription. Choose language for your daily affirmations:"
+    text_ru = "🌿 Настроим ежедневный ритуал\n\nВыбери язык подписки:"
+    text_en = "🌿 Let's set up your daily ritual\n\nChoose subscription language:"
     text = text_ru if language == "ru" else text_en
     await callback.message.answer(text, reply_markup=language_keyboard())
 
@@ -286,7 +326,7 @@ async def subscription_create_new(callback: CallbackQuery, state: FSMContext) ->
 
     await state.set_state(GenerationState.choosing_sphere)
     await callback.message.answer(
-        "Выбери сферу жизни:" if language == "ru" else "Choose a life area:",
+        _new_flow_text(language),
         reply_markup=sphere_keyboard(language),
     )
 
@@ -310,9 +350,10 @@ async def subscription_more(callback: CallbackQuery, state: FSMContext) -> None:
         sphere=cached.get("sphere") or "inner_peace",
         subsphere=cached.get("subsphere"),
         style=cached.get("style") or cached.get("style_mode") or "auto",
+        visual_mode=cached.get("visual_mode") or "illustration",
         custom_style_description=None,
     )
-    await callback.message.answer("Генерирую ещё..." if language == "ru" else "Generating more...")
+    await callback.message.answer(_creating_text(language))
     from handlers.generation import _run_generation
 
     await _run_generation(callback.message, state, theme_text=None, user_telegram_id=user_id)

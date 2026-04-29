@@ -10,6 +10,7 @@ class GenerationState(StatesGroup):
     choosing_sphere = State()
     waiting_for_theme_early = State()  # Своя тема в меню сферы: ввод текста/голоса
     choosing_relationship_subsphere = State()
+    choosing_visual_mode = State()
     choosing_style = State()
     waiting_for_custom_style = State()
     after_result = State()
@@ -20,6 +21,7 @@ class SubscriptionState(StatesGroup):
     choosing_mode = State()
     choosing_sphere = State()
     choosing_relationship_subsphere = State()
+    choosing_visual_mode = State()
     choosing_style = State()
     choosing_hour = State()
     choosing_minute = State()

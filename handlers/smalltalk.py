@@ -21,10 +21,10 @@ async def cmd_help(message: Message) -> None:
     if lang == "ru":
         text = (
             "Я бот *Rise and Shine Daily*.\n\n"
-            "Я помогаю тебе получать душевные аффирмации и красивые картинки по разным сферам жизни.\n\n"
+            "Я помогаю тебе собирать ежедневный ритуал: фокус дня, аффирмации, мягкий шаг и красивый визуал.\n\n"
             "/start — регистрация или приветствие\n"
-            "/new — новая аффирмация\n"
-            "/subscribe — подписка на ежедневные аффирмации\n"
+            "/new — новый настрой дня\n"
+            "/subscribe — подписка на ежедневный ритуал\n"
             "/unsubscribe — отменить подписку\n"
             "/profile — профиль\n"
             "/language — сменить язык (русский / English)\n"
@@ -33,10 +33,10 @@ async def cmd_help(message: Message) -> None:
     else:
         text = (
             "I'm the *Rise and Shine Daily* bot.\n\n"
-            "I help you get uplifting affirmations and images across different life areas.\n\n"
+            "I help you create a daily ritual: focus of the day, affirmations, a gentle step and a beautiful visual.\n\n"
             "/start — sign up or greeting\n"
-            "/new — new affirmation\n"
-            "/subscribe — daily affirmations subscription\n"
+            "/new — new daily focus\n"
+            "/subscribe — daily ritual subscription\n"
             "/unsubscribe — cancel subscription\n"
             "/profile — your profile\n"
             "/language — change language (Russian / English)\n"
@@ -61,12 +61,12 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
         logger.exception("Smalltalk failed: %s", exc)
         if language == "ru":
             await message.answer(
-                "Я здесь, чтобы помогать с аффирмациями. Хочешь сгенерировать новую?",
+                "Я здесь, чтобы помогать с ежедневным настроем. Хочешь создать новый?",
                 reply_markup=new_affirmation_keyboard(language),
             )
         else:
             await message.answer(
-                "I'm here to help with affirmations. Want a new one?",
+                "I'm here to help with your daily focus. Want to create a new one?",
                 reply_markup=new_affirmation_keyboard(language),
             )
         return

@@ -62,6 +62,7 @@ async def init_db() -> None:
         await add_column_if_missing(db, "subscriptions", "subscription_mode", "TEXT DEFAULT 'weekly_balance'")
         await add_column_if_missing(db, "subscriptions", "subscription_sphere", "TEXT")
         await add_column_if_missing(db, "subscriptions", "subscription_style_mode", "TEXT DEFAULT 'auto'")
+        await add_column_if_missing(db, "subscriptions", "visual_mode", "TEXT DEFAULT 'illustration'")
         await db.commit()
     logger.info("Database initialized")
 
@@ -197,6 +198,7 @@ async def upsert_subscription(
     subscription_mode: str = "weekly_balance",
     subscription_sphere: Optional[str] = None,
     subscription_style_mode: str = "auto",
+    visual_mode: str = "illustration",
 ) -> None:
     """
     Создаёт новую активную подписку и деактивирует старые.
@@ -207,9 +209,9 @@ async def upsert_subscription(
             """
             INSERT INTO subscriptions (
                 user_id, sphere, subsphere, image_style, language, hour, minute, is_active,
-                subscription_mode, subscription_sphere, subscription_style_mode
+                subscription_mode, subscription_sphere, subscription_style_mode, visual_mode
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -222,6 +224,7 @@ async def upsert_subscription(
                 subscription_mode,
                 subscription_sphere,
                 subscription_style_mode,
+                visual_mode,
             ),
         )
         await db.commit()

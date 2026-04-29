@@ -16,13 +16,13 @@ MAIN_SPHERES = [
 LEGACY_SPHERES = ["spirituality"]
 
 SPHERE_LABELS = {
-    "inner_peace": {"ru": "Внутренний покой", "en": "Inner peace"},
-    "self_worth": {"ru": "Самоценность", "en": "Self-worth"},
-    "health": {"ru": "Энергия и тело", "en": "Energy and body"},
-    "career": {"ru": "Дело и карьера", "en": "Work and career"},
-    "money": {"ru": "Деньги и устойчивость", "en": "Money and stability"},
-    "relationships": {"ru": "Отношения и границы", "en": "Relationships and boundaries"},
-    "self_realization": {"ru": "Самореализация и творчество", "en": "Self-realization and creativity"},
+    "inner_peace": {"ru": "🕊 Внутренний покой", "en": "🕊 Inner peace"},
+    "self_worth": {"ru": "💛 Самоценность", "en": "💛 Self-worth"},
+    "health": {"ru": "🌱 Энергия и тело", "en": "🌱 Energy and body"},
+    "career": {"ru": "💼 Дело и карьера", "en": "💼 Work and career"},
+    "money": {"ru": "💰 Деньги и устойчивость", "en": "💰 Money and stability"},
+    "relationships": {"ru": "🤝 Отношения и границы", "en": "🤝 Relationships and boundaries"},
+    "self_realization": {"ru": "🎨 Самореализация и творчество", "en": "🎨 Self-realization and creativity"},
     "spirituality": {"ru": "Духовный рост", "en": "Spiritual growth"},
 }
 
@@ -401,7 +401,16 @@ FOCUSES = {
     ],
 }
 
-CURATED_STYLE_KEYS = [
+VALID_VISUAL_MODES = ("photo", "illustration", "mixed")
+
+PHOTO_STYLE_KEYS = [
+    "bright_photo_card",
+    "sunny_nature_photo",
+    "light_interior_photo",
+    "cinematic_real_photo",
+]
+
+ILLUSTRATION_STYLE_KEYS = [
     "bright_nature_card",
     "dreamy_painterly",
     "quiet_interior",
@@ -412,11 +421,17 @@ CURATED_STYLE_KEYS = [
     "textured_collage",
 ]
 
+CURATED_STYLE_KEYS = ILLUSTRATION_STYLE_KEYS
+
 LEGACY_STYLE_KEYS = ["realistic", "nature", "cosmos", "mandala", "sacred_geometry", "abstract", "cartoon"]
 
 STYLE_LABELS = {
     "auto": {"ru": "Автоподбор", "en": "Auto"},
     "random_suitable": {"ru": "Разные подходящие стили", "en": "Different suitable styles"},
+    "bright_photo_card": {"ru": "Солнечная фотокарточка", "en": "Sunny photo card"},
+    "sunny_nature_photo": {"ru": "Солнечная природа", "en": "Sunny nature"},
+    "light_interior_photo": {"ru": "Светлый интерьер", "en": "Light interior"},
+    "cinematic_real_photo": {"ru": "Кинематографичное фото", "en": "Cinematic photo"},
     "bright_nature_card": {"ru": "Светлая открытка дня", "en": "Bright daily card"},
     "dreamy_painterly": {"ru": "Мягкая акварель", "en": "Dreamy painterly"},
     "quiet_interior": {"ru": "Тихий интерьер", "en": "Quiet interior"},
@@ -435,6 +450,10 @@ STYLE_LABELS = {
 }
 
 STYLE_DESCRIPTIONS = {
+    "bright_photo_card": "bright photorealistic daily image, natural photography look, realistic sunlight, realistic colors, clear details, fresh optimistic atmosphere, beautiful natural or lifestyle scene, pleasant and readable on a phone screen",
+    "sunny_nature_photo": "photorealistic sunny nature photography, clear sky, warm sunlight, fresh air, trees, flowers, meadow, sea, lake or gentle landscape, vibrant but natural colors, uplifting morning mood",
+    "light_interior_photo": "photorealistic light interior photography, natural window light, cozy elegant room, flowers, cup, notebook without visible text, soft fabrics, plants, warm realistic shadows, calm welcoming atmosphere",
+    "cinematic_real_photo": "cinematic photorealistic scene, realistic natural light, shallow depth of field, elegant composition, warm hopeful mood, realistic textures, no posing, no direct eye contact portrait",
     "bright_nature_card": "bright uplifting daily card, warm natural light, beautiful nature or light airy scene, fresh atmosphere, photorealistic or soft semi-realistic quality, optimistic and emotionally supportive mood, clear composition",
     "dreamy_painterly": "light dreamy painterly artwork, airy watercolor and gouache texture, luminous pastel atmosphere, soft but clear forms, warm and hopeful mood, delicate artistic charm",
     "quiet_interior": "light-filled quiet interior, natural window light, elegant still life, notebooks, cup, fabrics, plants, soft morning or late-afternoon glow, calm and welcoming atmosphere, no dominant portrait",
@@ -445,7 +464,7 @@ STYLE_DESCRIPTIONS = {
     "textured_collage": "light textured collage with paper layers, botanical or natural motifs, handmade feel, soft sunlight palette, elegant editorial balance, cheerful and refined",
 }
 
-RECOMMENDED_STYLES = {
+ILLUSTRATION_RECOMMENDED_STYLES = {
     "inner_peace": ["bright_nature_card", "ethereal_landscape", "dreamy_painterly"],
     "self_worth": ["bright_nature_card", "minimal_botanical", "textured_collage", "quiet_interior"],
     "health": ["bright_nature_card", "minimal_botanical", "dreamy_painterly"],
@@ -456,6 +475,19 @@ RECOMMENDED_STYLES = {
     "spirituality": ["ethereal_landscape", "bright_nature_card", "symbolic_luxe"],
 }
 
+PHOTO_RECOMMENDED_STYLES = {
+    "inner_peace": ["sunny_nature_photo", "bright_photo_card", "cinematic_real_photo"],
+    "self_worth": ["bright_photo_card", "light_interior_photo", "sunny_nature_photo"],
+    "health": ["sunny_nature_photo", "bright_photo_card", "light_interior_photo"],
+    "career": ["light_interior_photo", "cinematic_real_photo", "bright_photo_card"],
+    "money": ["light_interior_photo", "bright_photo_card", "sunny_nature_photo"],
+    "relationships": ["light_interior_photo", "sunny_nature_photo", "cinematic_real_photo"],
+    "self_realization": ["bright_photo_card", "light_interior_photo", "cinematic_real_photo", "sunny_nature_photo"],
+    "spirituality": ["sunny_nature_photo", "bright_photo_card", "cinematic_real_photo"],
+}
+
+RECOMMENDED_STYLES = ILLUSTRATION_RECOMMENDED_STYLES
+
 
 def get_sphere_label(sphere: str, language: str = "ru") -> str:
     return SPHERE_LABELS.get(sphere, {"ru": sphere, "en": sphere}).get(language, sphere)
@@ -463,6 +495,22 @@ def get_sphere_label(sphere: str, language: str = "ru") -> str:
 
 def get_style_label(style: str, language: str = "ru") -> str:
     return STYLE_LABELS.get(style, {"ru": style, "en": style}).get(language, style)
+
+
+def normalize_visual_mode(visual_mode: Optional[str]) -> str:
+    if visual_mode in VALID_VISUAL_MODES:
+        return visual_mode
+    return "illustration"
+
+
+def get_visual_mode_label(visual_mode: str, language: str = "ru") -> str:
+    labels = {
+        "photo": {"ru": "📷 Фотореализм", "en": "📷 Photo realism"},
+        "illustration": {"ru": "🖌 Мягкая иллюстрация", "en": "🖌 Soft illustration"},
+        "mixed": {"ru": "🔀 Смешивать стили", "en": "🔀 Mix styles"},
+    }
+    mode = normalize_visual_mode(visual_mode)
+    return labels[mode][language if language == "en" else "ru"]
 
 
 def get_focuses(sphere: str) -> List[Dict[str, str]]:
@@ -493,24 +541,59 @@ def get_weekly_balance_sphere(user_id: int, day: dt.date) -> str:
     return spheres[(weekday - 1) % len(spheres)]
 
 
+def _visual_branch(visual_mode: str, user_id: Optional[int], day: Optional[dt.date], sphere: str) -> str:
+    mode = normalize_visual_mode(visual_mode)
+    if mode != "mixed":
+        return mode
+    if user_id is not None and day is not None:
+        iso_year, iso_week, weekday = day.isocalendar()
+        rng = random.Random(f"visual-branch-{user_id}-{sphere}-{iso_year}-{iso_week}-{weekday}")
+        return "photo" if rng.randrange(2) == 0 else "illustration"
+    return random.choice(("photo", "illustration"))
+
+
+def get_recommended_styles(
+    sphere: str,
+    visual_mode: Optional[str] = None,
+    user_id: Optional[int] = None,
+    day: Optional[dt.date] = None,
+) -> List[str]:
+    branch = _visual_branch(normalize_visual_mode(visual_mode), user_id, day, sphere)
+    mapping = PHOTO_RECOMMENDED_STYLES if branch == "photo" else ILLUSTRATION_RECOMMENDED_STYLES
+    return mapping.get(sphere, mapping["inner_peace"])
+
+
+def visual_mode_for_style(visual_mode: Optional[str], selected_style: Optional[str] = None) -> str:
+    mode = normalize_visual_mode(visual_mode)
+    if mode == "mixed":
+        if selected_style in PHOTO_STYLE_KEYS:
+            return "photo"
+        if selected_style in ILLUSTRATION_STYLE_KEYS or selected_style in LEGACY_STYLE_KEYS:
+            return "illustration"
+        return "illustration"
+    return mode
+
+
 def resolve_style(
     style: str,
     sphere: str,
     user_id: Optional[int] = None,
     day: Optional[dt.date] = None,
     focus_key: Optional[str] = None,
+    visual_mode: Optional[str] = None,
 ) -> str:
     if style == "random":
         style = "random_suitable"
-    recommended = RECOMMENDED_STYLES.get(sphere, RECOMMENDED_STYLES["inner_peace"])
+    mode = normalize_visual_mode(visual_mode)
+    recommended = get_recommended_styles(sphere, mode, user_id=user_id, day=day)
     if style in ("auto", "random_suitable"):
         if user_id is not None and day is not None:
             iso_year, iso_week, weekday = day.isocalendar()
             salt = "auto-style" if style == "auto" else "suitable-style"
-            rng = random.Random(f"{salt}-{user_id}-{sphere}-{focus_key or ''}-{iso_year}-{iso_week}-{weekday}")
-            if style == "auto" and recommended and recommended[0] == "bright_nature_card":
+            rng = random.Random(f"{salt}-{mode}-{user_id}-{sphere}-{focus_key or ''}-{iso_year}-{iso_week}-{weekday}")
+            if style == "auto" and recommended and recommended[0] in ("bright_nature_card", "bright_photo_card"):
                 if weekday in (1, 3, 5, 7):
-                    return "bright_nature_card"
+                    return recommended[0]
                 return rng.choice(recommended[1:] or recommended)
             idx = (rng.randrange(len(recommended)) + weekday - 1) % len(recommended)
             return recommended[idx]

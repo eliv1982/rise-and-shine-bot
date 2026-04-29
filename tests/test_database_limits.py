@@ -69,9 +69,11 @@ def test_subscription_v2_columns_are_added(monkeypatch, tmp_path):
             subscription_mode="weekly_balance",
             subscription_sphere=None,
             subscription_style_mode="auto",
+            visual_mode="mixed",
         )
         sub = await db.get_subscription(10)
         assert sub["subscription_mode"] == "weekly_balance"
         assert sub["subscription_style_mode"] == "auto"
+        assert sub["visual_mode"] == "mixed"
 
     asyncio.run(run())

@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import logging
 import os
+import random
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -21,7 +22,9 @@ from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
     get_weekly_balance_sphere,
+    normalize_visual_mode,
     resolve_style,
+    visual_mode_for_style,
 )
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from utils import gender_display
@@ -52,6 +55,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
         language = sub["language"]
         gender = sub.get("user_gender")
         subscription_mode = sub.get("subscription_mode") or ("weekly_balance" if sphere == "random" else "sphere_focus")
+        visual_mode = normalize_visual_mode(sub.get("visual_mode"))
         today = now.date()
 
         if subscription_mode == "weekly_balance" or sphere == "random":
@@ -65,7 +69,8 @@ async def send_daily_affirmations(bot: Bot) -> None:
         micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
         image_hint = focus.get("image_hint_en")
         style_mode = sub.get("subscription_style_mode") or style
-        style = resolve_style(style_mode, sphere, user_id=user_id, day=today, focus_key=focus["key"])
+        style = resolve_style(style_mode, sphere, user_id=user_id, day=today, focus_key=focus["key"], visual_mode=visual_mode)
+        effective_visual_mode = visual_mode_for_style(visual_mode, style)
 
         gender_hint = gender_display(gender, language=language)
         settings = get_settings()
@@ -97,6 +102,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 image_hint=image_hint,
                 focus=focus_text,
                 resolved_style=style,
+                visual_mode=effective_visual_mode,
             )
             if prompt_trace == "template_fallback":
                 log_image_prompt_llm_fallback("subscription_llm_fallback")
@@ -110,6 +116,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 image_prompt_trace=prompt_trace,
                 image_hint=image_hint,
                 resolved_style_override=style,
+                visual_mode=effective_visual_mode,
                 focus_key=focus["key"],
                 color_mood=color_mood,
                 composition_hint=composition_hint,
@@ -128,9 +135,9 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 text_lines.append("Твой настрой на сегодня 🌿")
         else:
             if name:
-                text_lines.append(f"{name}, your focus for today 🌿")
+                text_lines.append(f"{name}, your daily focus 🌿")
             else:
-                text_lines.append("Your focus for today 🌿")
+                text_lines.append("Your daily focus 🌿")
 
         if language == "ru":
             text_lines.append(f"Фокус дня: {focus_text}")
@@ -157,6 +164,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 meta["gender"] = gender
                 meta["source"] = "subscription"
                 meta["subscription_mode"] = subscription_mode
+                meta["visual_mode"] = effective_visual_mode
                 meta["focus"] = focus
                 meta["focus_key"] = focus["key"]
                 meta["micro_step"] = micro_step
@@ -178,6 +186,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
             "subsphere": subsphere,
             "style": style,
             "style_mode": style_mode,
+            "visual_mode": visual_mode,
         }
 
         try:
