@@ -18,6 +18,16 @@ from config import (
     get_tts_provider_config,
 )
 from database import can_start_interactive_generation, get_user, record_interactive_generation
+from handlers.common_guards import answer_menu_option_guard, answer_menu_style_guard
+from handlers.common_messages import (
+    menu_choose_option_text as _menu_choose_option_text,
+    menu_choose_style_text as _menu_choose_style_text,
+    text_language_mismatch_text as _text_language_mismatch_text,
+    voice_language_mismatch_text as _voice_language_mismatch_text,
+    voice_recognition_failed_text as _voice_recognition_failed_text,
+    voice_recognized_echo_text as _voice_recognized_echo_text,
+    voice_unclear_text as _voice_unclear_text,
+)
 from keyboards.inline import (
     after_generation_keyboard,
     main_reply_keyboard,
@@ -72,51 +82,6 @@ def _style_choice_text(language: str) -> str:
 
 def _creating_text(language: str) -> str:
     return "🌿 Создаю твой настрой дня..." if language == "ru" else "🌿 Creating your daily focus..."
-
-
-def _voice_recognition_failed_text(language: str) -> str:
-    if language == "ru":
-        return "Не получилось распознать голос 😕\nПопробуй ещё раз или отправь текстом."
-    return "I couldn’t recognize the voice message 😕\nPlease try again or send it as text."
-
-
-def _voice_recognized_echo_text(language: str, recognized_text: str) -> str:
-    clipped = recognized_text.strip()
-    if len(clipped) > 140:
-        clipped = clipped[:137] + "..."
-    if language == "ru":
-        return f"🎙 Распознано: \"{clipped}\""
-    return f"🎙 Recognized: \"{clipped}\""
-
-
-def _voice_unclear_text(language: str) -> str:
-    if language == "ru":
-        return "Я распознала голос, но текст получился неразборчивым 😕\nПопробуй ещё раз или отправь словами."
-    return "I recognized the voice message, but the text looks unclear 😕\nPlease try again or send it as text."
-
-
-def _voice_language_mismatch_text(language: str) -> str:
-    if language == "ru":
-        return "Похоже, голос распознан на другом языке 🌿\nОтправь голосовое или текст на русском."
-    return "I recognized speech in another language 🌿\nPlease send voice or text in English."
-
-
-def _text_language_mismatch_text(language: str) -> str:
-    if language == "ru":
-        return "В этом режиме я жду текст на русском 🌿\nНапиши тему или стиль по-русски."
-    return "I can work with this flow in English 🌿\nPlease send the theme or style in English."
-
-
-def _menu_choose_option_text(language: str) -> str:
-    if language == "ru":
-        return "Выбери вариант в меню выше 🌿\nЕсли хочешь написать свою тему — нажми «Своя тема»."
-    return "Please choose an option from the menu above 🌿\nIf you want to write your own theme, choose “Custom theme”."
-
-
-def _menu_choose_style_text(language: str) -> str:
-    if language == "ru":
-        return "Выбери стиль кнопкой выше 🎨\nЕсли хочешь описать стиль своими словами — выбери «Свой стиль»."
-    return "Please choose an image style from the buttons above 🎨\nIf you want to describe your own style, choose “Custom style”."
 
 
 def _build_image_debug_block(meta: dict, *, model: str, image_size: str) -> str:
@@ -538,7 +503,7 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
 async def generation_button_menu_text_guard(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
-    await message.answer(_menu_choose_option_text(language))
+    await answer_menu_option_guard(message, language)
 
 
 @router.message(
@@ -550,21 +515,21 @@ async def generation_button_menu_text_guard(message: Message, state: FSMContext)
 async def generation_button_menu_voice_guard(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
-    await message.answer(_menu_choose_option_text(language))
+    await answer_menu_option_guard(message, language)
 
 
 @router.message(GenerationState.choosing_style, F.text)
 async def generation_style_menu_text_guard(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
-    await message.answer(_menu_choose_style_text(language))
+    await answer_menu_style_guard(message, language)
 
 
 @router.message(GenerationState.choosing_style, F.voice)
 async def generation_style_menu_voice_guard(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
-    await message.answer(_menu_choose_style_text(language))
+    await answer_menu_style_guard(message, language)
 
 
 

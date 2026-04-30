@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 from typing import Optional
 
 from aiogram import F, Router
@@ -26,7 +25,15 @@ from keyboards.inline import (
     start_menu_keyboard,
 )
 from database import MAX_ACTIVE_SUBSCRIPTIONS
+from handlers.common_messages import (
+    main_menu_mismatch_text as _main_menu_mismatch_text,
+    voice_language_mismatch_text as _voice_language_mismatch_text,
+    voice_recognition_failed_text as _voice_recognition_failed_text,
+    voice_recognized_echo_text as _voice_recognized_echo_text,
+    voice_unclear_text as _voice_unclear_text,
+)
 from services.subscription_ui import build_subscription_summary, build_subscriptions_summary, gender_profile_label
+from services.main_menu_intents import _normalize_intent_text, detect_main_menu_intent
 from services.speechkit_stt import transcribe_audio_with_meta
 from states import RegistrationState
 from utils import display_name_for_language, extract_name_from_introduction, is_gibberish_text, is_input_language_compatible
@@ -64,88 +71,6 @@ def _welcome_new_user(language: str = "ru") -> str:
         "— и красивую картинку в выбранном стиле.\n\n"
         "Давай познакомимся. Как тебя зовут?"
     )
-
-
-def _voice_recognition_failed_text(language: str) -> str:
-    if language == "ru":
-        return "Не получилось распознать голос 😕\nПопробуй ещё раз или отправь текстом."
-    return "I couldn’t recognize the voice message 😕\nPlease try again or send it as text."
-
-
-def _voice_recognized_echo_text(language: str, recognized_text: str) -> str:
-    clipped = recognized_text.strip()
-    if len(clipped) > 140:
-        clipped = clipped[:137] + "..."
-    if language == "ru":
-        return f"🎙 Распознано: \"{clipped}\""
-    return f"🎙 Recognized: \"{clipped}\""
-
-
-def _voice_unclear_text(language: str) -> str:
-    if language == "ru":
-        return "Я распознала голос, но текст получился неразборчивым 😕\nПопробуй ещё раз или отправь словами."
-    return "I recognized the voice message, but the text looks unclear 😕\nPlease try again or send it as text."
-
-
-def _main_menu_mismatch_text(language: str) -> str:
-    if language == "ru":
-        return "Я сейчас работаю на русском 🌿\nВыбери действие в меню или отправь сообщение на русском."
-    return "I’m currently working in English 🌿\nPlease choose an option from the menu or send a message in English."
-
-
-def _voice_language_mismatch_text(language: str) -> str:
-    if language == "ru":
-        return "Похоже, голос распознан на другом языке 🌿\nОтправь голосовое или текст на русском."
-    return "I recognized speech in another language 🌿\nPlease send voice or text in English."
-
-
-def _normalize_intent_text(text: str) -> str:
-    low = (text or "").lower().strip()
-    low = re.sub(r"[^\w\sа-яё-]", " ", low, flags=re.IGNORECASE)
-    low = re.sub(r"\s+", " ", low).strip()
-    return low
-
-
-def detect_main_menu_intent(text: str, ui_language: str) -> Optional[str]:
-    low = _normalize_intent_text(text)
-    if not low:
-        return None
-    if ui_language == "ru":
-        phrase_map = {
-            "create_mood": ("создай настрой", "создать настрой", "новый настрой", "сделай настрой", "хочу настрой", "создай мне настрой", "настрой"),
-            "manage_subscriptions": ("подписки", "покажи подписки", "мои подписки"),
-            "profile": ("профиль", "мой профиль"),
-            "language": ("язык", "поменять язык", "сменить язык"),
-        }
-    else:
-        phrase_map = {
-            "create_mood": ("create mood", "create focus", "new mood", "create new", "make a daily focus", "new focus", "create daily focus"),
-            "manage_subscriptions": ("subscriptions", "show subscriptions", "manage subscriptions", "my subscriptions"),
-            "profile": ("profile", "my profile", "account"),
-            "language": ("language", "change language"),
-        }
-    for intent, phrases in phrase_map.items():
-        if any(p in low for p in phrases):
-            return intent
-    if ui_language == "ru":
-        if any(token in low for token in ("созд", "настрой", "ритуал", "sozday", "nastroi", "nastroj")):
-            return "create_mood"
-        if any(token in low for token in ("подпис",)):
-            return "manage_subscriptions"
-        if any(token in low for token in ("профил",)):
-            return "profile"
-        if "язык" in low:
-            return "language"
-    else:
-        if any(token in low for token in ("mood", "focus", "create")):
-            return "create_mood"
-        if any(token in low for token in ("subscription", "subscribe", "subs")):
-            return "manage_subscriptions"
-        if any(token in low for token in ("profile", "account")):
-            return "profile"
-        if any(token in low for token in ("language", "lang")):
-            return "language"
-    return None
 
 
 async def route_main_menu_intent(message: Message, state: FSMContext, recognized_text: str, language: str) -> bool:
