@@ -323,6 +323,7 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
 async def cancel_custom_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    await state.update_data(style=None, custom_style_description=None)
     await state.set_state(GenerationState.choosing_style)
     await callback.message.edit_text(
         _style_choice_text(language),

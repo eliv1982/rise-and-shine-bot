@@ -129,6 +129,56 @@ def test_choose_style_clears_custom_style_description_without_overwriting_theme(
     assert captured["data"]["theme_text"] == "Dignity and self-trust"
 
 
+def test_cancel_custom_style_clears_style_notes_and_preserves_generation_context(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    captured = {}
+
+    async def _fake_run(message, state, *, theme_text, user_telegram_id=None):
+        captured["theme_text"] = theme_text
+        captured["data"] = await state.get_data()
+        captured["user_telegram_id"] = user_telegram_id
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "_run_generation", _fake_run)
+
+    state = _FakeState(
+        {
+            "theme_text": "Dignity and self-trust",
+            "sphere": "relationships",
+            "subsphere": "partner",
+            "visual_mode": "photo",
+            "style": "custom",
+            "custom_style_description": "old custom style",
+        }
+    )
+    cancel_callback = _FakeCallback(user_id=77)
+    cancel_callback.data = "style:cancel"
+
+    asyncio.run(generation.cancel_custom_style(cancel_callback, state))
+
+    assert state.data["style"] is None
+    assert state.data["custom_style_description"] is None
+    assert state.data["theme_text"] == "Dignity and self-trust"
+    assert state.data["sphere"] == "relationships"
+    assert state.data["subsphere"] == "partner"
+    assert state.data["visual_mode"] == "photo"
+    assert state.state == generation.GenerationState.choosing_style
+    assert cancel_callback.message.edits
+    assert cancel_callback.answered is True
+
+    style_callback = _FakeCallback(user_id=77)
+    style_callback.data = "style:sea_coast_photo"
+    asyncio.run(generation.choose_style(style_callback, state))
+
+    assert captured["theme_text"] == "Dignity and self-trust"
+    assert captured["user_telegram_id"] == 77
+    assert captured["data"]["style"] == "sea_coast_photo"
+    assert captured["data"]["custom_style_description"] is None
+    assert captured["data"]["visual_mode"] == "photo"
+
+
 def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last_generation(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en", "gender": "female"}
