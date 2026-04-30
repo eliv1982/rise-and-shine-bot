@@ -11,6 +11,20 @@ from handlers.common_messages import (
     menu_choose_option_text as _menu_choose_option_text,
     menu_choose_style_text as _menu_choose_style_text,
 )
+from handlers.subscribe_formatting import (
+    sphere_display as _sphere_display,
+    style_display as _style_display,
+    sub_language as _sub_language,
+    subscription_update_kwargs,
+)
+from handlers.subscribe_messages import (
+    creating_text as _creating_text,
+    limit_text as _limit_text,
+    new_flow_text as _new_flow_text,
+    setup_intro as _setup_intro,
+    style_choice_text as _style_choice_text,
+    visual_mode_text as _visual_mode_text,
+)
 from database import (
     MAX_ACTIVE_SUBSCRIPTIONS,
     count_active_subscriptions,
@@ -44,65 +58,12 @@ from keyboards.inline import (
 )
 from scheduler import last_subscription_affirmations
 from services.speechkit_tts import synthesize_affirmations_with_pauses
-from services.ritual_config import get_sphere_label, get_style_label, get_visual_mode_label, is_tts_available, normalize_visual_mode
+from services.ritual_config import get_visual_mode_label, is_tts_available, normalize_visual_mode
 from services.subscription_ui import build_dashboard_text, build_subscription_summary
 from states import SubscriptionState
 
 router = Router()
 logger = logging.getLogger(__name__)
-
-
-def _new_flow_text(language: str) -> str:
-    if language == "ru":
-        return "🌿 Что создаём?\n\nВыбери сферу, для которой собрать настрой дня:"
-    return "🌿 What shall we create?\n\nChoose an area for your daily focus:"
-
-
-def _visual_mode_text(language: str) -> str:
-    return "🎨 Какой визуал тебе ближе?" if language == "ru" else "🎨 Which visual style feels closer to you?"
-
-
-def _style_choice_text(language: str) -> str:
-    return "✨ Выбери стиль изображения:" if language == "ru" else "✨ Choose image style:"
-
-
-def _creating_text(language: str) -> str:
-    return "🌿 Создаю твой настрой дня..." if language == "ru" else "🌿 Creating your daily focus..."
-
-
-def _sphere_display(sphere: str, language: str) -> str:
-    """Человекочитаемое название сферы для подтверждения подписки."""
-    if sphere == "random":
-        return "Баланс недели" if language == "ru" else "Weekly balance"
-    return get_sphere_label(sphere, language)
-
-
-def _style_display(style: str, language: str) -> str:
-    """Человекочитаемое название стиля для подтверждения подписки."""
-    if style == "random":
-        style = "random_suitable"
-    return get_style_label(style, language)
-
-
-def _sub_language(state_data: dict, user: Optional[dict]) -> str:
-    """Язык в потоке подписки: из state или из профиля."""
-    return (state_data or {}).get("language") or (user or {}).get("language", "ru")
-
-
-def _limit_text(language: str) -> str:
-    if language == "en":
-        return "You already have 3 active subscriptions. Please edit or delete one first."
-    return "У тебя уже 3 активные подписки. Сначала измени или удали одну из них."
-
-
-def _setup_intro(language: str, action: str = "add") -> str:
-    if action == "edit":
-        if language == "en":
-            return "✏️ Edit subscription\n\nChoose subscription language:"
-        return "✏️ Изменить подписку\n\nВыбери язык подписки:"
-    if language == "en":
-        return "➕ Add subscription\n\nChoose subscription language:"
-    return "➕ Добавить подписку\n\nВыбери язык подписки:"
 
 
 async def _show_dashboard_message(message: Message, user_id: int, language: str) -> None:
@@ -146,22 +107,7 @@ async def _start_subscription_setup(
     await callback.answer()
 
 
-def _subscription_update_kwargs(subscription: dict, **overrides) -> dict:
-    data = {
-        "sphere": subscription.get("sphere") or "random",
-        "subsphere": subscription.get("subsphere"),
-        "image_style": subscription.get("image_style") or "auto",
-        "language": subscription.get("language") or "ru",
-        "hour": int(subscription.get("hour", 0)),
-        "minute": int(subscription.get("minute", 0)),
-        "subscription_mode": subscription.get("subscription_mode")
-        or ("weekly_balance" if subscription.get("sphere") == "random" else "sphere_focus"),
-        "subscription_sphere": subscription.get("subscription_sphere"),
-        "subscription_style_mode": subscription.get("subscription_style_mode") or subscription.get("image_style") or "auto",
-        "visual_mode": normalize_visual_mode(subscription.get("visual_mode")),
-    }
-    data.update(overrides)
-    return data
+_subscription_update_kwargs = subscription_update_kwargs
 
 
 async def _update_subscription_fields(user_id: int, subscription_id: int, **overrides) -> Optional[dict]:

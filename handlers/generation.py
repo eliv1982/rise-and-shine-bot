@@ -1,4 +1,3 @@
-import json
 import datetime as dt
 import logging
 import os
@@ -27,6 +26,18 @@ from handlers.common_messages import (
     voice_recognition_failed_text as _voice_recognition_failed_text,
     voice_recognized_echo_text as _voice_recognized_echo_text,
     voice_unclear_text as _voice_unclear_text,
+)
+from handlers.generation_formatting import (
+    build_generation_caption,
+    build_image_debug_block as _build_image_debug_block,
+    update_image_meta,
+)
+from handlers.generation_messages import (
+    creating_text as _creating_text,
+    missing_previous_generation_text,
+    new_flow_text as _new_flow_text,
+    style_choice_text as _style_choice_text,
+    visual_mode_text as _visual_mode_text,
 )
 from keyboards.inline import (
     after_generation_keyboard,
@@ -60,58 +71,10 @@ from services.speechkit_stt import transcribe_audio_with_meta
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
-from utils import display_name_for_language, gender_display, is_gibberish_text, is_input_language_compatible
+from utils import gender_display, is_gibberish_text, is_input_language_compatible
 
 router = Router()
 logger = logging.getLogger(__name__)
-
-
-def _new_flow_text(language: str) -> str:
-    if language == "ru":
-        return "🌿 Что создаём?\n\nВыбери сферу, для которой собрать настрой дня:"
-    return "🌿 What shall we create?\n\nChoose an area for your daily focus:"
-
-
-def _visual_mode_text(language: str) -> str:
-    return "🎨 Какой визуал тебе ближе?" if language == "ru" else "🎨 Which visual style feels closer to you?"
-
-
-def _style_choice_text(language: str) -> str:
-    return "✨ Выбери стиль изображения:" if language == "ru" else "✨ Choose image style:"
-
-
-def _creating_text(language: str) -> str:
-    return "🌿 Создаю твой настрой дня..." if language == "ru" else "🌿 Creating your daily focus..."
-
-
-def _build_image_debug_block(meta: dict, *, model: str, image_size: str) -> str:
-    lines = [
-        "DEBUG:",
-        f"visual_mode: {meta.get('visual_mode') or '—'}",
-        f"requested_style: {meta.get('requested_style') or '—'}",
-        f"selected_style: {meta.get('selected_style') or meta.get('resolved_style') or '—'}",
-        f"prompt_branch: {meta.get('prompt_branch') or '—'}",
-    ]
-    scene_preset = meta.get("scene_preset") or meta.get("photo_scene_preset")
-    if scene_preset:
-        lines.append(f"scene_preset: {scene_preset}")
-    lines.extend(
-        [
-            f"text_provider: {meta.get('text_provider') or '—'}",
-            f"image_provider: {meta.get('image_provider') or '—'}",
-            f"tts_provider: {meta.get('tts_provider') or '—'}",
-            f"text_model: {meta.get('text_model') or '—'}",
-            f"model: {meta.get('model') or model}",
-            f"tts_model: {meta.get('tts_model') or '—'}",
-            f"voice: {meta.get('voice') or '—'}",
-            f"stt_provider: {meta.get('stt_provider') or '—'}",
-            f"stt_model: {meta.get('stt_model') or '—'}",
-            f"stt_language: {meta.get('stt_language') or '—'}",
-            f"recognized_language: {meta.get('recognized_language') or '—'}",
-            f"image_size: {meta.get('image_size') or meta.get('size') or image_size}",
-        ]
-    )
-    return "\n".join(lines)
 
 
 @router.callback_query(F.data == "cmd:new")
@@ -698,75 +661,34 @@ async def _run_generation(
         await state.set_state(GenerationState.choosing_style)
         return
 
-    text_lines = []
-    name = display_name_for_language((user or {}).get("name"), language)
-    if language == "ru":
-        if name:
-            text_lines.append(f"{name}, твой настрой на сегодня 🌿")
-        else:
-            text_lines.append("Твой настрой на сегодня 🌿")
-    else:
-        if name:
-            text_lines.append(f"{name}, your daily focus 🌿")
-        else:
-            text_lines.append("Your daily focus 🌿")
+    caption = build_generation_caption(
+        user=user,
+        language=language,
+        focus_text=focus_text,
+        affirmations=affirmations,
+        micro_step=micro_step,
+    )
 
-    if language == "ru":
-        text_lines.append(f"Фокус дня: {focus_text}")
-    else:
-        text_lines.append(f"Focus of the day: {focus_text}")
-
-    for a in affirmations:
-        text_lines.append(f"• {a}")
-
-    if language == "ru":
-        text_lines.append(f"Мягкий шаг дня:\n{micro_step}")
-    else:
-        text_lines.append(f"Gentle step of the day:\n{micro_step}")
-
-    caption = "\n\n".join(text_lines)
-
-    meta_path = image_path.replace(".png", "_meta.json")
-    image_meta = {}
-    if os.path.isfile(meta_path):
-        try:
-            with open(meta_path, "r", encoding="utf-8") as f:
-                meta = json.load(f)
-            meta["affirmations"] = affirmations
-            meta["theme_text"] = theme_text
-            meta["gender"] = gender
-            meta["focus"] = focus
-            meta["micro_step"] = micro_step
-            meta["visual_mode"] = effective_visual_mode
-            meta["requested_style"] = style
-            meta["selected_style"] = resolved_style
-            meta["resolved_style"] = resolved_style
-            meta["focus_key"] = focus["key"]
-            meta["color_palette"] = color_mood
-            meta["composition_hint"] = composition_hint
-            meta["text_provider"] = text_provider.provider
-            meta["image_provider"] = image_provider.provider
-            meta["tts_provider"] = tts_provider.provider
-            meta["text_model"] = text_provider.model
-            meta["image_model"] = image_provider.model
-            meta["tts_model"] = tts_provider.model
-            meta["voice"] = tts_provider.voice or None
-            meta["stt_provider"] = last_stt_meta.get("stt_provider")
-            meta["stt_model"] = last_stt_meta.get("stt_model")
-            meta["stt_language"] = last_stt_meta.get("recognized_language")
-            meta["recognized_language"] = last_stt_meta.get("recognized_language")
-            meta["recognized_text_raw"] = last_stt_meta.get("recognized_text_raw")
-            meta["recognized_text_final"] = last_stt_meta.get("recognized_text_final") or data.get("last_recognized_text")
-            meta["stt_attempt_count"] = last_stt_meta.get("stt_attempt_count")
-            meta["stt_language_attempts"] = last_stt_meta.get("stt_language_attempts")
-            meta["theme_source"] = "custom_theme" if (theme_text and theme_text.strip()) else "sphere"
-            meta["preserved_user_theme"] = bool(theme_text and theme_text.strip())
-            meta["coastal_hint_detected"] = bool(has_coastal_intent(theme_text) or has_coastal_intent(custom_style_description))
-            image_meta = meta
-            with open(meta_path, "w", encoding="utf-8") as f:
-                json.dump(meta, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning("Could not update meta file %s: %s", meta_path, e)
+    image_meta = update_image_meta(
+        image_path=image_path,
+        affirmations=affirmations,
+        theme_text=theme_text,
+        gender=gender,
+        focus=focus,
+        micro_step=micro_step,
+        effective_visual_mode=effective_visual_mode,
+        style=style,
+        resolved_style=resolved_style,
+        color_mood=color_mood,
+        composition_hint=composition_hint,
+        text_provider=text_provider,
+        image_provider=image_provider,
+        tts_provider=tts_provider,
+        last_stt_meta=last_stt_meta,
+        data=data,
+        custom_style_description=custom_style_description,
+        logger=logger,
+    )
 
     if settings.show_image_debug:
         caption = f"{caption}\n\n{_build_image_debug_block(image_meta, model=settings.image_model, image_size=settings.image_size)}"
@@ -812,9 +734,7 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         language = (user or {}).get("language", "ru")
         await state.clear()
         await callback.message.answer(
-            "Не нашла параметры предыдущего настроя. Давай начнём заново с /new."
-            if language == "ru"
-            else "Could not find previous parameters. Please start again with /new."
+            missing_previous_generation_text(language)
         )
         return
 
