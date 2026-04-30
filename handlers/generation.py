@@ -1,6 +1,5 @@
 import datetime as dt
 import logging
-import os
 import random
 from typing import Optional
 
@@ -11,7 +10,6 @@ from aiogram.types import CallbackQuery, FSInputFile, Message, PhotoSize
 
 from config import (
     get_image_provider_config,
-    get_outputs_dir,
     get_settings,
     get_text_provider_config,
     get_tts_provider_config,
@@ -69,6 +67,7 @@ from services.ritual_config import (
 )
 from services.speechkit_stt import transcribe_audio_with_meta
 from services.speechkit_tts import synthesize_affirmations_with_pauses
+from services.voice_input import VoiceInputProcessor, VoiceProcessingResult
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
 from utils import gender_display, is_gibberish_text, is_input_language_compatible
@@ -79,6 +78,17 @@ logger = logging.getLogger(__name__)
 
 def _is_usable_flow_text(text: Optional[str]) -> bool:
     return not is_gibberish_text(text)
+
+
+async def _process_generation_voice_input(
+    message: Message,
+    state: FSMContext,
+    *,
+    language: str,
+    pending_kind: str,
+) -> VoiceProcessingResult:
+    processor = VoiceInputProcessor(stt_transcriber=transcribe_audio_with_meta)
+    return await processor.process(message, state, language=language, pending_kind=pending_kind)
 
 
 def _generation_preflight_error(data: dict, theme_text: Optional[str], language: str) -> Optional[str]:
@@ -172,36 +182,23 @@ async def theme_early_cancel(callback: CallbackQuery, state: FSMContext) -> None
 async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
-    voice = message.voice
-    if not voice:
-        return
-    file = await message.bot.get_file(voice.file_id)
-    dest_dir = get_outputs_dir()
-    os.makedirs(dest_dir, exist_ok=True)
-    local_path = os.path.join(dest_dir, f"voice_theme_{message.from_user.id}_{voice.file_unique_id}.ogg")
-    await message.bot.download_file(file.file_path, destination=local_path)
-    try:
-        stt_meta = await transcribe_audio_with_meta(local_path, language=language)
-        recognized = str(stt_meta.get("recognized_text_final") or "")
-    except Exception as exc:
-        logger.exception("STT failed (theme early): %s", exc)
+    result = await _process_generation_voice_input(message, state, language=language, pending_kind="theme")
+    if result.status == "stt_failed":
         await message.answer(_voice_recognition_failed_text(language))
         return
-    await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
-    if not _is_usable_flow_text(recognized):
-        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+    if result.status == "unclear":
         await message.answer(
             _voice_unclear_text(language),
             reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
         )
         return
-    if not is_input_language_compatible(recognized, language):
-        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+    if result.status == "language_mismatch":
         await message.answer(
             _voice_language_mismatch_text(language),
             reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
         )
         return
+    recognized = result.text or ""
     await message.answer(
         (
             f"{_voice_recognized_echo_text(language, recognized)}\n\nИспользовать этот текст?"
@@ -210,7 +207,6 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
         ),
         reply_markup=voice_confirm_keyboard(language, scope="theme_voice"),
     )
-    await state.update_data(recognized_text_pending=recognized, recognized_text_pending_kind="theme")
 
 
 @router.message(GenerationState.waiting_for_theme_early, F.text, ~F.text.startswith("/"))
@@ -482,36 +478,23 @@ async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext
 async def handle_voice_custom_style(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
-    voice = message.voice
-    if not voice:
-        return
-    file = await message.bot.get_file(voice.file_id)
-    dest_dir = get_outputs_dir()
-    os.makedirs(dest_dir, exist_ok=True)
-    local_path = os.path.join(dest_dir, f"voice_style_{message.from_user.id}_{voice.file_unique_id}.ogg")
-    await message.bot.download_file(file.file_path, destination=local_path)
-    try:
-        stt_meta = await transcribe_audio_with_meta(local_path, language=language)
-        recognized = str(stt_meta.get("recognized_text_final") or "")
-    except Exception as exc:
-        logger.exception("STT failed for custom style: %s", exc)
+    result = await _process_generation_voice_input(message, state, language=language, pending_kind="style")
+    if result.status == "stt_failed":
         await message.answer(_voice_recognition_failed_text(language))
         return
-    await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
-    if not _is_usable_flow_text(recognized):
-        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+    if result.status == "unclear":
         await message.answer(
             _voice_unclear_text(language),
             reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
         )
         return
-    if not is_input_language_compatible(recognized, language):
-        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+    if result.status == "language_mismatch":
         await message.answer(
             _voice_language_mismatch_text(language),
             reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
         )
         return
+    recognized = result.text or ""
     await message.answer(
         (
             f"{_voice_recognized_echo_text(language, recognized)}\n\nИспользовать этот текст?"
@@ -520,7 +503,6 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
         ),
         reply_markup=voice_confirm_keyboard(language, scope="style_voice"),
     )
-    await state.update_data(recognized_text_pending=recognized, recognized_text_pending_kind="style")
 
 
 @router.message(GenerationState.waiting_for_custom_style, F.text, ~F.text.startswith("/"))

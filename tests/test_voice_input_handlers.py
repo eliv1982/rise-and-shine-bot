@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from handlers import generation
+from services.voice_input import VoiceInputProcessor
 from states import GenerationState
 
 
@@ -83,6 +84,8 @@ def test_voice_theme_input_follows_same_flow_as_text(monkeypatch):
 
     assert voice_state.data["recognized_text_pending"] == "моя тема"
     assert voice_state.data["recognized_text_pending_kind"] == "theme"
+    assert voice_state.data["last_recognized_text"] == "моя тема"
+    assert voice_state.data["last_stt_meta"]["recognized_text_final"] == "моя тема"
     assert "theme_text" not in voice_state.data
     assert any("🎙 Распознано:" in answer for answer, _ in voice_msg.answers)
 
@@ -111,6 +114,28 @@ def test_voice_recognition_failure_returns_friendly_message(monkeypatch, languag
     assert msg.answers[-1][0] == expected
 
 
+@pytest.mark.parametrize("with_voice", [False, True])
+def test_voice_processor_stt_failed_clears_stale_pending_text(with_voice):
+    async def _raise_meta(*_args, **_kwargs):
+        raise RuntimeError("stt is down")
+
+    processor = VoiceInputProcessor(stt_transcriber=_raise_meta)
+    state = _FakeState()
+    state.data["recognized_text_pending"] = "old pending"
+    state.data["recognized_text_pending_kind"] = "theme"
+    state.data["last_recognized_text"] = "keep me"
+    state.data["last_stt_meta"] = {"keep": "me"}
+    msg = _FakeMessage(language="en", with_voice=with_voice)
+
+    result = asyncio.run(processor.process(msg, state, language="en", pending_kind="theme"))
+
+    assert result.status == "stt_failed"
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
+    assert state.data["last_recognized_text"] == "keep me"
+    assert state.data["last_stt_meta"] == {"keep": "me"}
+
+
 def test_voice_custom_style_echoes_recognized_text(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
@@ -125,6 +150,7 @@ def test_voice_custom_style_echoes_recognized_text(monkeypatch):
 
     assert state.data["recognized_text_pending"] == "soft coastal editorial photo"
     assert state.data["recognized_text_pending_kind"] == "style"
+    assert state.data["last_recognized_text"] == "soft coastal editorial photo"
     assert any("🎙 Recognized:" in answer for answer, _ in msg.answers)
 
 
@@ -165,10 +191,33 @@ def test_bad_stt_for_custom_style_returns_unclear_and_does_not_generate(monkeypa
 
     state = _FakeState()
     state.data["theme_text"] = "тема"
+    state.data["recognized_text_pending"] = "старый текст"
+    state.data["recognized_text_pending_kind"] = "style"
     msg = _FakeMessage(language="ru", with_voice=True)
     asyncio.run(generation.handle_voice_custom_style(msg, state))
     assert any("неразборчивым" in text for text, _ in msg.answers)
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
     assert called["run"] is False
+
+
+def test_voice_language_mismatch_clears_stale_pending_text(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("достоинство и вера"))
+
+    state = _FakeState()
+    state.data["recognized_text_pending"] = "old pending"
+    state.data["recognized_text_pending_kind"] = "theme"
+    msg = _FakeMessage(language="en", with_voice=True)
+    asyncio.run(generation.handle_voice_theme_early(msg, state))
+
+    assert any("another language" in text for text, _ in msg.answers)
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
+    assert state.data["last_recognized_text"] == "достоинство и вера"
 
 
 def test_confirm_recognized_theme_proceeds_to_visual_mode(monkeypatch):
