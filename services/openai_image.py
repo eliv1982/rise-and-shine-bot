@@ -280,18 +280,18 @@ def _augment_photo_override_prompt(prompt: str, photo_scene: str, avoid_clause: 
 def _coastal_photo_clause() -> str:
     return (
         "Coastal realism is mandatory: clearly visible open ocean or open sea coast, open horizon over water, visible shoreline, "
-        "waves, surf or sea foam, and at least one explicit coastal element such as broad sand beach, dunes, rocky coastline, driftwood, "
-        "seashells, cliffs, coastal path, boardwalk or seabirds. Prefer open natural shoreline, clean beach foreground, dunes, rocks, sea foam, driftwood and shells as natural accents. "
+        "waves, surf or sea foam, and at least one explicit natural coastal element such as broad sand beach, dunes, dune grass, rocky coastline, driftwood, "
+        "seashells, cliffs or seabirds. Foreground must contain only natural shoreline elements; prefer open natural shoreline, clean beach foreground, sand, dune grass, shells, driftwood, rocks, sea foam and ocean horizon. "
         "Photo quality target: bright and vivid natural coastal photography, clean air, expressive clouds or clear sky, "
         "higher brightness, sharper detail, natural saturation, strong clarity, healthy contrast, rich but realistic color depth, travel/editorial look. "
         "Avoid inland lakes, rivers, still ponds, forest lakes, landlocked water, canoe or boat in a calm river, generic meadow scenes, dominant lake-like trees by shore, "
         "desk scenes, laptops, notebooks, cups, tables, interior window scenes, botanical still life, vase still-life corners or botanical corner compositions unless explicitly requested. "
-        "No benches, no beach benches, no wooden benches, no chairs, no tables, no stools, no patio furniture, no outdoor furniture, no staged furniture in foreground, and avoid furniture as focal point. "
-        "Boardwalks or coastal paths may appear only as part of the environment, not as staged seating or furniture props. "
+        "No man-made objects in foreground, no benches, no beach benches, no wooden benches, no chairs, no tables, no stools, no patio furniture, no outdoor furniture, "
+        "no deck chairs, no umbrellas, no railings, no cabins, no beach equipment, no staged props, no built structures as focal point, no staged furniture in foreground, and avoid furniture as focal point. "
+        "If a coastal path appears, keep it distant and secondary; do not show boardwalk seating, railings, benches, decks or staged furniture props. "
+        "Default coastal scene has no people, no human figure, no seated person, no meditating person and no dominant portrait unless the user explicitly asks for a person. "
         "Avoid washed out beige palette, grey fog, muted pastel haze, melancholic mist, flat low-contrast light. "
-        "Do not default to mist or haze unless user explicitly asks for foggy or misty weather. "
-        "If user intent implies a walk at sunset by the ocean, allow subtle human presence only (footprints, distant solitary figure from behind, "
-        "walking path, or edge of dress), calm contemplative mood, no dominant portrait."
+        "Do not default to mist or haze unless user explicitly asks for foggy or misty weather."
     )
 
 
@@ -439,10 +439,13 @@ async def generate_image(
     if prompt_override:
         if effective_visual_mode == "photo":
             coastal_override = (
-                resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"}
+                style in {"sea_coast_photo", "bright_ocean_coast_photo"}
+                or resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"}
+                or has_coastal_intent(style)
                 or has_coastal_intent(prompt_override)
                 or has_coastal_intent(user_text)
                 or has_coastal_intent(image_hint)
+                or has_coastal_intent(custom_style_description)
             )
             if coastal_override:
                 coastal_scene_style = resolved_style if resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"} else "sea_coast_photo"

@@ -334,10 +334,13 @@ def test_bright_ocean_coast_has_same_coastal_safety_markers_as_sea_coast():
         "coastal realism is mandatory",
         "open natural shoreline",
         "clean beach foreground",
+        "foreground must contain only natural shoreline elements",
+        "sand, dune grass, shells, driftwood, rocks, sea foam",
         "open ocean or open sea coast",
         "open horizon over water",
         "visible shoreline",
         "waves, surf or sea foam",
+        "no man-made objects in foreground",
         "no benches",
         "no beach benches",
         "no wooden benches",
@@ -346,8 +349,19 @@ def test_bright_ocean_coast_has_same_coastal_safety_markers_as_sea_coast():
         "no stools",
         "no patio furniture",
         "no outdoor furniture",
+        "no deck chairs",
+        "no umbrellas",
+        "no railings",
+        "no cabins",
+        "no beach equipment",
+        "no staged props",
+        "no built structures as focal point",
         "no staged furniture in foreground",
         "avoid furniture as focal point",
+        "no people",
+        "no human figure",
+        "no seated person",
+        "no meditating person",
         "desk scenes",
         "laptops",
         "notebooks",
@@ -468,6 +482,9 @@ def test_generate_image_coastal_override_path_uses_scene_and_generic_photo_safet
         assert "coastal realism is mandatory" in final_prompt
         assert "open natural shoreline" in final_prompt
         assert "clean beach foreground" in final_prompt
+        assert "foreground must contain only natural shoreline elements" in final_prompt
+        assert "sand, dune grass, shells, driftwood, rocks, sea foam" in final_prompt
+        assert "no man-made objects in foreground" in final_prompt
         assert "no benches" in final_prompt
         assert "no beach benches" in final_prompt
         assert "no wooden benches" in final_prompt
@@ -476,8 +493,19 @@ def test_generate_image_coastal_override_path_uses_scene_and_generic_photo_safet
         assert "no stools" in final_prompt
         assert "no patio furniture" in final_prompt
         assert "no outdoor furniture" in final_prompt
+        assert "no deck chairs" in final_prompt
+        assert "no umbrellas" in final_prompt
+        assert "no railings" in final_prompt
+        assert "no cabins" in final_prompt
+        assert "no beach equipment" in final_prompt
+        assert "no staged props" in final_prompt
+        assert "no built structures as focal point" in final_prompt
         assert "no staged furniture in foreground" in final_prompt
         assert "avoid furniture as focal point" in final_prompt
+        assert "no people" in final_prompt
+        assert "no human figure" in final_prompt
+        assert "no seated person" in final_prompt
+        assert "no meditating person" in final_prompt
         assert "desk scenes" in final_prompt
         assert "interior window scenes" in final_prompt
 
@@ -553,6 +581,9 @@ def test_generate_image_coastal_custom_override_replaces_non_coastal_scene_prese
         assert "coastal realism is mandatory" in final_prompt
         assert "open natural shoreline" in final_prompt
         assert "clean beach foreground" in final_prompt
+        assert "foreground must contain only natural shoreline elements" in final_prompt
+        assert "sand, dune grass, shells, driftwood, rocks, sea foam" in final_prompt
+        assert "no man-made objects in foreground" in final_prompt
         assert "no benches" in final_prompt
         assert "no beach benches" in final_prompt
         assert "no wooden benches" in final_prompt
@@ -561,8 +592,19 @@ def test_generate_image_coastal_custom_override_replaces_non_coastal_scene_prese
         assert "no stools" in final_prompt
         assert "no patio furniture" in final_prompt
         assert "no outdoor furniture" in final_prompt
+        assert "no deck chairs" in final_prompt
+        assert "no umbrellas" in final_prompt
+        assert "no railings" in final_prompt
+        assert "no cabins" in final_prompt
+        assert "no beach equipment" in final_prompt
+        assert "no staged props" in final_prompt
+        assert "no built structures as focal point" in final_prompt
         assert "no staged furniture in foreground" in final_prompt
         assert "avoid furniture as focal point" in final_prompt
+        assert "no people" in final_prompt
+        assert "no human figure" in final_prompt
+        assert "no seated person" in final_prompt
+        assert "no meditating person" in final_prompt
         assert "photo scene preset:" in final_prompt
         assert any(
             marker in final_prompt
@@ -583,6 +625,100 @@ def test_generate_image_coastal_custom_override_replaces_non_coastal_scene_prese
         with open(image_path.replace(".png", "_meta.json"), "r", encoding="utf-8") as f:
             meta = json.load(f)
         assert meta["selected_style"] == "custom"
+        assert meta["scene_preset"] in {
+            "ocean_sunrise",
+            "seaside_sunset",
+            "quiet_beach_morning",
+            "rocky_coast",
+            "dunes_and_seabirds",
+            "coastal_path",
+        }
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
+
+
+def test_generate_image_custom_llm_override_uses_coastal_style_notes_for_scene_and_safety(monkeypatch):
+    monkeypatch.setenv("YANDEX_API_KEY", "test")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
+    monkeypatch.setenv("PROXI_API_KEY", "test")
+    monkeypatch.setenv("BOT_TOKEN", "test")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"data": [{"b64_json": base64.b64encode(b"png").decode("ascii")}]}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, *args, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return FakeResponse()
+
+    monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
+
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="custom",
+                sphere="inner_peace",
+                output_dir="test_outputs_phase42",
+                file_basename="custom_llm_style_notes_coastal",
+                prompt_override="A luminous calm editorial photograph with airy natural light. No text.",
+                image_prompt_trace="llm",
+                resolved_style_override="custom",
+                visual_mode="photo",
+                custom_style_description="Побережье моря / океана",
+                focus_key="calm_breath",
+            )
+        )
+
+        final_prompt = captured["payload"]["prompt"].lower()
+        assert "a luminous calm editorial photograph" in final_prompt
+        assert "coastal realism is mandatory" in final_prompt
+        assert "no man-made objects in foreground" in final_prompt
+        assert "no benches" in final_prompt
+        assert "no chairs" in final_prompt
+        assert "no tables" in final_prompt
+        assert "foreground must contain only natural shoreline elements" in final_prompt
+        assert "photo scene preset:" in final_prompt
+        assert any(
+            marker in final_prompt
+            for marker in (
+                "ocean_sunrise",
+                "seaside_sunset",
+                "quiet_beach_morning",
+                "rocky_coast",
+                "dunes_and_seabirds",
+                "coastal_path",
+            )
+        )
+        assert "botanical_corner" not in final_prompt
+        assert "real plant or branches in a vase" not in final_prompt
+        assert "windowsill or table" not in final_prompt
+
+        with open(image_path.replace(".png", "_meta.json"), "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        assert meta["requested_style"] == "custom"
+        assert meta["selected_style"] == "custom"
+        assert meta["prompt_source"] == "llm"
         assert meta["scene_preset"] in {
             "ocean_sunrise",
             "seaside_sunset",
@@ -653,6 +789,7 @@ def test_generate_image_non_coastal_override_keeps_generic_photo_safety_only(mon
         assert "no illustration" in final_prompt
         assert "no painting" in final_prompt
         assert "coastal realism is mandatory" not in final_prompt
+        assert "no man-made objects in foreground" not in final_prompt
         assert "no benches" not in final_prompt
         assert "no beach benches" not in final_prompt
         assert "no wooden benches" not in final_prompt
@@ -661,8 +798,19 @@ def test_generate_image_non_coastal_override_keeps_generic_photo_safety_only(mon
         assert "no stools" not in final_prompt
         assert "no patio furniture" not in final_prompt
         assert "no outdoor furniture" not in final_prompt
+        assert "no deck chairs" not in final_prompt
+        assert "no umbrellas" not in final_prompt
+        assert "no railings" not in final_prompt
+        assert "no cabins" not in final_prompt
+        assert "no beach equipment" not in final_prompt
+        assert "no staged props" not in final_prompt
+        assert "no built structures as focal point" not in final_prompt
         assert "no staged furniture in foreground" not in final_prompt
         assert "avoid furniture as focal point" not in final_prompt
+        assert "no people" not in final_prompt
+        assert "no human figure" not in final_prompt
+        assert "no seated person" not in final_prompt
+        assert "no meditating person" not in final_prompt
         assert "open ocean or open sea coast" not in final_prompt
         assert "interior window scenes" not in final_prompt
     finally:
