@@ -337,8 +337,10 @@ async def handle_theme_voice_recovery(callback: CallbackQuery, state: FSMContext
     language = (user or {}).get("language", "ru")
     action = callback.data.split(":", maxsplit=1)[1]
     if action == "use":
-        pending = str((await state.get_data()).get("recognized_text_pending") or "").strip()
-        if not pending:
+        data = await state.get_data()
+        pending = str(data.get("recognized_text_pending") or "").strip()
+        if not pending or data.get("recognized_text_pending_kind") != "theme":
+            await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
             await callback.answer()
             await callback.message.answer(
                 "Не вижу распознанного текста. Попробуй ещё раз голосом."
@@ -407,7 +409,8 @@ async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext
     if action == "use":
         data = await state.get_data()
         pending = str(data.get("recognized_text_pending") or "").strip()
-        if not pending:
+        if not pending or data.get("recognized_text_pending_kind") != "style":
+            await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
             await callback.answer()
             await callback.message.answer(
                 "Не вижу распознанного текста. Попробуй ещё раз голосом."

@@ -227,10 +227,28 @@ def test_confirm_recognized_theme_proceeds_to_visual_mode(monkeypatch):
     monkeypatch.setattr(generation, "get_user", _fake_get_user)
     state = _FakeState()
     state.data["recognized_text_pending"] = "моя тема"
+    state.data["recognized_text_pending_kind"] = "theme"
     cb = _FakeCallback("theme_voice:use", language="ru")
     asyncio.run(generation.handle_theme_voice_recovery(cb, state))
     assert state.data["theme_text"] == "моя тема"
     assert state.state == GenerationState.choosing_visual_mode
+
+
+def test_theme_voice_recovery_rejects_style_pending_kind(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    state.data["recognized_text_pending"] = "soft coastal editorial photo"
+    state.data["recognized_text_pending_kind"] = "style"
+    cb = _FakeCallback("theme_voice:use", language="en")
+    asyncio.run(generation.handle_theme_voice_recovery(cb, state))
+
+    assert "theme_text" not in state.data
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
+    assert any("cannot find recognized text" in text for text, _ in cb.message.answers)
 
 
 def test_confirm_recognized_style_starts_generation(monkeypatch):
@@ -246,12 +264,39 @@ def test_confirm_recognized_style_starts_generation(monkeypatch):
     monkeypatch.setattr(generation, "_run_generation", _fake_run)
     state = _FakeState()
     state.data["recognized_text_pending"] = "ocean travel photo"
+    state.data["recognized_text_pending_kind"] = "style"
     state.data["theme_text"] = "Dignity"
     state.data["sphere"] = "inner_peace"
     cb = _FakeCallback("style_voice:use", language="en")
     asyncio.run(generation.handle_style_voice_recovery(cb, state))
     assert state.data["custom_style_description"] == "ocean travel photo"
     assert called["run"] is True
+
+
+def test_style_voice_recovery_rejects_theme_pending_kind(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    called = {"run": False}
+
+    async def _fake_run(*_args, **_kwargs):
+        called["run"] = True
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "_run_generation", _fake_run)
+    state = _FakeState()
+    state.data["recognized_text_pending"] = "Dignity and self-trust"
+    state.data["recognized_text_pending_kind"] = "theme"
+    state.data["theme_text"] = "Existing theme"
+    state.data["sphere"] = "inner_peace"
+    cb = _FakeCallback("style_voice:use", language="en")
+    asyncio.run(generation.handle_style_voice_recovery(cb, state))
+
+    assert "custom_style_description" not in state.data
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
+    assert called["run"] is False
+    assert any("cannot find recognized text" in text for text, _ in cb.message.answers)
 
 
 def test_en_ui_russian_text_custom_theme_requests_english(monkeypatch):
