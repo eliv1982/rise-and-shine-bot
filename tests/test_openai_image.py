@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import os
 
 import services.openai_image as openai_image
 from handlers.generation import _build_image_debug_block
@@ -279,6 +280,12 @@ def test_sea_coast_photo_prompt_contains_coastal_realism():
     assert "visible shoreline" in prompt
     assert "open horizon over water" in prompt
     assert "waves, surf or sea foam" in prompt
+    assert "desk scenes" in prompt
+    assert "laptops" in prompt
+    assert "notebooks" in prompt
+    assert "cups" in prompt
+    assert "tables" in prompt
+    assert "interior window scenes" in prompt
 
 
 def test_photo_auto_with_coastal_user_intent_prefers_coastal_constraints():
@@ -305,6 +312,43 @@ def test_photo_auto_with_coastal_user_intent_prefers_coastal_constraints():
     assert "strong clarity" in prompt
 
 
+def test_bright_ocean_coast_has_same_coastal_safety_markers_as_sea_coast():
+    sea_prompt = _build_image_prompt(
+        style="sea_coast_photo",
+        sphere="inner_peace",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        visual_mode="photo",
+    ).lower()
+    bright_prompt = _build_image_prompt(
+        style="bright_ocean_coast_photo",
+        sphere="inner_peace",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        visual_mode="photo",
+    ).lower()
+
+    coastal_safety_markers = [
+        "coastal realism is mandatory",
+        "open ocean or open sea coast",
+        "open horizon over water",
+        "visible shoreline",
+        "waves, surf or sea foam",
+        "desk scenes",
+        "laptops",
+        "notebooks",
+        "cups",
+        "tables",
+        "interior window scenes",
+        "botanical still life",
+    ]
+    for marker in coastal_safety_markers:
+        assert marker in sea_prompt
+        assert marker in bright_prompt
+
+
 def test_bright_ocean_coast_prompt_excludes_interior_workspace_items():
     prompt = _build_image_prompt(
         style="bright_ocean_coast_photo",
@@ -327,7 +371,110 @@ def test_bright_ocean_coast_prompt_excludes_interior_workspace_items():
     assert "vase still-life" in prompt or "vase still life" in prompt
 
 
-def test_generate_image_meta_contains_debug_fields(monkeypatch, tmp_path):
+def test_custom_style_coastal_text_does_not_force_deterministic_coastal_routing():
+    prompt = _build_image_prompt(
+        style="auto",
+        sphere="career",
+        subsphere=None,
+        user_text=None,
+        custom_style_description="bright ocean coast with waves",
+        visual_mode="photo",
+    ).lower()
+
+    assert "additional: bright ocean coast with waves" in prompt
+    assert "realistic editorial photo of a bright workspace" in prompt
+    assert "coastal realism is mandatory" not in prompt
+    assert "avoid inland lakes" not in prompt
+    assert "desk scenes" not in prompt
+
+
+def _cleanup_generated_image(image_path):
+    for path in (image_path, image_path.replace(".png", "_meta.json")):
+        if path and os.path.exists(path):
+            os.remove(path)
+    output_dir = os.path.dirname(image_path)
+    if output_dir and os.path.isdir(output_dir) and not os.listdir(output_dir):
+        os.rmdir(output_dir)
+
+
+def test_generate_image_coastal_override_path_uses_scene_and_generic_photo_safety(monkeypatch):
+    monkeypatch.setenv("YANDEX_API_KEY", "test")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
+    monkeypatch.setenv("PROXI_API_KEY", "test")
+    monkeypatch.setenv("BOT_TOKEN", "test")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"data": [{"b64_json": base64.b64encode(b"png").decode("ascii")}]}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, *args, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return FakeResponse()
+
+    monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
+
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="auto",
+                sphere="inner_peace",
+                output_dir="test_outputs_phase42",
+                file_basename="coastal_override",
+                prompt_override="Real coastal photograph with ocean waves. No text.",
+                resolved_style_override="sea_coast_photo",
+                visual_mode="photo",
+                focus_key="calm_breath",
+            )
+        )
+
+        final_prompt = captured["payload"]["prompt"].lower()
+        assert "real coastal photograph with ocean waves" in final_prompt
+        assert "photo scene preset:" in final_prompt
+        assert "strict photo branch" in final_prompt
+        assert "no illustration" in final_prompt
+        assert "no painting" in final_prompt
+        assert "coastal realism is mandatory" not in final_prompt
+        assert "desk scenes" not in final_prompt
+        assert "interior window scenes" not in final_prompt
+
+        with open(image_path.replace(".png", "_meta.json"), "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        assert meta["selected_style"] == "sea_coast_photo"
+        assert meta["prompt_branch"] == "photo"
+        assert meta["scene_preset"] in {
+            "ocean_sunrise",
+            "seaside_sunset",
+            "quiet_beach_morning",
+            "rocky_coast",
+            "dunes_and_seabirds",
+            "coastal_path",
+        }
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
+
+
+def test_generate_image_meta_contains_debug_fields(monkeypatch):
     monkeypatch.setenv("YANDEX_API_KEY", "test")
     monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
     monkeypatch.setenv("PROXI_API_KEY", "test")
@@ -359,28 +506,33 @@ def test_generate_image_meta_contains_debug_fields(monkeypatch, tmp_path):
 
     monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
 
-    image_path = asyncio.run(
-        generate_image(
-            style="auto",
-            sphere="money",
-            output_dir=str(tmp_path),
-            file_basename="debug_meta",
-            prompt_override="A realistic photo. No text.",
-            resolved_style_override="light_interior_photo",
-            visual_mode="photo",
-            focus_key="order_and_clarity",
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="auto",
+                sphere="money",
+                output_dir="test_outputs_phase42",
+                file_basename="debug_meta",
+                prompt_override="A realistic photo. No text.",
+                resolved_style_override="light_interior_photo",
+                visual_mode="photo",
+                focus_key="order_and_clarity",
+            )
         )
-    )
-    meta_path = image_path.replace(".png", "_meta.json")
-    with open(meta_path, "r", encoding="utf-8") as f:
-        meta = json.load(f)
+        meta_path = image_path.replace(".png", "_meta.json")
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
 
-    assert meta["visual_mode"] == "photo"
-    assert meta["requested_style"] == "auto"
-    assert meta["selected_style"] == "light_interior_photo"
-    assert meta["prompt_branch"] == "photo"
-    assert meta["scene_preset"]
-    assert meta["model"] == "gpt-image-1"
-    assert meta["image_size"] == "1024x1024"
-    assert meta["image_provider"] == "proxiapi"
-    assert "final_prompt" in meta
+        assert meta["visual_mode"] == "photo"
+        assert meta["requested_style"] == "auto"
+        assert meta["selected_style"] == "light_interior_photo"
+        assert meta["prompt_branch"] == "photo"
+        assert meta["scene_preset"]
+        assert meta["model"] == "gpt-image-1"
+        assert meta["image_size"] == "1024x1024"
+        assert meta["image_provider"] == "proxiapi"
+        assert "final_prompt" in meta
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
