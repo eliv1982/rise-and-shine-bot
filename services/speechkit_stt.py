@@ -140,6 +140,7 @@ async def transcribe_audio_with_meta(
         raise RuntimeError(f"Audio file not found: {audio_path}")
 
     attempts = []
+    allow_cross = bool(provider_cfg.options.get("allow_cross_language_stt_fallback", False))
     if provider_cfg.provider == "yandex":
         prefer_raw = str(provider_cfg.options.get("prefer_language") or "").strip().lower()
         prefer = "ru" if prefer_raw.startswith("ru") else ("en" if prefer_raw.startswith("en") else "")
@@ -148,14 +149,16 @@ async def transcribe_audio_with_meta(
         ui_primary = "en" if language == "en" else "ru"
         if ui_primary not in attempts:
             attempts.append(ui_primary)
-        ui_fallback = "ru" if ui_primary == "en" else "en"
-        if ui_fallback not in attempts:
-            attempts.append(ui_fallback)
+        if allow_cross:
+            ui_fallback = "ru" if ui_primary == "en" else "en"
+            if ui_fallback not in attempts:
+                attempts.append(ui_fallback)
     else:
         attempts = [language]
-        alternate = "ru" if language == "en" else "en"
-        if alternate != language:
-            attempts.append(alternate)
+        if allow_cross:
+            alternate = "ru" if language == "en" else "en"
+            if alternate != language:
+                attempts.append(alternate)
 
     best_text = ""
     used_attempts = []

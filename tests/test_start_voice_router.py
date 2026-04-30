@@ -77,7 +77,7 @@ def test_main_menu_voice_routes_to_create_intent(monkeypatch):
     assert any("🎙 Recognized:" in text for text, _ in msg.answers)
 
 
-def test_en_ui_voice_with_russian_create_phrase_routes_to_create(monkeypatch):
+def test_en_ui_voice_with_russian_create_phrase_returns_language_mismatch(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
 
@@ -87,16 +87,21 @@ def test_en_ui_voice_with_russian_create_phrase_routes_to_create(monkeypatch):
         called["new"] = True
 
     monkeypatch.setattr(start, "get_user", _fake_get_user)
-    monkeypatch.setattr(start, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("привет создай мне настрой"))
+    monkeypatch.setattr(
+        start,
+        "transcribe_audio_with_meta",
+        lambda *_args, **_kwargs: _fake_meta("\u043f\u0440\u0438\u0432\u0435\u0442 \u0441\u043e\u0437\u0434\u0430\u0439 \u043c\u043d\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439"),
+    )
     monkeypatch.setattr("handlers.generation.cmd_new", _fake_cmd_new)
 
     state = _FakeState()
     msg = _FakeMessage()
     asyncio.run(start.main_menu_voice_router(msg, state))
-    assert called["new"] is True
+    assert called["new"] is False
+    assert any("another language" in text for text, _ in msg.answers)
 
 
-def test_main_menu_voice_transliterated_intent_routes_to_create(monkeypatch):
+def test_main_menu_voice_transliterated_russian_in_en_ui_returns_mismatch(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
 
@@ -112,7 +117,8 @@ def test_main_menu_voice_transliterated_intent_routes_to_create(monkeypatch):
     state = _FakeState()
     msg = _FakeMessage()
     asyncio.run(start.main_menu_voice_router(msg, state))
-    assert called["new"] is True
+    assert called["new"] is False
+    assert any("not fully sure what you want to do" in text for text, _ in msg.answers)
 
 
 def test_main_menu_voice_unknown_intent_returns_friendly_hint(monkeypatch):
@@ -130,7 +136,7 @@ def test_main_menu_voice_unknown_intent_returns_friendly_hint(monkeypatch):
     assert any("Я не совсем поняла, что ты хочешь сделать 🌿" in text for text, _ in msg.answers)
 
 
-def test_en_ui_voice_with_russian_subscriptions_phrase_routes(monkeypatch):
+def test_en_ui_voice_with_russian_subscriptions_phrase_returns_language_mismatch(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
 
@@ -146,7 +152,8 @@ def test_en_ui_voice_with_russian_subscriptions_phrase_routes(monkeypatch):
     state = _FakeState()
     msg = _FakeMessage()
     asyncio.run(start.main_menu_voice_router(msg, state))
-    assert called["subs"] is True
+    assert called["subs"] is False
+    assert any("another language" in text for text, _ in msg.answers)
 
 
 def test_main_menu_voice_gibberish_returns_unclear_hint(monkeypatch):
@@ -160,6 +167,26 @@ def test_main_menu_voice_gibberish_returns_unclear_hint(monkeypatch):
     msg = _FakeMessage()
     asyncio.run(start.main_menu_voice_router(msg, state))
     assert any("text looks unclear" in text for text, _ in msg.answers)
+
+
+def test_ru_ui_voice_with_english_phrase_returns_language_mismatch(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    called = {"new": False}
+
+    async def _fake_cmd_new(_message, _state):
+        called["new"] = True
+
+    monkeypatch.setattr(start, "get_user", _fake_get_user)
+    monkeypatch.setattr(start, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("create mood"))
+    monkeypatch.setattr("handlers.generation.cmd_new", _fake_cmd_new)
+
+    state = _FakeState()
+    msg = _FakeMessage()
+    asyncio.run(start.main_menu_voice_router(msg, state))
+    assert called["new"] is False
+    assert any("на другом языке" in text for text, _ in msg.answers)
 
 
 def test_main_menu_text_routes_subscriptions_intent(monkeypatch):
@@ -177,6 +204,17 @@ def test_main_menu_text_routes_subscriptions_intent(monkeypatch):
     msg = _FakeMessage(with_voice=False, text="подписки")
     asyncio.run(start.main_menu_text_router(msg, state))
     assert called["subs"] is True
+
+
+def test_ru_ui_main_menu_text_does_not_match_english_phrase(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    state = _FakeState()
+    msg = _FakeMessage(with_voice=False, text="create mood")
+    monkeypatch.setattr(start, "get_user", _fake_get_user)
+    asyncio.run(start.main_menu_text_router(msg, state))
+    assert any("работаю на русском" in text for text, _ in msg.answers)
 
 
 def test_registration_name_voice_uses_recognized_name(monkeypatch):

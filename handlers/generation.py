@@ -50,7 +50,7 @@ from services.speechkit_stt import transcribe_audio_with_meta
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
-from utils import display_name_for_language, gender_display, is_gibberish_text
+from utils import display_name_for_language, gender_display, is_gibberish_text, is_input_language_compatible
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -93,6 +93,18 @@ def _voice_unclear_text(language: str) -> str:
     if language == "ru":
         return "Я распознала голос, но текст получился неразборчивым 😕\nПопробуй ещё раз или отправь словами."
     return "I recognized the voice message, but the text looks unclear 😕\nPlease try again or send it as text."
+
+
+def _voice_language_mismatch_text(language: str) -> str:
+    if language == "ru":
+        return "Похоже, голос распознан на другом языке 🌿\nОтправь голосовое или текст на русском."
+    return "I recognized speech in another language 🌿\nPlease send voice or text in English."
+
+
+def _text_language_mismatch_text(language: str) -> str:
+    if language == "ru":
+        return "В этом режиме я жду текст на русском 🌿\nНапиши тему или стиль по-русски."
+    return "I can work with this flow in English 🌿\nPlease send the theme or style in English."
 
 
 def _menu_choose_option_text(language: str) -> str:
@@ -220,6 +232,12 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
             reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
         )
         return
+    if not is_input_language_compatible(recognized, language):
+        await message.answer(
+            _voice_language_mismatch_text(language),
+            reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
+        )
+        return
     await message.answer(
         (
             f"{_voice_recognized_echo_text(language, recognized)}\n\nИспользовать этот текст?"
@@ -238,6 +256,9 @@ async def handle_text_theme_early(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if not text:
         await message.answer("Напиши тему или нажми «Отмена»." if language == "ru" else "Type your theme or press Cancel.")
+        return
+    if not is_input_language_compatible(text, language):
+        await message.answer(_text_language_mismatch_text(language))
         return
     await state.update_data(theme_text=text, sphere="inner_peace", subsphere=None)
     await state.set_state(GenerationState.choosing_visual_mode)
@@ -474,6 +495,12 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
             reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
         )
         return
+    if not is_input_language_compatible(recognized, language):
+        await message.answer(
+            _voice_language_mismatch_text(language),
+            reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
+        )
+        return
     await message.answer(
         (
             f"{_voice_recognized_echo_text(language, recognized)}\n\nИспользовать этот текст?"
@@ -492,6 +519,9 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if not text:
         await message.answer("Напиши описание стиля или нажми «Отмена»." if language == "ru" else "Type style description or press Cancel.")
+        return
+    if not is_input_language_compatible(text, language):
+        await message.answer(_text_language_mismatch_text(language))
         return
     await state.update_data(custom_style_description=text)
     data = await state.get_data()

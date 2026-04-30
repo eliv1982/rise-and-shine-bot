@@ -261,6 +261,7 @@ def get_stt_provider_config() -> SttProviderConfig:
             options={
                 "folder_id": _get_env_var("YANDEX_FOLDER_ID", required=False, default="") or "",
                 "prefer_language": _get_env_var("STT_PREFER_LANGUAGE", required=False, default="ru-RU") or "ru-RU",
+                "allow_cross_language_stt_fallback": _get_env_bool("ALLOW_CROSS_LANGUAGE_STT_FALLBACK", False),
             },
         )
     return SttProviderConfig(
@@ -272,6 +273,7 @@ def get_stt_provider_config() -> SttProviderConfig:
         timeout_seconds=_get_env_int("OPENAI_STT_TIMEOUT_SECONDS", 120),
         options={
             "prefer_language": _get_env_var("STT_PREFER_LANGUAGE", required=False, default="") or "",
+            "allow_cross_language_stt_fallback": _get_env_bool("ALLOW_CROSS_LANGUAGE_STT_FALLBACK", False),
         },
     )
 

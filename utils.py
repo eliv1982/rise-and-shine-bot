@@ -175,3 +175,18 @@ def is_gibberish_text(text: Optional[str]) -> bool:
         return True
     return False
 
+
+def is_input_language_compatible(text: Optional[str], ui_language: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return True
+    if t.startswith("/"):
+        return True
+    cyr = len(re.findall(r"[А-Яа-яЁё]", t))
+    lat = len(re.findall(r"[A-Za-z]", t))
+    if cyr == 0 and lat == 0:
+        return True
+    if ui_language == "ru":
+        return cyr >= lat
+    return lat >= cyr
+

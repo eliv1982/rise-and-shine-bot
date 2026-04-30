@@ -138,6 +138,7 @@ def test_stt_provider_yandex_config(monkeypatch):
     assert cfg.model == "general"
     assert cfg.language == "ru-RU"
     assert cfg.timeout_seconds == 120
+    assert cfg.options.get("allow_cross_language_stt_fallback") is False
 
 
 def test_stt_provider_openai_config(monkeypatch):
@@ -179,3 +180,5 @@ def test_deployment_profile_examples_include_stt_provider():
     assert "TEXT_PROVIDER=openai" in foreign_profile
     assert "IMAGE_PROVIDER=openai" in foreign_profile
     assert "TTS_PROVIDER=openai" in foreign_profile
+    assert "ALLOW_CROSS_LANGUAGE_STT_FALLBACK=false" in ru_profile
+    assert "ALLOW_CROSS_LANGUAGE_STT_FALLBACK=false" in foreign_profile

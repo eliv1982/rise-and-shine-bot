@@ -29,7 +29,7 @@ from database import MAX_ACTIVE_SUBSCRIPTIONS
 from services.subscription_ui import build_subscription_summary, build_subscriptions_summary, gender_profile_label
 from services.speechkit_stt import transcribe_audio_with_meta
 from states import RegistrationState
-from utils import display_name_for_language, extract_name_from_introduction, is_gibberish_text
+from utils import display_name_for_language, extract_name_from_introduction, is_gibberish_text, is_input_language_compatible
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -87,6 +87,18 @@ def _voice_unclear_text(language: str) -> str:
     return "I recognized the voice message, but the text looks unclear 😕\nPlease try again or send it as text."
 
 
+def _main_menu_mismatch_text(language: str) -> str:
+    if language == "ru":
+        return "Я сейчас работаю на русском 🌿\nВыбери действие в меню или отправь сообщение на русском."
+    return "I’m currently working in English 🌿\nPlease choose an option from the menu or send a message in English."
+
+
+def _voice_language_mismatch_text(language: str) -> str:
+    if language == "ru":
+        return "Похоже, голос распознан на другом языке 🌿\nОтправь голосовое или текст на русском."
+    return "I recognized speech in another language 🌿\nPlease send voice or text in English."
+
+
 def _normalize_intent_text(text: str) -> str:
     low = (text or "").lower().strip()
     low = re.sub(r"[^\w\sа-яё-]", " ", low, flags=re.IGNORECASE)
@@ -94,66 +106,50 @@ def _normalize_intent_text(text: str) -> str:
     return low
 
 
-def detect_main_menu_intent(text: str) -> Optional[str]:
+def detect_main_menu_intent(text: str, ui_language: str) -> Optional[str]:
     low = _normalize_intent_text(text)
     if not low:
         return None
-    phrase_map = {
-        "create_mood": (
-            "создай настрой",
-            "создать настрой",
-            "новый настрой",
-            "сделай настрой",
-            "хочу настрой",
-            "создай мне настрой",
-            "create mood",
-            "create focus",
-            "new mood",
-            "create new",
-            "make a daily focus",
-            "new focus",
-            "create daily focus",
-        ),
-        "manage_subscriptions": (
-            "подписки",
-            "покажи подписки",
-            "мои подписки",
-            "subscriptions",
-            "show subscriptions",
-            "manage subscriptions",
-            "my subscriptions",
-        ),
-        "profile": (
-            "профиль",
-            "мой профиль",
-            "profile",
-            "my profile",
-            "account",
-        ),
-        "language": (
-            "язык",
-            "поменять язык",
-            "сменить язык",
-            "language",
-            "change language",
-        ),
-    }
+    if ui_language == "ru":
+        phrase_map = {
+            "create_mood": ("создай настрой", "создать настрой", "новый настрой", "сделай настрой", "хочу настрой", "создай мне настрой", "настрой"),
+            "manage_subscriptions": ("подписки", "покажи подписки", "мои подписки"),
+            "profile": ("профиль", "мой профиль"),
+            "language": ("язык", "поменять язык", "сменить язык"),
+        }
+    else:
+        phrase_map = {
+            "create_mood": ("create mood", "create focus", "new mood", "create new", "make a daily focus", "new focus", "create daily focus"),
+            "manage_subscriptions": ("subscriptions", "show subscriptions", "manage subscriptions", "my subscriptions"),
+            "profile": ("profile", "my profile", "account"),
+            "language": ("language", "change language"),
+        }
     for intent, phrases in phrase_map.items():
         if any(p in low for p in phrases):
             return intent
-    if any(token in low for token in ("созд", "настрой", "ритуал", "mood", "focus", "affirmation", "sozday", "nastroi", "nastroj")):
-        return "create_mood"
-    if any(token in low for token in ("подпис", "subscription", "subscribe", "subs")):
-        return "manage_subscriptions"
-    if any(token in low for token in ("профил", "profile", "account")):
-        return "profile"
-    if any(token in low for token in ("язык", "language", "lang")):
-        return "language"
+    if ui_language == "ru":
+        if any(token in low for token in ("созд", "настрой", "ритуал", "sozday", "nastroi", "nastroj")):
+            return "create_mood"
+        if any(token in low for token in ("подпис",)):
+            return "manage_subscriptions"
+        if any(token in low for token in ("профил",)):
+            return "profile"
+        if "язык" in low:
+            return "language"
+    else:
+        if any(token in low for token in ("mood", "focus", "create")):
+            return "create_mood"
+        if any(token in low for token in ("subscription", "subscribe", "subs")):
+            return "manage_subscriptions"
+        if any(token in low for token in ("profile", "account")):
+            return "profile"
+        if any(token in low for token in ("language", "lang")):
+            return "language"
     return None
 
 
 async def route_main_menu_intent(message: Message, state: FSMContext, recognized_text: str, language: str) -> bool:
-    intent = detect_main_menu_intent(recognized_text)
+    intent = detect_main_menu_intent(recognized_text, language)
     if intent == "create_mood":
         from handlers.generation import cmd_new
 
@@ -400,6 +396,9 @@ async def main_menu_text_router(message: Message, state: FSMContext) -> None:
     text = (message.text or "").strip()
     if not text:
         return
+    if not is_input_language_compatible(text, language):
+        await message.answer(_main_menu_mismatch_text(language), reply_markup=main_reply_keyboard(language))
+        return
     routed = await route_main_menu_intent(message, state, text, language)
     if routed:
         return
@@ -438,6 +437,9 @@ async def main_menu_voice_router(message: Message, state: FSMContext) -> None:
     await message.answer(_voice_recognized_echo_text(language, recognized), reply_markup=main_reply_keyboard(language))
     if is_gibberish_text(recognized):
         await message.answer(_voice_unclear_text(language), reply_markup=main_reply_keyboard(language))
+        return
+    if not is_input_language_compatible(recognized, language):
+        await message.answer(_voice_language_mismatch_text(language), reply_markup=main_reply_keyboard(language))
         return
 
     if await route_main_menu_intent(message, state, recognized, language):

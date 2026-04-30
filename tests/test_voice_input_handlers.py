@@ -204,6 +204,30 @@ def test_confirm_recognized_style_starts_generation(monkeypatch):
     assert called["run"] is True
 
 
+def test_en_ui_russian_text_custom_theme_requests_english(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    msg = _FakeMessage(text="Достоинство и вера в себя", language="en", with_voice=False)
+    asyncio.run(generation.handle_text_theme_early(msg, state))
+    assert any("flow in English" in text for text, _ in msg.answers)
+    assert state.state is None
+
+
+def test_ru_ui_english_text_custom_theme_requests_russian(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    msg = _FakeMessage(text="Dignity and self-trust", language="ru", with_voice=False)
+    asyncio.run(generation.handle_text_theme_early(msg, state))
+    assert any("жду текст на русском" in text for text, _ in msg.answers)
+    assert state.state is None
+
+
 @pytest.mark.parametrize("language,expected", [("ru", "Выбери вариант в меню выше"), ("en", "Please choose an option from the menu above")])
 def test_generation_menu_state_text_guard_for_sphere_ru_en(monkeypatch, language, expected):
     async def _fake_get_user(_uid):
