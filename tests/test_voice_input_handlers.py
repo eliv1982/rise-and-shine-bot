@@ -33,6 +33,10 @@ class _FakeState:
     async def get_data(self):
         return dict(self.data)
 
+    async def clear(self):
+        self.data = {}
+        self.state = None
+
 
 class _FakeBot:
     async def get_file(self, file_id):
@@ -56,6 +60,16 @@ class _FakeMessage:
         self.answers.append((text, reply_markup))
 
 
+class _FakeCallback:
+    def __init__(self, data: str, language: str = "ru"):
+        self.data = data
+        self.from_user = SimpleNamespace(id=123)
+        self.message = _FakeMessage(language=language, with_voice=False)
+
+    async def answer(self):
+        return None
+
+
 def test_voice_theme_input_follows_same_flow_as_text(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru"}
@@ -63,19 +77,14 @@ def test_voice_theme_input_follows_same_flow_as_text(monkeypatch):
     monkeypatch.setattr(generation, "get_user", _fake_get_user)
     monkeypatch.setattr(generation, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("моя тема"))
 
-    text_state = _FakeState()
-    text_msg = _FakeMessage(text="моя тема", language="ru", with_voice=False)
-    asyncio.run(generation.handle_text_theme_early(text_msg, text_state))
-
     voice_state = _FakeState()
     voice_msg = _FakeMessage(language="ru", with_voice=True)
     asyncio.run(generation.handle_voice_theme_early(voice_msg, voice_state))
 
-    assert text_state.data["theme_text"] == "моя тема"
-    assert voice_state.data["theme_text"] == "моя тема"
-    assert text_state.data["sphere"] == voice_state.data["sphere"] == "inner_peace"
-    assert text_state.state == voice_state.state == GenerationState.choosing_visual_mode
-    assert any("🎙️ Распознано:" in answer for answer, _ in voice_msg.answers)
+    assert voice_state.data["recognized_text_pending"] == "моя тема"
+    assert voice_state.data["recognized_text_pending_kind"] == "theme"
+    assert "theme_text" not in voice_state.data
+    assert any("🎙 Распознано:" in answer for answer, _ in voice_msg.answers)
 
 
 @pytest.mark.parametrize(
@@ -106,17 +115,138 @@ def test_voice_custom_style_echoes_recognized_text(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
 
-    async def _fake_run_generation(*_args, **_kwargs):
-        return None
-
     monkeypatch.setattr(generation, "get_user", _fake_get_user)
     monkeypatch.setattr(generation, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("soft coastal editorial photo"))
-    monkeypatch.setattr(generation, "_run_generation", _fake_run_generation)
 
     state = _FakeState()
     state.data["theme_text"] = "theme"
     msg = _FakeMessage(language="en", with_voice=True)
     asyncio.run(generation.handle_voice_custom_style(msg, state))
 
-    assert state.data["custom_style_description"] == "soft coastal editorial photo"
-    assert any("🎙️ Recognized:" in answer for answer, _ in msg.answers)
+    assert state.data["recognized_text_pending"] == "soft coastal editorial photo"
+    assert state.data["recognized_text_pending_kind"] == "style"
+    assert any("🎙 Recognized:" in answer for answer, _ in msg.answers)
+
+
+def test_generation_menu_state_text_guard_for_sphere(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    msg = _FakeMessage(text="какой-то текст", language="ru", with_voice=False)
+    asyncio.run(generation.generation_button_menu_text_guard(msg, state))
+    assert "Выбери вариант в меню выше" in msg.answers[-1][0]
+
+
+def test_generation_menu_state_voice_guard_for_style(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    msg = _FakeMessage(language="en", with_voice=True)
+    asyncio.run(generation.generation_style_menu_voice_guard(msg, state))
+    assert "Please choose an image style from the buttons above" in msg.answers[-1][0]
+
+
+def test_bad_stt_for_custom_style_returns_unclear_and_does_not_generate(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    called = {"run": False}
+
+    async def _fake_run(*_args, **_kwargs):
+        called["run"] = True
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("do stoint weh weh weh"))
+    monkeypatch.setattr(generation, "_run_generation", _fake_run)
+
+    state = _FakeState()
+    state.data["theme_text"] = "тема"
+    msg = _FakeMessage(language="ru", with_voice=True)
+    asyncio.run(generation.handle_voice_custom_style(msg, state))
+    assert any("неразборчивым" in text for text, _ in msg.answers)
+    assert called["run"] is False
+
+
+def test_confirm_recognized_theme_proceeds_to_visual_mode(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    state.data["recognized_text_pending"] = "моя тема"
+    cb = _FakeCallback("theme_voice:use", language="ru")
+    asyncio.run(generation.handle_theme_voice_recovery(cb, state))
+    assert state.data["theme_text"] == "моя тема"
+    assert state.state == GenerationState.choosing_visual_mode
+
+
+def test_confirm_recognized_style_starts_generation(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    called = {"run": False}
+
+    async def _fake_run(*_args, **_kwargs):
+        called["run"] = True
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "_run_generation", _fake_run)
+    state = _FakeState()
+    state.data["recognized_text_pending"] = "ocean travel photo"
+    state.data["theme_text"] = "Dignity"
+    cb = _FakeCallback("style_voice:use", language="en")
+    asyncio.run(generation.handle_style_voice_recovery(cb, state))
+    assert state.data["custom_style_description"] == "ocean travel photo"
+    assert called["run"] is True
+
+
+@pytest.mark.parametrize("language,expected", [("ru", "Выбери вариант в меню выше"), ("en", "Please choose an option from the menu above")])
+def test_generation_menu_state_text_guard_for_sphere_ru_en(monkeypatch, language, expected):
+    async def _fake_get_user(_uid):
+        return {"language": language}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    msg = _FakeMessage(text="hello", language=language, with_voice=False)
+    asyncio.run(generation.generation_button_menu_text_guard(msg, state))
+    assert expected in msg.answers[-1][0]
+
+
+@pytest.mark.parametrize("language,expected", [("ru", "Выбери вариант в меню выше"), ("en", "Please choose an option from the menu above")])
+def test_generation_menu_state_voice_guard_for_sphere_ru_en(monkeypatch, language, expected):
+    async def _fake_get_user(_uid):
+        return {"language": language}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    msg = _FakeMessage(language=language, with_voice=True)
+    asyncio.run(generation.generation_button_menu_voice_guard(msg, state))
+    assert expected in msg.answers[-1][0]
+
+
+@pytest.mark.parametrize("language,expected", [("ru", "Выбери стиль кнопкой выше"), ("en", "Please choose an image style from the buttons above")])
+def test_generation_style_state_text_guard_ru_en(monkeypatch, language, expected):
+    async def _fake_get_user(_uid):
+        return {"language": language}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    msg = _FakeMessage(text="style text", language=language, with_voice=False)
+    asyncio.run(generation.generation_style_menu_text_guard(msg, state))
+    assert expected in msg.answers[-1][0]
+
+
+@pytest.mark.parametrize("language,expected", [("ru", "Выбери стиль кнопкой выше"), ("en", "Please choose an image style from the buttons above")])
+def test_generation_style_state_voice_guard_ru_en(monkeypatch, language, expected):
+    async def _fake_get_user(_uid):
+        return {"language": language}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    state = _FakeState()
+    msg = _FakeMessage(language=language, with_voice=True)
+    asyncio.run(generation.generation_style_menu_voice_guard(msg, state))
+    assert expected in msg.answers[-1][0]

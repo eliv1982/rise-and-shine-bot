@@ -407,6 +407,7 @@ PHOTO_STYLE_KEYS = [
     "sunny_photo_scene",
     "living_nature_photo",
     "sea_coast_photo",
+    "bright_ocean_coast_photo",
     "light_interior_photo",
     "calm_lifestyle_photo",
 ]
@@ -438,6 +439,7 @@ STYLE_LABELS = {
     "sunny_photo_scene": {"ru": "Солнечная фотосцена", "en": "Sunny photo scene"},
     "living_nature_photo": {"ru": "Живая природа", "en": "Living nature"},
     "sea_coast_photo": {"ru": "Побережье моря / океана", "en": "Sea & ocean coast"},
+    "bright_ocean_coast_photo": {"ru": "🌊 Яркое океанское побережье", "en": "🌊 Bright ocean coast"},
     "light_interior_photo": {"ru": "Светлый интерьер", "en": "Light interior"},
     "calm_lifestyle_photo": {"ru": "Спокойный lifestyle", "en": "Calm lifestyle"},
     "bright_photo_card": {"ru": "Солнечная фотосцена", "en": "Sunny photo scene"},
@@ -464,6 +466,7 @@ STYLE_DESCRIPTIONS = {
     "sunny_photo_scene": "warm real-life photo, sunlit atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
     "living_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
     "sea_coast_photo": "real coastal photograph, sea or ocean coastline photography, realistic natural light, realistic sky and cloud formations, believable wave and water behavior, natural atmospheric perspective, camera realism, editorial landscape photography feel, calm restorative airy mood",
+    "bright_ocean_coast_photo": "bright vivid real ocean coast photograph, clear sea or ocean horizon, visible shoreline, waves, surf and sea foam, natural vivid colors with realistic saturation, bright sky and expressive clouds, higher brightness, clarity and contrast, editorial travel coastal landscape photography, not washed out and not grey fog",
     "light_interior_photo": "realistic interior and lifestyle photo, soft daylight through a window, real ceramics, wood, linen, glass, plants, believable shadows, camera realism, notebook without visible text",
     "calm_lifestyle_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
     "bright_photo_card": "warm real-life photo, sunlit atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
@@ -491,14 +494,14 @@ ILLUSTRATION_RECOMMENDED_STYLES = {
 }
 
 PHOTO_RECOMMENDED_STYLES = {
-    "inner_peace": ["light_interior_photo", "sea_coast_photo", "living_nature_photo", "calm_lifestyle_photo"],
-    "self_worth": ["light_interior_photo", "calm_lifestyle_photo", "sea_coast_photo", "sunny_photo_scene"],
-    "health": ["calm_lifestyle_photo", "sea_coast_photo", "living_nature_photo", "light_interior_photo", "sunny_photo_scene"],
-    "career": ["light_interior_photo", "calm_lifestyle_photo", "sunny_photo_scene", "sea_coast_photo"],
-    "money": ["light_interior_photo", "calm_lifestyle_photo", "sunny_photo_scene", "sea_coast_photo"],
-    "relationships": ["calm_lifestyle_photo", "light_interior_photo", "sea_coast_photo", "sunny_photo_scene"],
-    "self_realization": ["calm_lifestyle_photo", "sea_coast_photo", "light_interior_photo", "sunny_photo_scene"],
-    "spirituality": ["light_interior_photo", "sea_coast_photo", "calm_lifestyle_photo", "living_nature_photo"],
+    "inner_peace": ["bright_ocean_coast_photo", "sea_coast_photo", "light_interior_photo", "living_nature_photo", "calm_lifestyle_photo"],
+    "self_worth": ["bright_ocean_coast_photo", "light_interior_photo", "calm_lifestyle_photo", "sea_coast_photo", "sunny_photo_scene"],
+    "health": ["bright_ocean_coast_photo", "calm_lifestyle_photo", "sea_coast_photo", "living_nature_photo", "light_interior_photo", "sunny_photo_scene"],
+    "career": ["light_interior_photo", "calm_lifestyle_photo", "sunny_photo_scene", "sea_coast_photo", "bright_ocean_coast_photo"],
+    "money": ["light_interior_photo", "calm_lifestyle_photo", "sunny_photo_scene", "sea_coast_photo", "bright_ocean_coast_photo"],
+    "relationships": ["bright_ocean_coast_photo", "calm_lifestyle_photo", "light_interior_photo", "sea_coast_photo", "sunny_photo_scene"],
+    "self_realization": ["bright_ocean_coast_photo", "calm_lifestyle_photo", "sea_coast_photo", "light_interior_photo", "sunny_photo_scene"],
+    "spirituality": ["bright_ocean_coast_photo", "light_interior_photo", "sea_coast_photo", "calm_lifestyle_photo", "living_nature_photo"],
 }
 
 RECOMMENDED_STYLES = ILLUSTRATION_RECOMMENDED_STYLES
@@ -555,6 +558,30 @@ PHOTO_SCENE_PRESETS = {
         "Photo scene preset: coastal_path. Realistic outdoor photo of a path along the sea or ocean coast, "
         "water visible in the background, calm reflective mood, natural perspective and camera realism."
     ),
+    "bright_ocean_sunrise": (
+        "Photo scene preset: bright_ocean_sunrise. Real bright vivid ocean coastline at sunrise, open sea horizon, "
+        "clear shoreline, lively waves and sea foam, expressive clouds, travel/editorial photography look."
+    ),
+    "vivid_seaside_sunset": (
+        "Photo scene preset: vivid_seaside_sunset. Real seaside coast at vivid golden sunset with open ocean horizon, "
+        "waves, sea foam and rich but natural colors."
+    ),
+    "sunny_beach_morning": (
+        "Photo scene preset: sunny_beach_morning. Real sunny morning at ocean beach with bright sky, clear shoreline, "
+        "sand or pebbles and natural lively surf."
+    ),
+    "turquoise_shoreline": (
+        "Photo scene preset: turquoise_shoreline. Real shoreline with turquoise to deep-blue ocean water, open horizon, "
+        "clear wave patterns and bright natural daylight."
+    ),
+    "rocky_ocean_coast": (
+        "Photo scene preset: rocky_ocean_coast. Real rocky ocean coast with surf, sea foam, wet stones or cliffs, "
+        "clear horizon and strong natural light."
+    ),
+    "seabirds_over_waves": (
+        "Photo scene preset: seabirds_over_waves. Real ocean coast with seabirds over waves, open water horizon, "
+        "bright sky and editorial travel coastal photography."
+    ),
 }
 
 PHOTO_SCENE_ROUTING = {
@@ -571,6 +598,14 @@ PHOTO_SCENE_ROUTING = {
 PHOTO_STYLE_SCENE_HINTS = {
     "sunny_photo_scene": ["calm_workspace", "botanical_corner", "outdoor_path", "window_still_life"],
     "living_nature_photo": ["outdoor_path", "botanical_corner"],
+    "bright_ocean_coast_photo": [
+        "bright_ocean_sunrise",
+        "vivid_seaside_sunset",
+        "sunny_beach_morning",
+        "turquoise_shoreline",
+        "rocky_ocean_coast",
+        "seabirds_over_waves",
+    ],
     "sea_coast_photo": [
         "ocean_sunrise",
         "seaside_sunset",
@@ -613,6 +648,9 @@ def has_coastal_intent(text: Optional[str]) -> bool:
         "океан",
         "побереж",
         "берег",
+        "пляж",
+        "берег моря",
+        "берег океана",
         "beach",
         "coast",
         "coastline",

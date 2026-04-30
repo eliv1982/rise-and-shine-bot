@@ -258,7 +258,10 @@ def get_stt_provider_config() -> SttProviderConfig:
             model=_get_env_var("YANDEX_STT_MODEL", required=False, default="general") or "general",
             language=_get_env_var("YANDEX_STT_LANGUAGE", required=False, default="ru-RU") or "ru-RU",
             timeout_seconds=_get_env_int("YANDEX_STT_TIMEOUT_SECONDS", 120),
-            options={"folder_id": _get_env_var("YANDEX_FOLDER_ID", required=False, default="") or ""},
+            options={
+                "folder_id": _get_env_var("YANDEX_FOLDER_ID", required=False, default="") or "",
+                "prefer_language": _get_env_var("STT_PREFER_LANGUAGE", required=False, default="ru-RU") or "ru-RU",
+            },
         )
     return SttProviderConfig(
         provider=provider,
@@ -267,7 +270,9 @@ def get_stt_provider_config() -> SttProviderConfig:
         model=_get_env_var("OPENAI_STT_MODEL", required=False, default="gpt-4o-mini-transcribe") or "gpt-4o-mini-transcribe",
         language=_get_env_var("OPENAI_STT_LANGUAGE", required=False, default="") or "",
         timeout_seconds=_get_env_int("OPENAI_STT_TIMEOUT_SECONDS", 120),
-        options={},
+        options={
+            "prefer_language": _get_env_var("STT_PREFER_LANGUAGE", required=False, default="") or "",
+        },
     )
 
 

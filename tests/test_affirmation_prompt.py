@@ -79,3 +79,17 @@ def test_custom_theme_kept_as_primary_anchor():
     )
     assert "Достоинство и вера в себя" in prompt
     assert "не подменяй её нерелевантными встроенными категориями" in prompt
+    assert "Тема задаёт смысл карточки" in prompt or "Theme controls the meaning of the card" in prompt
+
+
+def test_theme_style_separation_rule_present_for_dignity_theme():
+    prompt = _build_prompt(
+        sphere="self_worth",
+        subsphere=None,
+        language="en",
+        user_text="Dignity and self-trust",
+        focus="Dignity and self-trust",
+        micro_theme="One grounded confident step",
+    )
+    assert "The user theme is the main meaning of the card" in prompt
+    assert "Do not replace or reinterpret the theme because of the style" in prompt

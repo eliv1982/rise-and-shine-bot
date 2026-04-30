@@ -1,5 +1,5 @@
 from services.ritual_config import get_focuses
-from utils import build_focus_of_day, display_name_for_language, gender_display, normalize_gender
+from utils import build_focus_of_day, display_name_for_language, gender_display, is_gibberish_text, normalize_gender
 
 
 def test_normalize_gender_basic():
@@ -26,3 +26,8 @@ def test_focus_of_day_is_localized_and_non_empty():
 def test_display_name_transliterates_for_english_ui():
     assert display_name_for_language("Лена", "en") == "Lena"
     assert display_name_for_language("Лена", "ru") == "Лена"
+
+
+def test_is_gibberish_text_detects_repeated_nonsense():
+    assert is_gibberish_text("Do stoint weh weh weh")
+    assert not is_gibberish_text("Достоинство и вера в себя")

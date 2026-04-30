@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import Optional
 
 from aiogram import F, Router
@@ -28,7 +29,7 @@ from database import MAX_ACTIVE_SUBSCRIPTIONS
 from services.subscription_ui import build_subscription_summary, build_subscriptions_summary, gender_profile_label
 from services.speechkit_stt import transcribe_audio_with_meta
 from states import RegistrationState
-from utils import display_name_for_language, extract_name_from_introduction
+from utils import display_name_for_language, extract_name_from_introduction, is_gibberish_text
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -76,39 +77,104 @@ def _voice_recognized_echo_text(language: str, recognized_text: str) -> str:
     if len(clipped) > 140:
         clipped = clipped[:137] + "..."
     if language == "ru":
-        return f"🎙️ Распознано: \"{clipped}\""
-    return f"🎙️ Recognized: \"{clipped}\""
+        return f"🎙 Распознано: \"{clipped}\""
+    return f"🎙 Recognized: \"{clipped}\""
 
 
-def _voice_intent(recognized_text: str) -> str:
-    low = recognized_text.lower()
-    if any(token in low for token in ("подпис", "subscription", "subscriptions", "subscribe", "manage subscriptions", "subs")):
-        return "subscriptions"
-    if any(token in low for token in ("профил", "profile", "account")):
-        return "profile"
-    if any(
-        token in low
-        for token in (
-            "созд",
+def _voice_unclear_text(language: str) -> str:
+    if language == "ru":
+        return "Я распознала голос, но текст получился неразборчивым 😕\nПопробуй ещё раз или отправь словами."
+    return "I recognized the voice message, but the text looks unclear 😕\nPlease try again or send it as text."
+
+
+def _normalize_intent_text(text: str) -> str:
+    low = (text or "").lower().strip()
+    low = re.sub(r"[^\w\sа-яё-]", " ", low, flags=re.IGNORECASE)
+    low = re.sub(r"\s+", " ", low).strip()
+    return low
+
+
+def detect_main_menu_intent(text: str) -> Optional[str]:
+    low = _normalize_intent_text(text)
+    if not low:
+        return None
+    phrase_map = {
+        "create_mood": (
             "создай настрой",
+            "создать настрой",
             "новый настрой",
-            "nastroi",
-            "nastroj",
-            "sozday",
-            "new",
-            "create",
-            "create new",
+            "сделай настрой",
+            "хочу настрой",
+            "создай мне настрой",
             "create mood",
             "create focus",
+            "new mood",
+            "create new",
+            "make a daily focus",
             "new focus",
-            "ритуал",
-            "настрой",
-            "affirmation",
-            "focus",
-        )
-    ):
-        return "create"
-    return "unknown"
+            "create daily focus",
+        ),
+        "manage_subscriptions": (
+            "подписки",
+            "покажи подписки",
+            "мои подписки",
+            "subscriptions",
+            "show subscriptions",
+            "manage subscriptions",
+            "my subscriptions",
+        ),
+        "profile": (
+            "профиль",
+            "мой профиль",
+            "profile",
+            "my profile",
+            "account",
+        ),
+        "language": (
+            "язык",
+            "поменять язык",
+            "сменить язык",
+            "language",
+            "change language",
+        ),
+    }
+    for intent, phrases in phrase_map.items():
+        if any(p in low for p in phrases):
+            return intent
+    if any(token in low for token in ("созд", "настрой", "ритуал", "mood", "focus", "affirmation", "sozday", "nastroi", "nastroj")):
+        return "create_mood"
+    if any(token in low for token in ("подпис", "subscription", "subscribe", "subs")):
+        return "manage_subscriptions"
+    if any(token in low for token in ("профил", "profile", "account")):
+        return "profile"
+    if any(token in low for token in ("язык", "language", "lang")):
+        return "language"
+    return None
+
+
+async def route_main_menu_intent(message: Message, state: FSMContext, recognized_text: str, language: str) -> bool:
+    intent = detect_main_menu_intent(recognized_text)
+    if intent == "create_mood":
+        from handlers.generation import cmd_new
+
+        await cmd_new(message, state)
+        return True
+    if intent == "manage_subscriptions":
+        await _route_to_subscriptions(message, state)
+        return True
+    if intent == "profile":
+        await cmd_profile(message, state)
+        return True
+    if intent == "language":
+        await cmd_language(message, state)
+        return True
+    return False
+
+
+async def _route_to_subscriptions(message: Message, state: FSMContext) -> None:
+    from handlers.subscribe import cmd_subscribe
+
+    await cmd_subscribe(message, state)
 
 
 @router.message(CommandStart())
@@ -327,6 +393,28 @@ async def main_menu_subscriptions(message: Message, state: FSMContext) -> None:
     await cmd_subscribe(message, state)
 
 
+@router.message(StateFilter(None), F.text, ~F.text.startswith("/"))
+async def main_menu_text_router(message: Message, state: FSMContext) -> None:
+    user = await get_user(message.from_user.id)
+    language = (user or {}).get("language", "ru")
+    text = (message.text or "").strip()
+    if not text:
+        return
+    routed = await route_main_menu_intent(message, state, text, language)
+    if routed:
+        return
+    if language == "ru":
+        await message.answer(
+            "Я не совсем поняла, что ты хочешь сделать 🌿\nВыбери действие в меню ниже.",
+            reply_markup=main_reply_keyboard(language),
+        )
+    else:
+        await message.answer(
+            "I’m not fully sure what you want to do 🌿\nPlease choose an option from the menu below.",
+            reply_markup=main_reply_keyboard(language),
+        )
+
+
 @router.message(StateFilter(None), F.voice)
 async def main_menu_voice_router(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
@@ -348,30 +436,21 @@ async def main_menu_voice_router(message: Message, state: FSMContext) -> None:
 
     await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
     await message.answer(_voice_recognized_echo_text(language, recognized), reply_markup=main_reply_keyboard(language))
-
-    intent = _voice_intent(recognized)
-    if intent == "create":
-        from handlers.generation import cmd_new
-
-        await cmd_new(message, state)
+    if is_gibberish_text(recognized):
+        await message.answer(_voice_unclear_text(language), reply_markup=main_reply_keyboard(language))
         return
-    if intent == "subscriptions":
-        from handlers.subscribe import cmd_subscribe
 
-        await cmd_subscribe(message, state)
-        return
-    if intent == "profile":
-        await cmd_profile(message, state)
+    if await route_main_menu_intent(message, state, recognized, language):
         return
 
     if language == "ru":
         await message.answer(
-            "Я распознала голос, но не уверена, что именно нужно сделать 🌿\nМожешь выбрать действие в меню ниже.",
+            "Я не совсем поняла, что ты хочешь сделать 🌿\nВыбери действие в меню ниже.",
             reply_markup=main_reply_keyboard(language),
         )
     else:
         await message.answer(
-            "I recognized your voice message, but I’m not sure what action you want 🌿\nPlease choose an option from the menu below.",
+            "I’m not fully sure what you want to do 🌿\nPlease choose an option from the menu below.",
             reply_markup=main_reply_keyboard(language),
         )
 

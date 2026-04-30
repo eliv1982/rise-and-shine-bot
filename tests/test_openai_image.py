@@ -5,6 +5,7 @@ import json
 import services.openai_image as openai_image
 from handlers.generation import _build_image_debug_block
 from services.openai_image import _build_image_prompt, _ensure_no_text_clause, _style_to_phrase, generate_image
+from services.ritual_config import STYLE_LABELS
 
 
 def test_ensure_no_text_clause_adds_suffix():
@@ -67,6 +68,7 @@ def test_new_style_keys_return_non_empty_phrases():
         "sunny_photo_scene",
         "living_nature_photo",
         "sea_coast_photo",
+        "bright_ocean_coast_photo",
         "calm_lifestyle_photo",
         "bright_photo_card",
         "sunny_nature_photo",
@@ -82,6 +84,11 @@ def test_new_style_keys_return_non_empty_phrases():
         "textured_collage",
     ):
         assert _style_to_phrase(style)
+
+
+def test_bright_ocean_coast_style_has_localized_labels():
+    assert STYLE_LABELS["bright_ocean_coast_photo"]["ru"] == "🌊 Яркое океанское побережье"
+    assert STYLE_LABELS["bright_ocean_coast_photo"]["en"] == "🌊 Bright ocean coast"
 
 
 def test_photo_prompt_contains_photo_direction_and_negatives():
@@ -290,6 +297,34 @@ def test_photo_auto_with_coastal_user_intent_prefers_coastal_constraints():
     assert "not a river" in prompt or "rivers" in prompt
     assert "interior window" in prompt
     assert "botanical still life" in prompt
+    assert "canoe or boat in a calm river" in prompt
+    assert "open horizon over water" in prompt
+    assert "waves, surf or sea foam" in prompt
+    assert "higher brightness" in prompt
+    assert "natural saturation" in prompt
+    assert "strong clarity" in prompt
+
+
+def test_bright_ocean_coast_prompt_excludes_interior_workspace_items():
+    prompt = _build_image_prompt(
+        style="bright_ocean_coast_photo",
+        sphere="career",
+        subsphere=None,
+        user_text="медитация на побережье океана",
+        custom_style_description=None,
+        visual_mode="photo",
+    ).lower()
+    assert "open ocean or open sea coast" in prompt
+    assert "open horizon over water" in prompt
+    assert "visible shoreline" in prompt
+    assert "waves, surf or sea foam" in prompt
+    assert "no desk" in prompt or "desk scenes" in prompt
+    assert "no laptop" in prompt or "laptops" in prompt
+    assert "no notebook" in prompt or "notebooks" in prompt
+    assert "no cup" in prompt or "cups" in prompt
+    assert "no table" in prompt or "tables" in prompt
+    assert "interior window" in prompt
+    assert "vase still-life" in prompt or "vase still life" in prompt
 
 
 def test_generate_image_meta_contains_debug_fields(monkeypatch, tmp_path):

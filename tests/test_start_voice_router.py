@@ -45,10 +45,11 @@ class _FakeBot:
 
 
 class _FakeMessage:
-    def __init__(self, with_voice=True):
+    def __init__(self, with_voice=True, text=None):
         self.from_user = SimpleNamespace(id=55)
         self.bot = _FakeBot()
         self.voice = SimpleNamespace(file_id="id1", file_unique_id="uq1") if with_voice else None
+        self.text = text
         self.answers = []
 
     async def answer(self, text, reply_markup=None):
@@ -73,7 +74,26 @@ def test_main_menu_voice_routes_to_create_intent(monkeypatch):
     asyncio.run(start.main_menu_voice_router(msg, state))
 
     assert called["new"] is True
-    assert any("🎙️ Recognized:" in text for text, _ in msg.answers)
+    assert any("🎙 Recognized:" in text for text, _ in msg.answers)
+
+
+def test_en_ui_voice_with_russian_create_phrase_routes_to_create(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    called = {"new": False}
+
+    async def _fake_cmd_new(_message, _state):
+        called["new"] = True
+
+    monkeypatch.setattr(start, "get_user", _fake_get_user)
+    monkeypatch.setattr(start, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("привет создай мне настрой"))
+    monkeypatch.setattr("handlers.generation.cmd_new", _fake_cmd_new)
+
+    state = _FakeState()
+    msg = _FakeMessage()
+    asyncio.run(start.main_menu_voice_router(msg, state))
+    assert called["new"] is True
 
 
 def test_main_menu_voice_transliterated_intent_routes_to_create(monkeypatch):
@@ -106,8 +126,57 @@ def test_main_menu_voice_unknown_intent_returns_friendly_hint(monkeypatch):
     msg = _FakeMessage()
     asyncio.run(start.main_menu_voice_router(msg, state))
 
-    assert any("🎙️ Распознано:" in text for text, _ in msg.answers)
-    assert any("Я распознала голос, но не уверена, что именно нужно сделать 🌿" in text for text, _ in msg.answers)
+    assert any("🎙 Распознано:" in text for text, _ in msg.answers)
+    assert any("Я не совсем поняла, что ты хочешь сделать 🌿" in text for text, _ in msg.answers)
+
+
+def test_en_ui_voice_with_russian_subscriptions_phrase_routes(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    called = {"subs": False}
+
+    async def _fake_cmd_subscribe(_message, _state):
+        called["subs"] = True
+
+    monkeypatch.setattr(start, "get_user", _fake_get_user)
+    monkeypatch.setattr(start, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("покажи подписки"))
+    monkeypatch.setattr(start, "_route_to_subscriptions", _fake_cmd_subscribe)
+
+    state = _FakeState()
+    msg = _FakeMessage()
+    asyncio.run(start.main_menu_voice_router(msg, state))
+    assert called["subs"] is True
+
+
+def test_main_menu_voice_gibberish_returns_unclear_hint(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    monkeypatch.setattr(start, "get_user", _fake_get_user)
+    monkeypatch.setattr(start, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("do stoint weh weh weh"))
+
+    state = _FakeState()
+    msg = _FakeMessage()
+    asyncio.run(start.main_menu_voice_router(msg, state))
+    assert any("text looks unclear" in text for text, _ in msg.answers)
+
+
+def test_main_menu_text_routes_subscriptions_intent(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    called = {"subs": False}
+
+    async def _fake_subscribe(_message, _state):
+        called["subs"] = True
+
+    monkeypatch.setattr(start, "get_user", _fake_get_user)
+    monkeypatch.setattr(start, "_route_to_subscriptions", _fake_subscribe)
+    state = _FakeState()
+    msg = _FakeMessage(with_voice=False, text="подписки")
+    asyncio.run(start.main_menu_text_router(msg, state))
+    assert called["subs"] is True
 
 
 def test_registration_name_voice_uses_recognized_name(monkeypatch):

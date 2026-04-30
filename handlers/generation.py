@@ -26,6 +26,8 @@ from keyboards.inline import (
     style_cancel_keyboard,
     style_keyboard,
     theme_early_cancel_keyboard,
+    voice_confirm_keyboard,
+    voice_recovery_keyboard,
     visual_mode_keyboard,
 )
 from monitoring import (
@@ -48,7 +50,7 @@ from services.speechkit_stt import transcribe_audio_with_meta
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
-from utils import display_name_for_language, gender_display
+from utils import display_name_for_language, gender_display, is_gibberish_text
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -83,8 +85,26 @@ def _voice_recognized_echo_text(language: str, recognized_text: str) -> str:
     if len(clipped) > 140:
         clipped = clipped[:137] + "..."
     if language == "ru":
-        return f"🎙️ Распознано: \"{clipped}\""
-    return f"🎙️ Recognized: \"{clipped}\""
+        return f"🎙 Распознано: \"{clipped}\""
+    return f"🎙 Recognized: \"{clipped}\""
+
+
+def _voice_unclear_text(language: str) -> str:
+    if language == "ru":
+        return "Я распознала голос, но текст получился неразборчивым 😕\nПопробуй ещё раз или отправь словами."
+    return "I recognized the voice message, but the text looks unclear 😕\nPlease try again or send it as text."
+
+
+def _menu_choose_option_text(language: str) -> str:
+    if language == "ru":
+        return "Выбери вариант в меню выше 🌿\nЕсли хочешь написать свою тему — нажми «Своя тема»."
+    return "Please choose an option from the menu above 🌿\nIf you want to write your own theme, choose “Custom theme”."
+
+
+def _menu_choose_style_text(language: str) -> str:
+    if language == "ru":
+        return "Выбери стиль кнопкой выше 🎨\nЕсли хочешь описать стиль своими словами — выбери «Свой стиль»."
+    return "Please choose an image style from the buttons above 🎨\nIf you want to describe your own style, choose “Custom style”."
 
 
 def _build_image_debug_block(meta: dict, *, model: str, image_size: str) -> str:
@@ -194,13 +214,21 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
         await message.answer(_voice_recognition_failed_text(language))
         return
     await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
-    await message.answer(_voice_recognized_echo_text(language, recognized))
-    await state.update_data(theme_text=recognized, sphere="inner_peace", subsphere=None)
-    await state.set_state(GenerationState.choosing_visual_mode)
+    if is_gibberish_text(recognized):
+        await message.answer(
+            _voice_unclear_text(language),
+            reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
+        )
+        return
     await message.answer(
-        (f"Тема: «{recognized}».\n\n{_visual_mode_text(language)}" if language == "ru" else f"Theme: “{recognized}”.\n\n{_visual_mode_text(language)}"),
-        reply_markup=visual_mode_keyboard(language),
+        (
+            f"{_voice_recognized_echo_text(language, recognized)}\n\nИспользовать этот текст?"
+            if language == "ru"
+            else f"{_voice_recognized_echo_text(language, recognized)}\n\nUse this text?"
+        ),
+        reply_markup=voice_confirm_keyboard(language, scope="theme_voice"),
     )
+    await state.update_data(recognized_text_pending=recognized, recognized_text_pending_kind="theme")
 
 
 @router.message(GenerationState.waiting_for_theme_early, F.text)
@@ -316,6 +344,110 @@ async def cancel_custom_style(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer()
 
 
+@router.callback_query(GenerationState.waiting_for_theme_early, F.data.startswith("theme_voice:"))
+async def handle_theme_voice_recovery(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    action = callback.data.split(":", maxsplit=1)[1]
+    if action == "use":
+        pending = str((await state.get_data()).get("recognized_text_pending") or "").strip()
+        if not pending:
+            await callback.answer()
+            await callback.message.answer(
+                "Не вижу распознанного текста. Попробуй ещё раз голосом."
+                if language == "ru"
+                else "I cannot find recognized text. Please try voice again."
+            )
+            return
+        await state.update_data(
+            theme_text=pending,
+            sphere="inner_peace",
+            subsphere=None,
+            recognized_text_pending=None,
+            recognized_text_pending_kind=None,
+        )
+        await state.set_state(GenerationState.choosing_visual_mode)
+        await callback.message.answer(
+            (f"Тема: «{pending}».\n\n{_visual_mode_text(language)}" if language == "ru" else f"Theme: “{pending}”.\n\n{_visual_mode_text(language)}"),
+            reply_markup=visual_mode_keyboard(language),
+        )
+    elif action == "retry_voice":
+        await callback.message.answer(
+            "Отправь голос с темой ещё раз."
+            if language == "ru"
+            else "Send your theme by voice once again."
+        )
+    elif action == "type_text":
+        await callback.message.answer(
+            "Напиши тему текстом."
+            if language == "ru"
+            else "Type your theme as text."
+        )
+    elif action == "back":
+        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+        await state.set_state(GenerationState.choosing_sphere)
+        await callback.message.answer(_new_flow_text(language), reply_markup=sphere_keyboard(language))
+    elif action == "menu":
+        await state.clear()
+        await callback.message.answer(
+            "🏠 Возвращаю в меню." if language == "ru" else "🏠 Returning to menu.",
+            reply_markup=main_reply_keyboard(language),
+        )
+    await callback.answer()
+
+
+@router.callback_query(GenerationState.waiting_for_custom_style, F.data.startswith("style_voice:"))
+async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    action = callback.data.split(":", maxsplit=1)[1]
+    if action == "use":
+        data = await state.get_data()
+        pending = str(data.get("recognized_text_pending") or "").strip()
+        if not pending:
+            await callback.answer()
+            await callback.message.answer(
+                "Не вижу распознанного текста. Попробуй ещё раз голосом."
+                if language == "ru"
+                else "I cannot find recognized text. Please try voice again."
+            )
+            return
+        await state.update_data(
+            custom_style_description=pending,
+            recognized_text_pending=None,
+            recognized_text_pending_kind=None,
+        )
+        await callback.message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
+        await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
+    elif action == "retry_voice":
+        await callback.message.answer(
+            "Отправь голос с описанием стиля ещё раз."
+            if language == "ru"
+            else "Send your style description by voice once again."
+        )
+    elif action == "type_text":
+        await callback.message.answer(
+            "Напиши стиль текстом."
+            if language == "ru"
+            else "Type your style description as text."
+        )
+    elif action == "back":
+        data = await state.get_data()
+        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+        await state.set_state(GenerationState.choosing_style)
+        await callback.message.answer(
+            _style_choice_text(language),
+            reply_markup=style_keyboard(language, visual_mode=data.get("visual_mode", "illustration")),
+        )
+    elif action == "menu":
+        await state.clear()
+        await callback.message.answer(
+            "🏠 Возвращаю в меню." if language == "ru" else "🏠 Returning to menu.",
+            reply_markup=main_reply_keyboard(language),
+        )
+    await callback.answer()
+
+
 @router.message(GenerationState.waiting_for_custom_style, F.voice)
 async def handle_voice_custom_style(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
@@ -336,11 +468,21 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
         await message.answer(_voice_recognition_failed_text(language))
         return
     await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
-    await message.answer(_voice_recognized_echo_text(language, recognized))
-    await state.update_data(custom_style_description=recognized)
-    data = await state.get_data()
-    await message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
-    await _run_generation(message, state, theme_text=data.get("theme_text"))
+    if is_gibberish_text(recognized):
+        await message.answer(
+            _voice_unclear_text(language),
+            reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
+        )
+        return
+    await message.answer(
+        (
+            f"{_voice_recognized_echo_text(language, recognized)}\n\nИспользовать этот текст?"
+            if language == "ru"
+            else f"{_voice_recognized_echo_text(language, recognized)}\n\nUse this text?"
+        ),
+        reply_markup=voice_confirm_keyboard(language, scope="style_voice"),
+    )
+    await state.update_data(recognized_text_pending=recognized, recognized_text_pending_kind="style")
 
 
 @router.message(GenerationState.waiting_for_custom_style, F.text)
@@ -355,6 +497,44 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     await message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
     await _run_generation(message, state, theme_text=data.get("theme_text"))
+
+
+@router.message(
+    GenerationState.choosing_sphere,
+    GenerationState.choosing_relationship_subsphere,
+    GenerationState.choosing_visual_mode,
+    F.text,
+)
+async def generation_button_menu_text_guard(message: Message, state: FSMContext) -> None:
+    user = await get_user(message.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await message.answer(_menu_choose_option_text(language))
+
+
+@router.message(
+    GenerationState.choosing_sphere,
+    GenerationState.choosing_relationship_subsphere,
+    GenerationState.choosing_visual_mode,
+    F.voice,
+)
+async def generation_button_menu_voice_guard(message: Message, state: FSMContext) -> None:
+    user = await get_user(message.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await message.answer(_menu_choose_option_text(language))
+
+
+@router.message(GenerationState.choosing_style, F.text)
+async def generation_style_menu_text_guard(message: Message, state: FSMContext) -> None:
+    user = await get_user(message.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await message.answer(_menu_choose_style_text(language))
+
+
+@router.message(GenerationState.choosing_style, F.voice)
+async def generation_style_menu_voice_guard(message: Message, state: FSMContext) -> None:
+    user = await get_user(message.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await message.answer(_menu_choose_style_text(language))
 
 
 
@@ -424,6 +604,13 @@ async def _run_generation(
         focus_text = focus["en"] if language == "en" else focus["ru"]
         micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
     image_hint = focus.get("image_hint_en")
+    if is_gibberish_text(focus_text):
+        if theme_text and not is_gibberish_text(theme_text):
+            focus_text = theme_text.strip()
+        else:
+            await message.answer(_voice_unclear_text(language))
+            await state.set_state(GenerationState.choosing_style)
+            return
     resolved_style = resolve_style(
         style,
         sphere,
@@ -596,6 +783,13 @@ async def _run_generation(
         await record_interactive_generation(uid)
     log_generation_ok(uid, "interactive", prompt_trace)
 
+    history.append(
+        {
+            "selected_style": resolved_style,
+            "scene_preset": image_meta.get("scene_preset") or image_meta.get("photo_scene_preset"),
+        }
+    )
+    await state.clear()
     await state.update_data(
         last_generation={
             "sphere": sphere,
@@ -607,16 +801,9 @@ async def _run_generation(
             "custom_style_description": custom_style_description,
             "affirmations": affirmations,
             "focus_key": focus["key"],
-        }
+        },
+        recent_generation_history=history[-5:],
     )
-    history.append(
-        {
-            "selected_style": resolved_style,
-            "scene_preset": image_meta.get("scene_preset") or image_meta.get("photo_scene_preset"),
-        }
-    )
-    await state.update_data(recent_generation_history=history[-5:])
-    await state.set_state(GenerationState.after_result)
 
 
 @router.callback_query(F.data == "again:yes")
@@ -648,7 +835,7 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
     await _run_generation(callback.message, state, theme_text=last.get("theme_text"), user_telegram_id=callback.from_user.id)
 
 
-@router.callback_query(GenerationState.after_result, F.data == "tts:yes")
+@router.callback_query(F.data == "tts:yes")
 async def tts_affirmations(callback: CallbackQuery, state: FSMContext) -> None:
     """Озвучить последние аффирмации через SpeechKit TTS и отправить голосовым сообщением."""
     await callback.answer()
@@ -695,7 +882,7 @@ async def tts_affirmations(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer_voice(voice=voice_file)
 
 
-@router.callback_query(GenerationState.after_result, F.data == "new:yes")
+@router.callback_query(F.data == "new:yes")
 async def new_request_from_result(callback: CallbackQuery, state: FSMContext) -> None:
     """Начать новый сценарий выбора после результата (сообщение с фото не редактируем — шлём новое)."""
     await callback.answer()
@@ -710,7 +897,7 @@ async def new_request_from_result(callback: CallbackQuery, state: FSMContext) ->
     )
 
 
-@router.callback_query(GenerationState.after_result, F.data == "sub:open")
+@router.callback_query(F.data == "sub:open")
 async def open_subscription_from_result(callback: CallbackQuery, state: FSMContext) -> None:
     """Открыть настройку подписки из результата."""
     await callback.answer()
@@ -718,4 +905,6 @@ async def open_subscription_from_result(callback: CallbackQuery, state: FSMConte
     from handlers.subscribe import cmd_subscribe
 
     await cmd_subscribe(callback.message, state)
+
+
 

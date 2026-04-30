@@ -100,6 +100,7 @@ def test_photo_style_keys_are_separate_photo_directions():
         "sunny_photo_scene",
         "living_nature_photo",
         "sea_coast_photo",
+        "bright_ocean_coast_photo",
         "light_interior_photo",
         "calm_lifestyle_photo",
     ]

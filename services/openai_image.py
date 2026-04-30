@@ -146,6 +146,7 @@ def _style_to_phrase(style: str) -> str:
         "sunny_photo_scene": STYLE_DESCRIPTIONS["sunny_photo_scene"],
         "living_nature_photo": STYLE_DESCRIPTIONS["living_nature_photo"],
         "sea_coast_photo": STYLE_DESCRIPTIONS["sea_coast_photo"],
+        "bright_ocean_coast_photo": STYLE_DESCRIPTIONS["bright_ocean_coast_photo"],
         "light_interior_photo": STYLE_DESCRIPTIONS["light_interior_photo"],
         "calm_lifestyle_photo": STYLE_DESCRIPTIONS["calm_lifestyle_photo"],
         "bright_nature_card": STYLE_DESCRIPTIONS["bright_nature_card"],
@@ -275,10 +276,15 @@ def _augment_photo_override_prompt(prompt: str, photo_scene: str, avoid_clause: 
 
 def _coastal_photo_clause() -> str:
     return (
-        "Coastal realism is mandatory: clearly visible sea or ocean coastline, open horizon over water, visible shoreline, "
-        "waves, surf or sea foam, and at least one explicit coastal element such as sand beach, dunes, rocky shore, driftwood, "
+        "Coastal realism is mandatory: clearly visible open ocean or open sea coast, open horizon over water, visible shoreline, "
+        "waves, surf or sea foam, and at least one explicit coastal element such as broad sand beach, dunes, rocky coastline, driftwood, "
         "seashells, cliffs, coastal path, boardwalk or seabirds. "
-        "Avoid inland lakes, rivers, generic botanical still life, landlocked meadow scenes, and interior window scenes unless explicitly requested. "
+        "Photo quality target: bright and vivid natural coastal photography, clean air, expressive clouds or clear sky, "
+        "higher brightness, sharper detail, natural saturation, strong clarity, healthy contrast, rich but realistic color depth, travel/editorial look. "
+        "Avoid inland lakes, rivers, still ponds, forest lakes, landlocked water, canoe or boat in a calm river, generic meadow scenes, dominant lake-like trees by shore, "
+        "desk scenes, laptops, notebooks, cups, tables, interior window scenes, botanical still life, vase still-life corners or botanical corner compositions unless explicitly requested. "
+        "Avoid washed out beige palette, grey fog, muted pastel haze, melancholic mist, flat low-contrast light. "
+        "Do not default to mist or haze unless user explicitly asks for foggy or misty weather. "
         "If user intent implies a walk at sunset by the ocean, allow subtle human presence only (footprints, distant solitary figure from behind, "
         "walking path, or edge of dress), calm contemplative mood, no dominant portrait."
     )
@@ -305,22 +311,30 @@ def _build_image_prompt(
     style = resolve_style(style, sphere, visual_mode=visual_mode)
     coastal_intent = has_coastal_intent(user_text) or has_coastal_intent(image_hint)
     if normalize_visual_mode(visual_mode) == "photo" and requested_style == "auto" and coastal_intent:
-        style = "sea_coast_photo"
+        style = "bright_ocean_coast_photo"
+    coastal_force = style in {"sea_coast_photo", "bright_ocean_coast_photo"} or coastal_intent
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), style)
     base_theme = (
         _build_photo_image_theme(sphere, subsphere)
         if effective_visual_mode == "photo"
         else _build_default_image_theme(sphere, subsphere)
     )
+    if effective_visual_mode == "photo" and coastal_force:
+        base_theme = (
+            "real coastal travel/editorial photo scene, open ocean or sea coast, visible horizon over water, visible shoreline, "
+            "waves or surf with sea foam, beach or rocky coastline, dunes or coastal grass, bright natural light, vivid but realistic colors, clear atmosphere"
+        )
     if image_hint:
         base_theme = f"{base_theme}; focus visual hint: {image_hint}"
     photo_scene = ""
     if effective_visual_mode == "photo":
-        if coastal_intent and style == "sea_coast_photo":
-            scene_key = photo_scene_preset or resolve_photo_scene_preset(sphere, "sea_coast_photo", focus_key=focus_key)
+        if coastal_force:
+            coastal_style = style if style in {"sea_coast_photo", "bright_ocean_coast_photo"} else "bright_ocean_coast_photo"
+            scene_key = photo_scene_preset or resolve_photo_scene_preset(sphere, coastal_style, focus_key=focus_key)
         else:
             scene_key = photo_scene_preset or resolve_photo_scene_preset(sphere, style, focus_key=focus_key)
-        photo_scene = PHOTO_SCENE_PRESETS.get(scene_key, PHOTO_SCENE_PRESETS["window_still_life"])
+        fallback_scene = "bright_ocean_sunrise" if coastal_force else "window_still_life"
+        photo_scene = PHOTO_SCENE_PRESETS.get(scene_key, PHOTO_SCENE_PRESETS[fallback_scene])
 
     if style.lower() == "custom" and custom_style_description:
         style_phrase = f"in the style: {custom_style_description}"
@@ -339,7 +353,7 @@ def _build_image_prompt(
     avoid_clause = _avoid_literal_symbols_clause(sphere, effective_visual_mode)
 
     if effective_visual_mode == "photo":
-        coastal_clause = _coastal_photo_clause() if (style == "sea_coast_photo" or coastal_intent) else ""
+        coastal_clause = _coastal_photo_clause() if coastal_force else ""
         return _build_photo_prompt(
             base_theme=base_theme,
             photo_scene=photo_scene,

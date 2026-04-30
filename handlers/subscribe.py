@@ -100,6 +100,18 @@ def _setup_intro(language: str, action: str = "add") -> str:
     return "➕ Добавить подписку\n\nВыбери язык подписки:"
 
 
+def _menu_choose_option_text(language: str) -> str:
+    if language == "ru":
+        return "Выбери вариант в меню выше 🌿\nЕсли хочешь написать свою тему — нажми «Своя тема»."
+    return "Please choose an option from the menu above 🌿\nIf you want to write your own theme, choose “Custom theme”."
+
+
+def _menu_choose_style_text(language: str) -> str:
+    if language == "ru":
+        return "Выбери стиль кнопкой выше 🎨\nЕсли хочешь описать стиль своими словами — выбери «Свой стиль»."
+    return "Please choose an image style from the buttons above 🎨\nIf you want to describe your own style, choose “Custom style”."
+
+
 async def _show_dashboard_message(message: Message, user_id: int, language: str) -> None:
     subscriptions = await get_active_subscriptions(user_id)
     await message.answer(
@@ -597,6 +609,60 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         text = f"Done 🌿\n\n{title}:\n{summary}\n\nActive subscriptions: {count}/{MAX_ACTIVE_SUBSCRIPTIONS}"
     await callback.message.edit_text(text, reply_markup=subscription_saved_keyboard(language, count))
     await callback.answer()
+
+
+@router.message(
+    SubscriptionState.choosing_language,
+    SubscriptionState.choosing_mode,
+    SubscriptionState.choosing_sphere,
+    SubscriptionState.choosing_relationship_subsphere,
+    SubscriptionState.choosing_visual_mode,
+    SubscriptionState.choosing_hour,
+    SubscriptionState.choosing_minute,
+    SubscriptionState.confirming,
+    SubscriptionState.choosing_edit_action,
+    F.text,
+)
+async def subscription_button_menu_text_guard(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    user = await get_user(message.from_user.id)
+    language = _sub_language(data, user)
+    await message.answer(_menu_choose_option_text(language))
+
+
+@router.message(
+    SubscriptionState.choosing_language,
+    SubscriptionState.choosing_mode,
+    SubscriptionState.choosing_sphere,
+    SubscriptionState.choosing_relationship_subsphere,
+    SubscriptionState.choosing_visual_mode,
+    SubscriptionState.choosing_hour,
+    SubscriptionState.choosing_minute,
+    SubscriptionState.confirming,
+    SubscriptionState.choosing_edit_action,
+    F.voice,
+)
+async def subscription_button_menu_voice_guard(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    user = await get_user(message.from_user.id)
+    language = _sub_language(data, user)
+    await message.answer(_menu_choose_option_text(language))
+
+
+@router.message(SubscriptionState.choosing_style, F.text)
+async def subscription_style_menu_text_guard(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    user = await get_user(message.from_user.id)
+    language = _sub_language(data, user)
+    await message.answer(_menu_choose_style_text(language))
+
+
+@router.message(SubscriptionState.choosing_style, F.voice)
+async def subscription_style_menu_voice_guard(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    user = await get_user(message.from_user.id)
+    language = _sub_language(data, user)
+    await message.answer(_menu_choose_style_text(language))
 
 
 @router.callback_query(F.data == "sub:unsubscribe")

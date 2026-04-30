@@ -94,6 +94,8 @@ def _style_button_label(style: str, language: str) -> str:
         "textured_collage": "🧩",
     }
     label = get_style_label(style, language)
+    if label and label[0] in "🌊☀️🌿📸🪟🌸🖌🌱🎬🌫✨🧩":
+        return label
     icon = icons.get(style)
     return f"{icon} {label}" if icon else label
 
@@ -145,6 +147,54 @@ def theme_early_cancel_keyboard(language: str) -> InlineKeyboardMarkup:
 def style_cancel_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "❌ Отмена", "❌ Cancel"), callback_data="style:cancel")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def voice_recovery_keyboard(language: str, *, scope: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(
+        text=_t(language, "🔁 Повторить голосом", "🔁 Try voice again"),
+        callback_data=f"{scope}:retry_voice",
+    )
+    b.button(
+        text=_t(language, "✍️ Ввести текстом", "✍️ Type text"),
+        callback_data=f"{scope}:type_text",
+    )
+    b.button(
+        text=_t(language, "↩️ Назад", "↩️ Back"),
+        callback_data=f"{scope}:back",
+    )
+    b.button(
+        text=_t(language, "🏠 В меню", "🏠 Menu"),
+        callback_data=f"{scope}:menu",
+    )
+    b.adjust(1)
+    return b.as_markup()
+
+
+def voice_confirm_keyboard(language: str, *, scope: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(
+        text=_t(language, "✅ Использовать", "✅ Use this"),
+        callback_data=f"{scope}:use",
+    )
+    b.button(
+        text=_t(language, "🔁 Повторить голосом", "🔁 Try voice again"),
+        callback_data=f"{scope}:retry_voice",
+    )
+    b.button(
+        text=_t(language, "✍️ Ввести текстом", "✍️ Type text"),
+        callback_data=f"{scope}:type_text",
+    )
+    b.button(
+        text=_t(language, "↩️ Назад", "↩️ Back"),
+        callback_data=f"{scope}:back",
+    )
+    b.button(
+        text=_t(language, "🏠 В меню", "🏠 Menu"),
+        callback_data=f"{scope}:menu",
+    )
     b.adjust(1)
     return b.as_markup()
 

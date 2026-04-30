@@ -31,6 +31,8 @@ def _map_language_to_stt_code(language: str) -> str:
 
 
 def _resolve_stt_language(provider_cfg: SttProviderConfig, language: str) -> str:
+    if language == "auto":
+        return ""
     if provider_cfg.provider == "yandex":
         return "en-US" if language == "en" else "ru-RU"
     # OpenAI-compatible STT may auto-detect; explicit env language has priority.
@@ -48,21 +50,43 @@ def get_stt_debug_info(language: str) -> dict[str, str]:
     }
 
 
-def _is_poor_recognition(text: str) -> bool:
+def score_stt_result(text: str, language_hint: Optional[str] = None) -> float:
     t = (text or "").strip()
     if len(t) < 4:
-        return True
+        return -3.0
+    low = t.lower()
+    suspicious_fragments = ("weh weh", "do stoint", "sosday", "nstra", "divertuz")
+    penalty = 0.0
+    if any(fragment in low for fragment in suspicious_fragments):
+        penalty += 2.5
     words = re.findall(r"[A-Za-zА-Яа-яЁё]+", t)
     if len(words) < 2:
-        return True
+        return -2.0 - penalty
+    unique_ratio = len(set(w.lower() for w in words)) / max(1, len(words))
+    if unique_ratio < 0.34:
+        penalty += 1.5
     weird_tokens = 0
     for w in words:
         lw = w.lower()
         if len(lw) >= 6 and not re.search(r"[aeiouyаеёиоуыэюя]", lw):
             weird_tokens += 1
     if words and weird_tokens / len(words) > 0.4:
-        return True
-    return False
+        penalty += 2.0
+    cyr = len(re.findall(r"[А-Яа-яЁё]", t))
+    lat = len(re.findall(r"[A-Za-z]", t))
+    # English UI with accidental Cyrillic should not be treated as poor by default:
+    # fallback scoring below decides which attempt is better.
+    language_bonus = 0.0
+    if language_hint == "ru":
+        language_bonus += 0.6 if cyr > 0 else -0.6
+    elif language_hint == "en":
+        language_bonus += 0.4 if lat > 0 else -0.4
+    base = min(2.5, 0.25 * len(words)) + unique_ratio + language_bonus
+    return base - penalty
+
+
+def is_poor_stt_result(text: str, expected_language: Optional[str] = None) -> bool:
+    return score_stt_result(text, language_hint=expected_language) < 0.3
 
 
 async def _transcribe_once(provider_cfg: SttProviderConfig, audio_path: str, language_hint: str) -> str:
@@ -115,19 +139,39 @@ async def transcribe_audio_with_meta(
     if not os.path.exists(audio_path):
         raise RuntimeError(f"Audio file not found: {audio_path}")
 
-    attempts = [language]
-    alternate = "ru" if language == "en" else "en"
-    if alternate != language:
-        attempts.append(alternate)
+    attempts = []
+    if provider_cfg.provider == "yandex":
+        prefer_raw = str(provider_cfg.options.get("prefer_language") or "").strip().lower()
+        prefer = "ru" if prefer_raw.startswith("ru") else ("en" if prefer_raw.startswith("en") else "")
+        if prefer:
+            attempts.append(prefer)
+        ui_primary = "en" if language == "en" else "ru"
+        if ui_primary not in attempts:
+            attempts.append(ui_primary)
+        ui_fallback = "ru" if ui_primary == "en" else "en"
+        if ui_fallback not in attempts:
+            attempts.append(ui_fallback)
+    else:
+        attempts = [language]
+        alternate = "ru" if language == "en" else "en"
+        if alternate != language:
+            attempts.append(alternate)
 
     best_text = ""
     used_attempts = []
     for attempt_lang in attempts:
         used_attempts.append(attempt_lang)
-        text = await _transcribe_once(provider_cfg, audio_path, attempt_lang)
-        if text and (not _is_poor_recognition(text) or not best_text):
+        if provider_cfg.provider == "openai" and not provider_cfg.language:
+            # Attempt 1: auto language. Attempt 2: explicit alternate hint.
+            lang_for_attempt = "auto" if len(used_attempts) == 1 else attempt_lang
+        else:
+            lang_for_attempt = attempt_lang
+        text = await _transcribe_once(provider_cfg, audio_path, lang_for_attempt)
+        current_score = score_stt_result(text, language_hint=attempt_lang)
+        best_score = score_stt_result(best_text, language_hint=attempt_lang) if best_text else -999.0
+        if text and (current_score > best_score or not best_text):
             best_text = text
-        if text and not _is_poor_recognition(text):
+        if text and not is_poor_stt_result(text, expected_language=attempt_lang):
             break
 
     if not best_text:
