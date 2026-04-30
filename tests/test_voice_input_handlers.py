@@ -198,6 +198,7 @@ def test_confirm_recognized_style_starts_generation(monkeypatch):
     state = _FakeState()
     state.data["recognized_text_pending"] = "ocean travel photo"
     state.data["theme_text"] = "Dignity"
+    state.data["sphere"] = "inner_peace"
     cb = _FakeCallback("style_voice:use", language="en")
     asyncio.run(generation.handle_style_voice_recovery(cb, state))
     assert state.data["custom_style_description"] == "ocean travel photo"

@@ -8,6 +8,8 @@ from aiogram.types import Message
 
 from database import get_user
 from keyboards.inline import new_affirmation_keyboard
+from services.language_policy import is_input_language_compatible
+from services.main_menu_intents import detect_main_menu_intent
 from services.yandex_gpt import generate_smalltalk_reply
 
 router = Router()
@@ -54,6 +56,11 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
     text = message.text or ""
+    if is_input_language_compatible(text, language) and detect_main_menu_intent(text, language):
+        from handlers.start import route_main_menu_intent
+
+        if await route_main_menu_intent(message, state, text, language):
+            return
 
     try:
         reply = await generate_smalltalk_reply(text, language=language)

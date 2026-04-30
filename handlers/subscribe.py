@@ -561,6 +561,7 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     SubscriptionState.confirming,
     SubscriptionState.choosing_edit_action,
     F.text,
+    ~F.text.startswith("/"),
 )
 async def subscription_button_menu_text_guard(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
@@ -588,7 +589,7 @@ async def subscription_button_menu_voice_guard(message: Message, state: FSMConte
     await answer_menu_option_guard(message, language)
 
 
-@router.message(SubscriptionState.choosing_style, F.text)
+@router.message(SubscriptionState.choosing_style, F.text, ~F.text.startswith("/"))
 async def subscription_style_menu_text_guard(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     user = await get_user(message.from_user.id)
@@ -871,10 +872,15 @@ async def subscription_more(callback: CallbackQuery, state: FSMContext) -> None:
         visual_mode=cached.get("visual_mode") or "illustration",
         custom_style_description=None,
     )
-    await callback.message.answer(_creating_text(language))
-    from handlers.generation import _run_generation
+    from handlers.generation import _start_generation_after_preflight
 
-    await _run_generation(callback.message, state, theme_text=None, user_telegram_id=user_id)
+    await _start_generation_after_preflight(
+        callback.message,
+        state,
+        theme_text=None,
+        language=language,
+        user_telegram_id=user_id,
+    )
 
 
 @router.callback_query(F.data == "sub_tts:yes")

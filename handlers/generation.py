@@ -77,6 +77,40 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 
+def _is_usable_flow_text(text: Optional[str]) -> bool:
+    return not is_gibberish_text(text)
+
+
+def _generation_preflight_error(data: dict, theme_text: Optional[str], language: str) -> Optional[str]:
+    if not data.get("sphere"):
+        if language == "ru":
+            return "Что-то пошло не так: не хватает данных для генерации. Пожалуйста, начни заново через /new."
+        return "Something went wrong: generation context is incomplete. Please start again with /new."
+    return None
+
+
+async def _answer_generation_preflight_error(message: Message, state: FSMContext, error_text: str, language: str) -> None:
+    await message.answer(error_text, reply_markup=main_reply_keyboard(language))
+    await state.set_state(GenerationState.choosing_style)
+
+
+async def _start_generation_after_preflight(
+    message: Message,
+    state: FSMContext,
+    theme_text: Optional[str],
+    language: str,
+    *,
+    user_telegram_id: Optional[int] = None,
+) -> None:
+    data = await state.get_data()
+    error_text = _generation_preflight_error(data, theme_text, language)
+    if error_text:
+        await _answer_generation_preflight_error(message, state, error_text, language)
+        return
+    await message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
+    await _run_generation(message, state, theme_text=theme_text, user_telegram_id=user_telegram_id)
+
+
 @router.callback_query(F.data == "cmd:new")
 async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
     """Обработка кнопки создания нового настроя дня после регистрации."""
@@ -154,13 +188,15 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
         await message.answer(_voice_recognition_failed_text(language))
         return
     await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
-    if is_gibberish_text(recognized):
+    if not _is_usable_flow_text(recognized):
+        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
         await message.answer(
             _voice_unclear_text(language),
             reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
         )
         return
     if not is_input_language_compatible(recognized, language):
+        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
         await message.answer(
             _voice_language_mismatch_text(language),
             reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
@@ -177,7 +213,7 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
     await state.update_data(recognized_text_pending=recognized, recognized_text_pending_kind="theme")
 
 
-@router.message(GenerationState.waiting_for_theme_early, F.text)
+@router.message(GenerationState.waiting_for_theme_early, F.text, ~F.text.startswith("/"))
 async def handle_text_theme_early(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
@@ -276,6 +312,11 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     style = callback.data.split(":", maxsplit=1)[1]
     await state.update_data(style=style, custom_style_description=None)
     data = await state.get_data()
+    error_text = _generation_preflight_error(data, data.get("theme_text"), language)
+    if error_text:
+        await callback.answer()
+        await _answer_generation_preflight_error(callback.message, state, error_text, language)
+        return
     await callback.message.edit_text(_creating_text(language))
     await callback.answer()
     await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
@@ -306,6 +347,22 @@ async def handle_theme_voice_recovery(callback: CallbackQuery, state: FSMContext
                 "Не вижу распознанного текста. Попробуй ещё раз голосом."
                 if language == "ru"
                 else "I cannot find recognized text. Please try voice again."
+            )
+            return
+        if not _is_usable_flow_text(pending):
+            await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+            await callback.answer()
+            await callback.message.answer(
+                _voice_unclear_text(language),
+                reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
+            )
+            return
+        if not is_input_language_compatible(pending, language):
+            await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+            await callback.answer()
+            await callback.message.answer(
+                _voice_language_mismatch_text(language),
+                reply_markup=voice_recovery_keyboard(language, scope="theme_voice"),
             )
             return
         await state.update_data(
@@ -361,12 +418,35 @@ async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext
                 else "I cannot find recognized text. Please try voice again."
             )
             return
+        if not _is_usable_flow_text(pending):
+            await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+            await callback.answer()
+            await callback.message.answer(
+                _voice_unclear_text(language),
+                reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
+            )
+            return
+        if not is_input_language_compatible(pending, language):
+            await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+            await callback.answer()
+            await callback.message.answer(
+                _voice_language_mismatch_text(language),
+                reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
+            )
+            return
         await state.update_data(
             custom_style_description=pending,
             recognized_text_pending=None,
             recognized_text_pending_kind=None,
         )
+        data = await state.get_data()
+        error_text = _generation_preflight_error(data, data.get("theme_text"), language)
+        if error_text:
+            await callback.answer()
+            await _answer_generation_preflight_error(callback.message, state, error_text, language)
+            return
         await callback.message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
+        await callback.answer()
         await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
     elif action == "retry_voice":
         await callback.message.answer(
@@ -394,7 +474,8 @@ async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext
             "🏠 Возвращаю в меню." if language == "ru" else "🏠 Returning to menu.",
             reply_markup=main_reply_keyboard(language),
         )
-    await callback.answer()
+    if action != "use":
+        await callback.answer()
 
 
 @router.message(GenerationState.waiting_for_custom_style, F.voice)
@@ -417,13 +498,15 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
         await message.answer(_voice_recognition_failed_text(language))
         return
     await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
-    if is_gibberish_text(recognized):
+    if not _is_usable_flow_text(recognized):
+        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
         await message.answer(
             _voice_unclear_text(language),
             reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
         )
         return
     if not is_input_language_compatible(recognized, language):
+        await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
         await message.answer(
             _voice_language_mismatch_text(language),
             reply_markup=voice_recovery_keyboard(language, scope="style_voice"),
@@ -440,7 +523,7 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
     await state.update_data(recognized_text_pending=recognized, recognized_text_pending_kind="style")
 
 
-@router.message(GenerationState.waiting_for_custom_style, F.text)
+@router.message(GenerationState.waiting_for_custom_style, F.text, ~F.text.startswith("/"))
 async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
@@ -453,8 +536,7 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(custom_style_description=text)
     data = await state.get_data()
-    await message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
-    await _run_generation(message, state, theme_text=data.get("theme_text"))
+    await _start_generation_after_preflight(message, state, data.get("theme_text"), language)
 
 
 @router.message(
@@ -462,6 +544,7 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
     GenerationState.choosing_relationship_subsphere,
     GenerationState.choosing_visual_mode,
     F.text,
+    ~F.text.startswith("/"),
 )
 async def generation_button_menu_text_guard(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
@@ -481,7 +564,7 @@ async def generation_button_menu_voice_guard(message: Message, state: FSMContext
     await answer_menu_option_guard(message, language)
 
 
-@router.message(GenerationState.choosing_style, F.text)
+@router.message(GenerationState.choosing_style, F.text, ~F.text.startswith("/"))
 async def generation_style_menu_text_guard(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
@@ -530,7 +613,11 @@ async def _run_generation(
     recent_scenes = [item.get("scene_preset") for item in history[-2:] if item.get("scene_preset")]
 
     if not sphere:
-        await message.answer("Что-то пошло не так, попробуй начать заново с /new.")
+        await message.answer(
+            "Что-то пошло не так: не хватает данных для генерации. Пожалуйста, начни заново через /new."
+            if language == "ru"
+            else "Something went wrong: generation context is incomplete. Please start again with /new."
+        )
         await state.clear()
         return
 
@@ -726,13 +813,13 @@ async def _run_generation(
 @router.callback_query(F.data == "again:yes")
 async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
     """Повторная генерация с теми же параметрами (без фильтра по FSM — после рестарта бота состояние могло обнулиться)."""
-    await callback.answer()
     data = await state.get_data()
     last = data.get("last_generation")
     if not last:
         user = await get_user(callback.from_user.id)
         language = (user or {}).get("language", "ru")
         await state.clear()
+        await callback.answer()
         await callback.message.answer(
             missing_previous_generation_text(language)
         )
@@ -746,7 +833,14 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         custom_style_description=last.get("custom_style_description"),
     )
     again_language = (await get_user(callback.from_user.id) or {}).get("language", "ru")
+    data = await state.get_data()
+    error_text = _generation_preflight_error(data, last.get("theme_text"), again_language)
+    if error_text:
+        await callback.answer()
+        await _answer_generation_preflight_error(callback.message, state, error_text, again_language)
+        return
     await callback.message.answer(_creating_text(again_language), reply_markup=main_reply_keyboard(again_language))
+    await callback.answer()
     await _run_generation(callback.message, state, theme_text=last.get("theme_text"), user_telegram_id=callback.from_user.id)
 
 
