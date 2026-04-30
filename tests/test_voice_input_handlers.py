@@ -71,6 +71,13 @@ class _FakeCallback:
         return None
 
 
+def _seed_stale_voice_data(state):
+    state.data["recognized_text_pending"] = "old pending"
+    state.data["recognized_text_pending_kind"] = "theme"
+    state.data["last_recognized_text"] = "old recognized"
+    state.data["last_stt_meta"] = {"recognized_text_final": "old recognized"}
+
+
 def test_voice_theme_input_follows_same_flow_as_text(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru"}
@@ -251,6 +258,37 @@ def test_theme_voice_recovery_rejects_style_pending_kind(monkeypatch):
     assert any("cannot find recognized text" in text for text, _ in cb.message.answers)
 
 
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [
+        ("retry_voice", "Send your theme by voice once again."),
+        ("type_text", "Type your theme as text."),
+    ],
+)
+def test_theme_voice_recovery_retry_and_type_clear_stale_voice_data(monkeypatch, action, expected):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    called = {"run": False}
+
+    async def _fake_run(*_args, **_kwargs):
+        called["run"] = True
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "_run_generation", _fake_run)
+    state = _FakeState()
+    _seed_stale_voice_data(state)
+    cb = _FakeCallback(f"theme_voice:{action}", language="en")
+    asyncio.run(generation.handle_theme_voice_recovery(cb, state))
+
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
+    assert state.data["last_recognized_text"] is None
+    assert state.data["last_stt_meta"] is None
+    assert called["run"] is False
+    assert cb.message.answers[-1][0] == expected
+
+
 def test_confirm_recognized_style_starts_generation(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
@@ -297,6 +335,37 @@ def test_style_voice_recovery_rejects_theme_pending_kind(monkeypatch):
     assert state.data["recognized_text_pending_kind"] is None
     assert called["run"] is False
     assert any("cannot find recognized text" in text for text, _ in cb.message.answers)
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [
+        ("retry_voice", "Send your style description by voice once again."),
+        ("type_text", "Type your style description as text."),
+    ],
+)
+def test_style_voice_recovery_retry_and_type_clear_stale_voice_data(monkeypatch, action, expected):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    called = {"run": False}
+
+    async def _fake_run(*_args, **_kwargs):
+        called["run"] = True
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "_run_generation", _fake_run)
+    state = _FakeState()
+    _seed_stale_voice_data(state)
+    cb = _FakeCallback(f"style_voice:{action}", language="en")
+    asyncio.run(generation.handle_style_voice_recovery(cb, state))
+
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
+    assert state.data["last_recognized_text"] is None
+    assert state.data["last_stt_meta"] is None
+    assert called["run"] is False
+    assert cb.message.answers[-1][0] == expected
 
 
 def test_en_ui_russian_text_custom_theme_requests_english(monkeypatch):

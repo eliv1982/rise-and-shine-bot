@@ -377,12 +377,24 @@ async def handle_theme_voice_recovery(callback: CallbackQuery, state: FSMContext
             reply_markup=visual_mode_keyboard(language),
         )
     elif action == "retry_voice":
+        await state.update_data(
+            recognized_text_pending=None,
+            recognized_text_pending_kind=None,
+            last_recognized_text=None,
+            last_stt_meta=None,
+        )
         await callback.message.answer(
             "Отправь голос с темой ещё раз."
             if language == "ru"
             else "Send your theme by voice once again."
         )
     elif action == "type_text":
+        await state.update_data(
+            recognized_text_pending=None,
+            recognized_text_pending_kind=None,
+            last_recognized_text=None,
+            last_stt_meta=None,
+        )
         await callback.message.answer(
             "Напиши тему текстом."
             if language == "ru"
@@ -449,12 +461,24 @@ async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext
         await callback.answer()
         await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
     elif action == "retry_voice":
+        await state.update_data(
+            recognized_text_pending=None,
+            recognized_text_pending_kind=None,
+            last_recognized_text=None,
+            last_stt_meta=None,
+        )
         await callback.message.answer(
             "Отправь голос с описанием стиля ещё раз."
             if language == "ru"
             else "Send your style description by voice once again."
         )
     elif action == "type_text":
+        await state.update_data(
+            recognized_text_pending=None,
+            recognized_text_pending_kind=None,
+            last_recognized_text=None,
+            last_stt_meta=None,
+        )
         await callback.message.answer(
             "Напиши стиль текстом."
             if language == "ru"
