@@ -55,6 +55,7 @@ from monitoring import (
     log_image_prompt_llm_fallback,
     log_rate_limited,
 )
+from services.generation_context import build_generation_context_snapshot
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
 from services.ritual_config import (
     get_focus_for_date,
@@ -584,13 +585,15 @@ async def _run_generation(
     image_provider = get_image_provider_config()
     tts_provider = get_tts_provider_config()
 
-    sphere = data.get("sphere")
-    subsphere = data.get("subsphere")
-    style = data.get("style") or "nature"
-    visual_mode = normalize_visual_mode(data.get("visual_mode"))
-    custom_style_description = data.get("custom_style_description")
-    last_stt_meta = data.get("last_stt_meta") or {}
-    history = list(data.get("recent_generation_history") or [])
+    context = build_generation_context_snapshot(data, theme_text=theme_text)
+    sphere = context.sphere
+    subsphere = context.subsphere
+    theme_text = context.theme_text
+    style = context.style
+    visual_mode = context.visual_mode
+    custom_style_description = context.custom_style_description
+    last_stt_meta = context.last_stt_meta or {}
+    history = list(context.recent_generation_history)
     recent_styles = [item.get("selected_style") for item in history[-3:] if item.get("selected_style")]
     recent_scenes = [item.get("scene_preset") for item in history[-2:] if item.get("scene_preset")]
 
