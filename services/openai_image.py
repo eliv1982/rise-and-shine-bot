@@ -436,13 +436,21 @@ async def generate_image(
     composition_hint = composition_hint or random.choice(_COMPOSITION_HINTS)
     if prompt_override:
         if effective_visual_mode == "photo":
-            scene_text = PHOTO_SCENE_PRESETS.get(photo_scene_preset or "", PHOTO_SCENE_PRESETS["window_still_life"])
             coastal_override = (
                 resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"}
                 or has_coastal_intent(prompt_override)
                 or has_coastal_intent(user_text)
                 or has_coastal_intent(image_hint)
             )
+            if coastal_override:
+                coastal_scene_style = resolved_style if resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"} else "sea_coast_photo"
+                photo_scene_preset = resolve_photo_scene_preset(
+                    sphere,
+                    coastal_scene_style,
+                    focus_key=focus_key,
+                    recent_scene_presets=recent_scene_presets,
+                )
+            scene_text = PHOTO_SCENE_PRESETS.get(photo_scene_preset or "", PHOTO_SCENE_PRESETS["window_still_life"])
             prompt = _augment_photo_override_prompt(
                 prompt_override,
                 scene_text,

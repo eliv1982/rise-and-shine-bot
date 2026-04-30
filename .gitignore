@@ -30,3 +30,8 @@ Thumbs.db
 *.log
 terminals/
 agent-transcripts/
+
+# Runtime/generated artifacts
+outputs/
+docker_outputs/
+.pytest_tmp*/

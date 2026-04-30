@@ -474,6 +474,92 @@ def test_generate_image_coastal_override_path_uses_scene_and_generic_photo_safet
             _cleanup_generated_image(image_path)
 
 
+def test_generate_image_coastal_custom_override_replaces_non_coastal_scene_preset(monkeypatch):
+    monkeypatch.setenv("YANDEX_API_KEY", "test")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
+    monkeypatch.setenv("PROXI_API_KEY", "test")
+    monkeypatch.setenv("BOT_TOKEN", "test")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"data": [{"b64_json": base64.b64encode(b"png").decode("ascii")}]}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, *args, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return FakeResponse()
+
+    monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
+
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="custom",
+                sphere="inner_peace",
+                output_dir="test_outputs_phase42",
+                file_basename="custom_coastal_override",
+                prompt_override="Real coastal sunset over the ocean with waves. No text.",
+                resolved_style_override="custom",
+                visual_mode="photo",
+                focus_key="calm_breath",
+            )
+        )
+
+        final_prompt = captured["payload"]["prompt"].lower()
+        assert "real coastal sunset over the ocean with waves" in final_prompt
+        assert "coastal realism is mandatory" in final_prompt
+        assert "photo scene preset:" in final_prompt
+        assert any(
+            marker in final_prompt
+            for marker in (
+                "ocean_sunrise",
+                "seaside_sunset",
+                "quiet_beach_morning",
+                "rocky_coast",
+                "dunes_and_seabirds",
+                "coastal_path",
+            )
+        )
+        assert "botanical_corner" not in final_prompt
+        assert "real plant or branches in a vase" not in final_prompt
+        assert "windowsill or table" not in final_prompt
+        assert "vase still-life corners" in final_prompt
+
+        with open(image_path.replace(".png", "_meta.json"), "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        assert meta["selected_style"] == "custom"
+        assert meta["scene_preset"] in {
+            "ocean_sunrise",
+            "seaside_sunset",
+            "quiet_beach_morning",
+            "rocky_coast",
+            "dunes_and_seabirds",
+            "coastal_path",
+        }
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
+
+
 def test_generate_image_non_coastal_override_keeps_generic_photo_safety_only(monkeypatch):
     monkeypatch.setenv("YANDEX_API_KEY", "test")
     monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
