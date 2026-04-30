@@ -70,11 +70,17 @@ def test_main_menu_voice_routes_to_create_intent(monkeypatch):
     monkeypatch.setattr("handlers.generation.cmd_new", _fake_cmd_new)
 
     state = _FakeState()
+    state.data["recognized_text_pending"] = "old pending"
+    state.data["recognized_text_pending_kind"] = "theme"
     msg = _FakeMessage()
     asyncio.run(start.main_menu_voice_router(msg, state))
 
     assert called["new"] is True
     assert any("🎙 Recognized:" in text for text, _ in msg.answers)
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
+    assert state.data["last_recognized_text"] == "create new ritual please"
+    assert state.data["last_stt_meta"]["recognized_text_final"] == "create new ritual please"
 
 
 def test_en_ui_voice_with_russian_create_phrase_returns_language_mismatch(monkeypatch):
@@ -95,10 +101,14 @@ def test_en_ui_voice_with_russian_create_phrase_returns_language_mismatch(monkey
     monkeypatch.setattr("handlers.generation.cmd_new", _fake_cmd_new)
 
     state = _FakeState()
+    state.data["recognized_text_pending"] = "old pending"
+    state.data["recognized_text_pending_kind"] = "theme"
     msg = _FakeMessage()
     asyncio.run(start.main_menu_voice_router(msg, state))
     assert called["new"] is False
     assert any("another language" in text for text, _ in msg.answers)
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
 
 
 def test_main_menu_voice_transliterated_russian_in_en_ui_returns_mismatch(monkeypatch):
@@ -164,9 +174,41 @@ def test_main_menu_voice_gibberish_returns_unclear_hint(monkeypatch):
     monkeypatch.setattr(start, "transcribe_audio_with_meta", lambda *_args, **_kwargs: _fake_meta("do stoint weh weh weh"))
 
     state = _FakeState()
+    state.data["recognized_text_pending"] = "old pending"
+    state.data["recognized_text_pending_kind"] = "style"
     msg = _FakeMessage()
     asyncio.run(start.main_menu_voice_router(msg, state))
     assert any("text looks unclear" in text for text, _ in msg.answers)
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
+
+
+def test_main_menu_voice_stt_failure_clears_stale_pending_and_does_not_route(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en"}
+
+    async def _raise_meta(*_args, **_kwargs):
+        raise RuntimeError("stt is down")
+
+    called = {"new": False}
+
+    async def _fake_cmd_new(_message, _state):
+        called["new"] = True
+
+    monkeypatch.setattr(start, "get_user", _fake_get_user)
+    monkeypatch.setattr(start, "transcribe_audio_with_meta", _raise_meta)
+    monkeypatch.setattr("handlers.generation.cmd_new", _fake_cmd_new)
+
+    state = _FakeState()
+    state.data["recognized_text_pending"] = "old pending"
+    state.data["recognized_text_pending_kind"] = "theme"
+    msg = _FakeMessage()
+    asyncio.run(start.main_menu_voice_router(msg, state))
+
+    assert called["new"] is False
+    assert any("couldn’t recognize" in text for text, _ in msg.answers)
+    assert state.data["recognized_text_pending"] is None
+    assert state.data["recognized_text_pending_kind"] is None
 
 
 def test_ru_ui_voice_with_english_phrase_returns_language_mismatch(monkeypatch):

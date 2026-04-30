@@ -35,8 +35,9 @@ from handlers.common_messages import (
 from services.subscription_ui import build_subscription_summary, build_subscriptions_summary, gender_profile_label
 from services.main_menu_intents import _normalize_intent_text, detect_main_menu_intent
 from services.speechkit_stt import transcribe_audio_with_meta
+from services.voice_input import VoiceInputProcessor
 from states import RegistrationState
-from utils import display_name_for_language, extract_name_from_introduction, is_gibberish_text, is_input_language_compatible
+from utils import display_name_for_language, extract_name_from_introduction, is_input_language_compatible
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -343,27 +344,24 @@ async def main_menu_text_router(message: Message, state: FSMContext) -> None:
 async def main_menu_voice_router(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
-    voice = message.voice
-    if not voice:
-        return
-    file = await message.bot.get_file(voice.file_id)
-    dest_dir = get_outputs_dir()
-    os.makedirs(dest_dir, exist_ok=True)
-    local_path = f"{dest_dir}/voice_menu_{message.from_user.id}_{voice.file_unique_id}.ogg"
-    try:
-        await message.bot.download_file(file.file_path, destination=local_path)
-        stt_meta = await transcribe_audio_with_meta(local_path, language=language)
-        recognized = str(stt_meta.get("recognized_text_final") or "")
-    except Exception:
+    processor = VoiceInputProcessor(stt_transcriber=transcribe_audio_with_meta)
+    result = await processor.process(
+        message,
+        state,
+        language=language,
+        pending_kind="menu",
+        store_pending=False,
+    )
+    if result.status == "stt_failed":
         await message.answer(_voice_recognition_failed_text(language), reply_markup=main_reply_keyboard(language))
         return
 
-    await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
+    recognized = result.text or ""
     await message.answer(_voice_recognized_echo_text(language, recognized), reply_markup=main_reply_keyboard(language))
-    if is_gibberish_text(recognized):
+    if result.status == "unclear":
         await message.answer(_voice_unclear_text(language), reply_markup=main_reply_keyboard(language))
         return
-    if not is_input_language_compatible(recognized, language):
+    if result.status == "language_mismatch":
         await message.answer(_voice_language_mismatch_text(language), reply_markup=main_reply_keyboard(language))
         return
 

@@ -41,6 +41,7 @@ class VoiceInputProcessor:
         *,
         language: str,
         pending_kind: str,
+        store_pending: bool = True,
     ) -> VoiceProcessingResult:
         voice = message.voice
         if not voice:
@@ -80,9 +81,12 @@ class VoiceInputProcessor:
             await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
             return VoiceProcessingResult(status="language_mismatch", text=recognized, stt_meta=stt_meta)
 
+        pending_update = {
+            "recognized_text_pending": recognized if store_pending else None,
+            "recognized_text_pending_kind": pending_kind if store_pending else None,
+        }
         await state.update_data(
-            recognized_text_pending=recognized,
-            recognized_text_pending_kind=pending_kind,
+            **pending_update,
             last_recognized_text=recognized,
             last_stt_meta=stt_meta,
         )
