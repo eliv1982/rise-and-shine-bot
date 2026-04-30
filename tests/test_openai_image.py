@@ -784,6 +784,9 @@ def test_generate_image_non_coastal_override_keeps_generic_photo_safety_only(mon
 
         final_prompt = captured["payload"]["prompt"].lower()
         assert "a realistic bright desk scene" in final_prompt
+        assert captured["payload"]["model"] == "gpt-image-1"
+        assert captured["payload"]["size"] == "1024x1024"
+        assert "response_format" not in captured["payload"]
         assert "photo scene preset:" in final_prompt
         assert "strict photo branch" in final_prompt
         assert "no illustration" in final_prompt

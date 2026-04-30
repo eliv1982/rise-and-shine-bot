@@ -485,8 +485,9 @@ async def generate_image(
         "prompt": prompt,
         "n": 1,
         "size": image_provider.size,
-        "response_format": "b64_json",
     }
+    if image_provider.model.lower().startswith("dall-e"):
+        payload["response_format"] = "b64_json"
 
     headers = {
         "Authorization": f"Bearer {image_provider.api_key}",
