@@ -453,9 +453,9 @@ def test_generate_image_coastal_override_path_uses_scene_and_generic_photo_safet
         assert "strict photo branch" in final_prompt
         assert "no illustration" in final_prompt
         assert "no painting" in final_prompt
-        assert "coastal realism is mandatory" not in final_prompt
-        assert "desk scenes" not in final_prompt
-        assert "interior window scenes" not in final_prompt
+        assert "coastal realism is mandatory" in final_prompt
+        assert "desk scenes" in final_prompt
+        assert "interior window scenes" in final_prompt
 
         with open(image_path.replace(".png", "_meta.json"), "r", encoding="utf-8") as f:
             meta = json.load(f)
@@ -469,6 +469,70 @@ def test_generate_image_coastal_override_path_uses_scene_and_generic_photo_safet
             "dunes_and_seabirds",
             "coastal_path",
         }
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
+
+
+def test_generate_image_non_coastal_override_keeps_generic_photo_safety_only(monkeypatch):
+    monkeypatch.setenv("YANDEX_API_KEY", "test")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
+    monkeypatch.setenv("PROXI_API_KEY", "test")
+    monkeypatch.setenv("BOT_TOKEN", "test")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"data": [{"b64_json": base64.b64encode(b"png").decode("ascii")}]}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, *args, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return FakeResponse()
+
+    monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
+
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="auto",
+                sphere="money",
+                output_dir="test_outputs_phase42",
+                file_basename="non_coastal_override",
+                prompt_override="A realistic bright desk scene. No text.",
+                resolved_style_override="light_interior_photo",
+                visual_mode="photo",
+                focus_key="order_and_clarity",
+            )
+        )
+
+        final_prompt = captured["payload"]["prompt"].lower()
+        assert "a realistic bright desk scene" in final_prompt
+        assert "photo scene preset:" in final_prompt
+        assert "strict photo branch" in final_prompt
+        assert "no illustration" in final_prompt
+        assert "no painting" in final_prompt
+        assert "coastal realism is mandatory" not in final_prompt
+        assert "open ocean or open sea coast" not in final_prompt
+        assert "interior window scenes" not in final_prompt
     finally:
         if image_path:
             _cleanup_generated_image(image_path)

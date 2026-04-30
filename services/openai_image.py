@@ -262,14 +262,17 @@ def _build_photo_prompt(
     )
 
 
-def _augment_photo_override_prompt(prompt: str, photo_scene: str, avoid_clause: str) -> str:
+def _augment_photo_override_prompt(prompt: str, photo_scene: str, avoid_clause: str, coastal_clause: str = "") -> str:
     p = _ensure_no_text_clause(prompt)
+    if coastal_clause and "coastal realism is mandatory" in p.lower():
+        coastal_clause = ""
     return (
         f"{p} "
         f"{photo_scene} "
         "Strict photo branch: realistic photograph, real scene, editorial lifestyle photography, "
         "camera-like image, believable lens optics, realistic materials and textures, "
         "physically plausible natural light, authentic photographic detail, subtle imperfections of real photography. "
+        f"{coastal_clause}"
         f"{avoid_clause}"
     )
 
@@ -434,10 +437,17 @@ async def generate_image(
     if prompt_override:
         if effective_visual_mode == "photo":
             scene_text = PHOTO_SCENE_PRESETS.get(photo_scene_preset or "", PHOTO_SCENE_PRESETS["window_still_life"])
+            coastal_override = (
+                resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"}
+                or has_coastal_intent(prompt_override)
+                or has_coastal_intent(user_text)
+                or has_coastal_intent(image_hint)
+            )
             prompt = _augment_photo_override_prompt(
                 prompt_override,
                 scene_text,
                 _avoid_literal_symbols_clause(sphere, effective_visual_mode),
+                _coastal_photo_clause() if coastal_override else "",
             )
         else:
             prompt = _ensure_no_text_clause(prompt_override)
