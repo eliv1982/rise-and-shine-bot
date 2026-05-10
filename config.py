@@ -47,6 +47,7 @@ class Settings:
     image_size: str
     image_api_timeout_seconds: int
     show_image_debug: bool
+    scene_planner_shadow_enabled: bool
     yandex_completion_model: str
     text_provider: str
     image_provider: str
@@ -302,6 +303,7 @@ def get_settings() -> Settings:
         image_size=image_cfg.size,
         image_api_timeout_seconds=image_cfg.timeout_seconds,
         show_image_debug=_get_env_bool("SHOW_IMAGE_DEBUG", False),
+        scene_planner_shadow_enabled=_get_env_bool("SCENE_PLANNER_SHADOW_ENABLED", False),
         yandex_completion_model=text_cfg.model if text_cfg.provider == "yandex" else (_get_env_var("YANDEX_COMPLETION_MODEL", required=False, default="yandexgpt-lite/latest") or "yandexgpt-lite/latest"),
         text_provider=text_cfg.provider,
         image_provider=image_cfg.provider,

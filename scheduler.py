@@ -17,11 +17,15 @@ from monitoring import (
     log_generation_ok,
     log_image_prompt_llm_fallback,
 )
-from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
 from services.generation_history import (
     build_visual_motifs,
     extract_telegram_photo_file_id,
     record_generation_history_best_effort,
+)
+from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.scene_planner_shadow import (
+    attach_scene_plan_shadow_to_visual_motifs,
+    build_scene_plan_shadow_best_effort,
 )
 from services.ritual_config import (
     get_focus_for_date,
@@ -133,6 +137,15 @@ async def send_daily_affirmations(bot: Bot) -> None:
             log_generation_fail(user_id, "subscription", "daily", str(exc))
             continue
 
+        scene_plan_shadow_payload = await build_scene_plan_shadow_best_effort(
+            telegram_user_id=user_id,
+            focus_title=focus_text,
+            affirmations=affirmations,
+            soft_action=micro_step,
+            language=language,
+            settings=settings,
+        )
+
         text_lines = []
         name = sub.get("user_name")
         if language == "ru":
@@ -218,6 +231,10 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 composition_hint=composition_hint,
                 sphere=sphere,
                 subsphere=subsphere,
+            )
+            visual_motifs = attach_scene_plan_shadow_to_visual_motifs(
+                visual_motifs,
+                scene_plan_shadow_payload,
             )
             await record_generation_history_best_effort(
                 telegram_user_id=user_id,

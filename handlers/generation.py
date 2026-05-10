@@ -62,6 +62,10 @@ from services.generation_history import (
     record_generation_history_best_effort,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.scene_planner_shadow import (
+    attach_scene_plan_shadow_to_visual_motifs,
+    build_scene_plan_shadow_best_effort,
+)
 from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
@@ -711,6 +715,15 @@ async def _run_generation(
         await state.set_state(GenerationState.choosing_style)
         return
 
+    scene_plan_shadow_payload = await build_scene_plan_shadow_best_effort(
+        telegram_user_id=uid,
+        focus_title=focus_text,
+        affirmations=affirmations,
+        soft_action=micro_step,
+        language=language,
+        settings=settings,
+    )
+
     color_mood = random.choice(_COLOR_MOODS)
     composition_hint = random.choice(_COMPOSITION_HINTS)
     prompt_trace = "template"
@@ -816,6 +829,10 @@ async def _run_generation(
         composition_hint=composition_hint,
         sphere=sphere,
         subsphere=subsphere,
+    )
+    visual_motifs = attach_scene_plan_shadow_to_visual_motifs(
+        visual_motifs,
+        scene_plan_shadow_payload,
     )
     await record_generation_history_best_effort(
         telegram_user_id=uid,
