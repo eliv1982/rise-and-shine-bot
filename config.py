@@ -133,41 +133,41 @@ def _normalize_provider(raw_value: str, *, allowed: tuple[str, ...], default: st
 
 
 def _get_text_provider_name() -> str:
-    # Backward compatible: text historically lived on Yandex.
+    # Default profile: direct OpenAI. Legacy providers remain supported via explicit env.
     return _normalize_provider(
         os.getenv("TEXT_PROVIDER", ""),
         allowed=("proxiapi", "openai", "yandex"),
-        default="yandex",
+        default="openai",
         env_name="TEXT_PROVIDER",
     )
 
 
 def _get_image_provider_name() -> str:
-    # Backward compatible: image historically used ProxiAPI OpenAI-compatible endpoint.
+    # Default profile: direct OpenAI. Legacy ProxiAPI remains supported via explicit env.
     return _normalize_provider(
         os.getenv("IMAGE_PROVIDER", ""),
         allowed=("proxiapi", "openai"),
-        default="proxiapi",
+        default="openai",
         env_name="IMAGE_PROVIDER",
     )
 
 
 def _get_tts_provider_name() -> str:
-    # Backward compatible: TTS historically used Yandex SpeechKit.
+    # Default profile: direct OpenAI. Legacy Yandex remains supported via explicit env.
     return _normalize_provider(
         os.getenv("TTS_PROVIDER", ""),
         allowed=("yandex", "openai"),
-        default="yandex",
+        default="openai",
         env_name="TTS_PROVIDER",
     )
 
 
 def _get_stt_provider_name() -> str:
-    # Backward compatible: STT historically used Yandex SpeechKit.
+    # Default profile: direct OpenAI. Legacy Yandex remains supported via explicit env.
     return _normalize_provider(
         os.getenv("STT_PROVIDER", ""),
         allowed=("yandex", "openai"),
-        default="yandex",
+        default="openai",
         env_name="STT_PROVIDER",
     )
 

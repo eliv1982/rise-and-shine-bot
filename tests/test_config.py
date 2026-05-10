@@ -10,6 +10,12 @@ from config import (
 
 
 def _set_required_env(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("OPENAI_TEXT_MODEL", "gpt-4o-mini")
+    monkeypatch.setenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
+    monkeypatch.setenv("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
     monkeypatch.setenv("YANDEX_API_KEY", "test")
     monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
     monkeypatch.setenv("PROXI_API_KEY", "test")
@@ -95,24 +101,28 @@ def test_scene_planner_image_prompt_enabled_env(monkeypatch):
     assert settings.scene_planner_image_prompt_enabled is True
 
 
-def test_capability_provider_defaults_are_backward_compatible(monkeypatch):
+def test_capability_provider_defaults_use_openai_direct_profile(monkeypatch):
     _set_required_env(monkeypatch)
     monkeypatch.delenv("TEXT_PROVIDER", raising=False)
     monkeypatch.delenv("IMAGE_PROVIDER", raising=False)
     monkeypatch.delenv("TTS_PROVIDER", raising=False)
+    monkeypatch.delenv("STT_PROVIDER", raising=False)
 
     settings = get_settings()
     text_cfg = get_text_provider_config()
     image_cfg = get_image_provider_config()
     tts_cfg = get_tts_provider_config()
 
-    assert settings.text_provider == "yandex"
-    assert settings.image_provider == "proxiapi"
-    assert settings.tts_provider == "yandex"
-    assert text_cfg.provider == "yandex"
-    assert image_cfg.provider == "proxiapi"
-    assert tts_cfg.provider == "yandex"
-    assert get_stt_provider_config().provider == "yandex"
+    assert settings.text_provider == "openai"
+    assert settings.image_provider == "openai"
+    assert settings.tts_provider == "openai"
+    assert settings.stt_provider == "openai"
+    assert text_cfg.provider == "openai"
+    assert image_cfg.provider == "openai"
+    assert tts_cfg.provider == "openai"
+    assert get_stt_provider_config().provider == "openai"
+    assert image_cfg.base_url == "https://api.openai.com/v1"
+    assert image_cfg.model == "gpt-image-1"
 
 
 def test_foreign_server_profile_uses_openai_for_all_capabilities(monkeypatch):

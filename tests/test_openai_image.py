@@ -140,13 +140,13 @@ def test_image_debug_block_contains_safe_routing_fields():
             "selected_style": "light_interior_photo",
             "prompt_branch": "photo",
             "scene_preset": "window_still_life",
-            "text_provider": "yandex",
-            "image_provider": "proxiapi",
-            "tts_provider": "yandex",
-            "text_model": "yandexgpt-lite/latest",
+            "text_provider": "openai",
+            "image_provider": "openai",
+            "tts_provider": "openai",
+            "text_model": "gpt-4o-mini",
             "model": "gpt-image-1",
-            "tts_model": "general",
-            "voice": "oksana",
+            "tts_model": "gpt-4o-mini-tts",
+            "voice": "alloy",
             "image_size": "1024x1024",
         },
         model="fallback-model",
@@ -157,13 +157,13 @@ def test_image_debug_block_contains_safe_routing_fields():
     assert "selected_style: light_interior_photo" in block
     assert "prompt_branch: photo" in block
     assert "scene_preset: window_still_life" in block
-    assert "text_provider: yandex" in block
-    assert "image_provider: proxiapi" in block
-    assert "tts_provider: yandex" in block
-    assert "text_model: yandexgpt-lite/latest" in block
+    assert "text_provider: openai" in block
+    assert "image_provider: openai" in block
+    assert "tts_provider: openai" in block
+    assert "text_model: gpt-4o-mini" in block
     assert "model: gpt-image-1" in block
-    assert "tts_model: general" in block
-    assert "voice: oksana" in block
+    assert "tts_model: gpt-4o-mini-tts" in block
+    assert "voice: alloy" in block
     assert "image_size: 1024x1024" in block
     assert "final_prompt" not in block.lower()
 
@@ -949,12 +949,12 @@ def test_generate_image_non_coastal_override_keeps_generic_photo_safety_only(mon
 
 
 def test_generate_image_meta_contains_debug_fields(monkeypatch):
-    monkeypatch.setenv("YANDEX_API_KEY", "test")
-    monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
-    monkeypatch.setenv("PROXI_API_KEY", "test")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    monkeypatch.setenv("IMAGE_PROVIDER", "openai")
     monkeypatch.setenv("BOT_TOKEN", "test")
-    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
-    monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
+    monkeypatch.setenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("OPENAI_IMAGE_SIZE", "1024x1024")
 
     class FakeResponse:
         status = 200
@@ -1005,8 +1005,69 @@ def test_generate_image_meta_contains_debug_fields(monkeypatch):
         assert meta["scene_preset"]
         assert meta["model"] == "gpt-image-1"
         assert meta["image_size"] == "1024x1024"
-        assert meta["image_provider"] == "proxiapi"
+        assert meta["image_provider"] == "openai"
+        assert meta["model"] == "gpt-image-1"
         assert "final_prompt" in meta
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
+
+
+def test_generate_image_meta_uses_legacy_proxiapi_provider_when_explicit(monkeypatch):
+    monkeypatch.setenv("PROXI_API_KEY", "test-proxi")
+    monkeypatch.setenv("PROXI_BASE_URL", "https://api.proxyapi.ru/openai/v1")
+    monkeypatch.setenv("IMAGE_PROVIDER", "proxiapi")
+    monkeypatch.setenv("BOT_TOKEN", "test")
+    monkeypatch.setenv("PROXI_IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("PROXI_IMAGE_SIZE", "1024x1024")
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"data": [{"b64_json": base64.b64encode(b"png").decode("ascii")}]}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, *args, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return FakeResponse()
+
+    monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
+
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="auto",
+                sphere="money",
+                output_dir="test_outputs_phase42",
+                file_basename="debug_meta_proxi",
+                prompt_override="A realistic photo. No text.",
+                resolved_style_override="light_interior_photo",
+                visual_mode="photo",
+                focus_key="order_and_clarity",
+            )
+        )
+        meta_path = image_path.replace(".png", "_meta.json")
+        with open(meta_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+
+        assert meta["image_provider"] == "proxiapi"
+        assert meta["model"] == "gpt-image-1"
     finally:
         if image_path:
             _cleanup_generated_image(image_path)
