@@ -9,7 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 from aiogram.types import FSInputFile
 
-from config import get_settings
+from config import get_image_provider_config, get_settings, get_text_provider_config
 from database import get_due_subscriptions
 from keyboards.inline import subscription_after_keyboard
 from monitoring import (
@@ -18,6 +18,11 @@ from monitoring import (
     log_image_prompt_llm_fallback,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.generation_history import (
+    build_visual_motifs,
+    extract_telegram_photo_file_id,
+    record_generation_history_best_effort,
+)
 from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
@@ -74,6 +79,8 @@ async def send_daily_affirmations(bot: Bot) -> None:
 
         gender_hint = gender_display(gender, language=language)
         settings = get_settings()
+        text_provider = get_text_provider_config()
+        image_provider = get_image_provider_config()
 
         try:
             affirmations = await generate_affirmations(
@@ -155,6 +162,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
         caption = "\n\n".join(text_lines)
 
         meta_path = image_path.replace(".png", "_meta.json")
+        image_meta = {}
         if os.path.isfile(meta_path):
             try:
                 with open(meta_path, "r", encoding="utf-8") as f:
@@ -173,6 +181,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 meta["selected_style"] = style
                 meta["color_palette"] = color_mood
                 meta["composition_hint"] = composition_hint
+                image_meta = meta
                 with open(meta_path, "w", encoding="utf-8") as f:
                     json.dump(meta, f, ensure_ascii=False, indent=2)
             except Exception as e:
@@ -192,13 +201,37 @@ async def send_daily_affirmations(bot: Bot) -> None:
         try:
             photo = FSInputFile(image_path)
             keyboard = subscription_after_keyboard(language)
-            await bot.send_photo(
+            sent_message = await bot.send_photo(
                 chat_id=user_id,
                 photo=photo,
                 caption=caption,
                 reply_markup=keyboard,
             )
             log_generation_ok(user_id, "subscription", prompt_trace)
+            scene_type = image_meta.get("scene_preset") or image_meta.get("photo_scene_preset")
+            telegram_image_file_id = extract_telegram_photo_file_id(sent_message)
+            visual_motifs = build_visual_motifs(
+                image_meta=image_meta,
+                visual_mode=effective_visual_mode,
+                selected_style=style,
+                color_palette=color_mood,
+                composition_hint=composition_hint,
+                sphere=sphere,
+                subsphere=subsphere,
+            )
+            await record_generation_history_best_effort(
+                telegram_user_id=user_id,
+                request_type="subscription",
+                focus_title=focus_text,
+                affirmations=affirmations,
+                soft_action=micro_step,
+                text_model=getattr(text_provider, "model", None),
+                image_model=getattr(image_provider, "model", None),
+                image_prompt=prompt_final,
+                telegram_image_file_id=telegram_image_file_id,
+                scene_type=scene_type,
+                visual_motifs=visual_motifs,
+            )
             logger.info("Sent daily affirmation to user %s with TTS button", user_id)
         except Exception as exc:
             logger.exception("Failed to send daily affirmation to user %s: %s", user_id, exc)

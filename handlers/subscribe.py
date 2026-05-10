@@ -871,6 +871,7 @@ async def subscription_more(callback: CallbackQuery, state: FSMContext) -> None:
         style=cached.get("style") or cached.get("style_mode") or "auto",
         visual_mode=cached.get("visual_mode") or "illustration",
         custom_style_description=None,
+        generation_request_type="extra_mood",
     )
     from handlers.generation import _start_generation_after_preflight
 

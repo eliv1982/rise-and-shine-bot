@@ -56,6 +56,11 @@ from monitoring import (
     log_rate_limited,
 )
 from services.generation_context import build_generation_context_snapshot
+from services.generation_history import (
+    build_visual_motifs,
+    extract_telegram_photo_file_id,
+    record_generation_history_best_effort,
+)
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
 from services.ritual_config import (
     get_focus_for_date,
@@ -794,11 +799,37 @@ async def _run_generation(
         caption = f"{caption}\n\n{_build_image_debug_block(image_meta, model=settings.image_model, image_size=settings.image_size)}"
 
     photo = FSInputFile(image_path)
-    await message.answer_photo(photo=photo, caption=caption, reply_markup=after_generation_keyboard(language))
+    sent_message = await message.answer_photo(photo=photo, caption=caption, reply_markup=after_generation_keyboard(language))
 
     if limit_enabled:
         await record_interactive_generation(uid)
     log_generation_ok(uid, "interactive", prompt_trace)
+
+    request_type = str(data.get("generation_request_type") or "manual")
+    scene_type = image_meta.get("scene_preset") or image_meta.get("photo_scene_preset")
+    telegram_image_file_id = extract_telegram_photo_file_id(sent_message)
+    visual_motifs = build_visual_motifs(
+        image_meta=image_meta,
+        visual_mode=effective_visual_mode,
+        selected_style=resolved_style,
+        color_palette=color_mood,
+        composition_hint=composition_hint,
+        sphere=sphere,
+        subsphere=subsphere,
+    )
+    await record_generation_history_best_effort(
+        telegram_user_id=uid,
+        request_type=request_type,
+        focus_title=focus_text,
+        affirmations=affirmations,
+        soft_action=micro_step,
+        text_model=getattr(text_provider, "model", None),
+        image_model=getattr(image_provider, "model", None),
+        image_prompt=prompt_final,
+        telegram_image_file_id=telegram_image_file_id,
+        scene_type=scene_type,
+        visual_motifs=visual_motifs,
+    )
 
     history.append(
         {
@@ -819,6 +850,7 @@ async def _run_generation(
             "affirmations": affirmations,
             "focus_key": focus["key"],
         },
+        generation_request_type=None,
         recent_generation_history=history[-5:],
     )
 
