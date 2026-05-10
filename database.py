@@ -1,3 +1,4 @@
+import json
 import os
 import datetime as dt
 import logging
@@ -12,6 +13,25 @@ MAX_ACTIVE_SUBSCRIPTIONS = 3
 # В Docker задают BOT_DATA_DIR (например /app/data) — тогда БД там
 _data_dir = os.getenv("BOT_DATA_DIR", "").strip()
 DB_PATH = os.path.join(_data_dir, "bot.db") if _data_dir else "bot.db"
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _serialize_json(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _deserialize_json(value: Optional[str]) -> Any:
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return None
 
 
 async def add_column_if_missing(db: aiosqlite.Connection, table: str, column: str, definition: str) -> None:
@@ -58,6 +78,44 @@ async def init_db() -> None:
                 count     INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             );
+
+            CREATE TABLE IF NOT EXISTS generation_history (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_user_id        INTEGER NOT NULL,
+                created_at              TEXT NOT NULL,
+                request_type            TEXT NOT NULL,
+                focus_title             TEXT,
+                theme_category          TEXT,
+                affirmations_json       TEXT,
+                soft_action             TEXT,
+                text_model              TEXT,
+                scene_model             TEXT,
+                image_model             TEXT,
+                image_prompt            TEXT,
+                telegram_image_file_id  TEXT,
+                status                  TEXT NOT NULL DEFAULT 'success',
+                error_message           TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS visual_history (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                generation_id       INTEGER,
+                telegram_user_id    INTEGER NOT NULL,
+                created_at          TEXT NOT NULL,
+                scene_type          TEXT,
+                human_presence      TEXT,
+                visual_motifs_json  TEXT,
+                FOREIGN KEY (generation_id) REFERENCES generation_history(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_generation_history_user_created_at
+            ON generation_history(telegram_user_id, created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_visual_history_user_created_at
+            ON visual_history(telegram_user_id, created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_visual_history_scene_type
+            ON visual_history(scene_type);
             """
         )
         await add_column_if_missing(db, "subscriptions", "subscription_mode", "TEXT DEFAULT 'weekly_balance'")
@@ -70,6 +128,137 @@ async def init_db() -> None:
 
 def _utc_today_iso() -> str:
     return datetime.now(timezone.utc).date().isoformat()
+
+
+async def save_generation_history(
+    telegram_user_id: int,
+    request_type: str,
+    focus_title: str | None = None,
+    theme_category: str | None = None,
+    affirmations: list[str] | None = None,
+    soft_action: str | None = None,
+    text_model: str | None = None,
+    scene_model: str | None = None,
+    image_model: str | None = None,
+    image_prompt: str | None = None,
+    telegram_image_file_id: str | None = None,
+    status: str = "success",
+    error_message: str | None = None,
+) -> int:
+    created_at = _utc_now_iso()
+    affirmations_json = _serialize_json(affirmations)
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO generation_history (
+                telegram_user_id, created_at, request_type, focus_title, theme_category,
+                affirmations_json, soft_action, text_model, scene_model, image_model,
+                image_prompt, telegram_image_file_id, status, error_message
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                telegram_user_id,
+                created_at,
+                request_type,
+                focus_title,
+                theme_category,
+                affirmations_json,
+                soft_action,
+                text_model,
+                scene_model,
+                image_model,
+                image_prompt,
+                telegram_image_file_id,
+                status,
+                error_message,
+            ),
+        )
+        generation_id = int(cur.lastrowid)
+        await cur.close()
+        await db.commit()
+    return generation_id
+
+
+async def save_visual_history(
+    telegram_user_id: int,
+    generation_id: int | None = None,
+    scene_type: str | None = None,
+    human_presence: str | None = None,
+    visual_motifs: dict | list | None = None,
+) -> int:
+    created_at = _utc_now_iso()
+    visual_motifs_json = _serialize_json(visual_motifs)
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """
+            INSERT INTO visual_history (
+                generation_id, telegram_user_id, created_at, scene_type, human_presence, visual_motifs_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                generation_id,
+                telegram_user_id,
+                created_at,
+                scene_type,
+                human_presence,
+                visual_motifs_json,
+            ),
+        )
+        visual_id = int(cur.lastrowid)
+        await cur.close()
+        await db.commit()
+    return visual_id
+
+
+async def get_recent_visual_history(telegram_user_id: int, limit: int = 10) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT *
+            FROM visual_history
+            WHERE telegram_user_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (telegram_user_id, limit),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+
+    history = []
+    for row in rows:
+        item = dict(row)
+        item["visual_motifs"] = _deserialize_json(item.pop("visual_motifs_json", None))
+        history.append(item)
+    return history
+
+
+async def get_recent_generation_history(telegram_user_id: int, limit: int = 10) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """
+            SELECT *
+            FROM generation_history
+            WHERE telegram_user_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (telegram_user_id, limit),
+        )
+        rows = await cur.fetchall()
+        await cur.close()
+
+    history = []
+    for row in rows:
+        item = dict(row)
+        affirmations = _deserialize_json(item.pop("affirmations_json", None))
+        item["affirmations"] = affirmations if isinstance(affirmations, list) else None
+        history.append(item)
+    return history
 
 
 async def get_generation_usage_today(user_id: int) -> int:
@@ -145,7 +334,7 @@ async def create_or_update_user(
     """
     Обновляет или создаёт пользователя.
     """
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    now = _utc_now_iso()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
