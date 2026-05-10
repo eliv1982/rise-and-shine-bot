@@ -5,6 +5,7 @@ from services.scene_prompt_builder import (
     select_photo_scene_preset_override,
     should_use_llm_image_prompt_for_fallback,
 )
+from services.scene_planner import get_scene_candidates_for_style
 
 
 def test_build_controlled_scene_prompt_includes_scene_and_avoid_constraints():
@@ -41,6 +42,8 @@ def test_build_controlled_scene_prompt_includes_scene_and_avoid_constraints():
 def test_build_living_nature_constraints_include_hard_outdoor_rules():
     constraints = [item.lower() for item in build_living_nature_constraints()]
     assert "no indoor scene" in constraints
+    assert "no interior" in constraints
+    assert "no room" in constraints
     assert "no table" in constraints
     assert "no mug" in constraints
     assert "no notebook" in constraints
@@ -135,3 +138,20 @@ def test_should_use_llm_image_prompt_for_fallback_preserves_old_disabled_path():
         )
         is False
     )
+
+
+def test_selected_style_and_visual_mode_affect_candidate_pool():
+    nature_candidates = get_scene_candidates_for_style(
+        selected_style="living_nature_photo",
+        resolved_style="living_nature_photo",
+        visual_mode="photo",
+    )
+    coastal_candidates = get_scene_candidates_for_style(
+        selected_style="sea_coast_photo",
+        resolved_style="sea_coast_photo",
+        visual_mode="photo",
+    )
+    assert "forest_path" in nature_candidates
+    assert "sea_horizon" not in nature_candidates
+    assert "sea_horizon" in coastal_candidates
+    assert "forest_path" not in coastal_candidates

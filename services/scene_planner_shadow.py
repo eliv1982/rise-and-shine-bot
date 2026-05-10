@@ -72,6 +72,10 @@ async def build_scene_plan_shadow_best_effort(
     soft_action: str | None,
     language: str = "ru",
     settings: object | None = None,
+    selected_style: str | None = None,
+    resolved_style: str | None = None,
+    visual_mode: str | None = None,
+    style_mode: str | None = None,
 ) -> dict | None:
     if not is_scene_planner_shadow_enabled(settings):
         return None
@@ -89,6 +93,10 @@ async def build_scene_plan_shadow_best_effort(
         scene_plan = build_fallback_scene_plan(
             focus_title=focus_title,
             visual_memory_context=visual_memory_context,
+            selected_style=selected_style,
+            resolved_style=resolved_style,
+            visual_mode=visual_mode,
+            style_mode=style_mode,
         )
         normalized_scene_plan = normalize_scene_plan(
             scene_plan,

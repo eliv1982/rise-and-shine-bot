@@ -91,6 +91,40 @@ def test_scene_type_counts_are_collected():
     assert context["scene_type_counts"] == {"forest_path": 2, "garden_morning": 1}
 
 
+def test_visual_memory_extracts_planned_scene_type_from_shadow_and_controlled_metadata():
+    recent_visuals = [
+        {
+            "scene_type": "outdoor_path",
+            "visual_motifs": {
+                "scene_plan_shadow": {"scene_plan": {"scene_type": "forest_path"}},
+                "scene_prompt_controlled": {"used_scene_type": "riverside"},
+            },
+        }
+    ]
+
+    context = visual_memory.build_visual_memory_context([], recent_visuals, limit=10)
+
+    assert context["recent_scene_types"] == ["outdoor_path", "forest_path", "riverside"]
+    assert context["scene_type_counts"]["forest_path"] == 1
+    assert context["scene_type_counts"]["riverside"] == 1
+
+
+def test_recent_scene_families_and_counts_are_collected():
+    recent_visuals = [
+        {"scene_type": "forest_path", "visual_motifs": {}},
+        {"scene_type": "outdoor_path", "visual_motifs": {}},
+        {"scene_type": "open_meadow", "visual_motifs": {}},
+    ]
+
+    context = visual_memory.build_visual_memory_context([], recent_visuals, limit=10)
+
+    assert "nature_path" in context["recent_scene_families"]
+    assert "meadow_field" in context["recent_scene_families"]
+    assert context["scene_family_counts"]["nature_path"] == 2
+    assert context["scene_family_counts"]["meadow_field"] == 1
+    assert context["overused_scene_families"] == ["nature_path"]
+
+
 def test_get_visual_memory_context_uses_database_functions(monkeypatch):
     async def _fake_generations(user_id, limit=10):
         assert user_id == 123

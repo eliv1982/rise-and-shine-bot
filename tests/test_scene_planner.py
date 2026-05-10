@@ -86,6 +86,73 @@ def test_build_fallback_scene_plan_uses_default_when_no_preference():
     assert plan["scene_type"] in {"forest_path", "open_meadow", "garden_morning"}
 
 
+def test_build_fallback_scene_plan_avoids_recent_exact_scene_type():
+    plan = scene_planner.build_fallback_scene_plan(
+        focus_title="Fresh start",
+        visual_memory_context={
+            "recent_scene_types": ["forest_path"],
+            "recent_scene_families": ["nature_path"],
+            "overused_scene_families": [],
+        },
+        selected_style="living_nature_photo",
+        resolved_style="living_nature_photo",
+        visual_mode="photo",
+    )
+
+    assert plan["scene_type"] != "forest_path"
+
+
+def test_build_fallback_scene_plan_avoids_same_scene_family_if_alternatives_exist():
+    plan = scene_planner.build_fallback_scene_plan(
+        focus_title="Fresh start",
+        visual_memory_context={
+            "recent_scene_types": ["forest_path", "outdoor_path"],
+            "recent_scene_families": ["nature_path", "nature_path", "nature_path"],
+            "overused_scene_families": ["nature_path"],
+        },
+        selected_style="living_nature_photo",
+        resolved_style="living_nature_photo",
+        visual_mode="photo",
+    )
+
+    assert scene_planner.normalize_scene_family(plan["scene_type"]) != "nature_path"
+
+
+def test_get_scene_candidates_for_style_living_nature_has_multiple_outdoor_scenes():
+    candidates = scene_planner.get_scene_candidates_for_style(
+        selected_style="living_nature_photo",
+        resolved_style="living_nature_photo",
+        visual_mode="photo",
+    )
+    assert "forest_path" in candidates
+    assert "open_meadow" in candidates
+    assert "riverside" in candidates
+    assert len(candidates) >= 6
+
+
+def test_get_scene_candidates_for_style_coastal_has_multiple_coastal_scenes():
+    candidates = scene_planner.get_scene_candidates_for_style(
+        selected_style="sea_coast_photo",
+        resolved_style="sea_coast_photo",
+        visual_mode="photo",
+    )
+    assert "sea_horizon" in candidates
+    assert "coastal_morning" in candidates
+    assert "rocky_shore" in candidates
+    assert len(candidates) >= 4
+
+
+def test_get_scene_candidates_for_style_interior_is_not_only_table_mug():
+    candidates = scene_planner.get_scene_candidates_for_style(
+        selected_style="light_interior_photo",
+        resolved_style="light_interior_photo",
+        visual_mode="photo",
+    )
+    assert "library_corner" in candidates
+    assert "reading_corner" in candidates
+    assert len(candidates) >= 4
+
+
 def test_build_scene_image_prompt_includes_avoid_constraints():
     prompt = scene_planner.build_scene_image_prompt(
         {

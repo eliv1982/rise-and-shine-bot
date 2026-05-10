@@ -1,6 +1,7 @@
 from collections import Counter
 
 from database import get_recent_generation_history, get_recent_visual_history
+from services.scene_planner import normalize_scene_family
 
 MOTIF_KEYWORDS = {
     "beach": ["beach", "sea", "coast", "shore", "shoreline", "ocean", "waves", "surf"],
@@ -61,6 +62,20 @@ def _count_items(items: list[str]) -> dict[str, int]:
     return dict(Counter(items))
 
 
+def _extract_scene_types_from_visual(visual_dict: dict, visual_motifs: dict) -> list[str]:
+    scene_types = []
+    for candidate in (
+        visual_dict.get("scene_type"),
+        visual_motifs.get("scene_type"),
+        _safe_dict(_safe_dict(visual_motifs.get("scene_plan_shadow")).get("scene_plan")).get("scene_type"),
+        _safe_dict(visual_motifs.get("scene_prompt_controlled")).get("used_scene_type"),
+        _safe_dict(visual_motifs.get("scene_prompt_controlled")).get("scene_type"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            scene_types.append(candidate.strip())
+    return _dedupe_stable(scene_types)
+
+
 def extract_visual_motifs_from_prompt(prompt: str | None) -> list[str]:
     if not isinstance(prompt, str) or not prompt.strip():
         return []
@@ -87,6 +102,7 @@ def build_visual_memory_context(
     all_prompt_motifs = []
     last_three_cliche_hits = []
     scene_type_counter_items = []
+    scene_family_counter_items = []
 
     for idx, generation in enumerate(safe_generations):
         generation_dict = _safe_dict(generation)
@@ -99,10 +115,13 @@ def build_visual_memory_context(
         visual_dict = _safe_dict(visual)
         visual_motifs = _safe_dict(visual_dict.get("visual_motifs"))
 
-        scene_type = visual_dict.get("scene_type") or visual_motifs.get("scene_type")
-        if scene_type:
+        scene_types = _extract_scene_types_from_visual(visual_dict, visual_motifs)
+        for scene_type in scene_types:
             recent_scene_types_raw.append(scene_type)
             scene_type_counter_items.append(scene_type)
+            family = normalize_scene_family(scene_type)
+            if family:
+                scene_family_counter_items.append(family)
 
         selected_style = visual_motifs.get("selected_style")
         if selected_style:
@@ -119,9 +138,14 @@ def build_visual_memory_context(
 
     motif_counts = _count_items(all_prompt_motifs)
     scene_type_counts = _count_items(scene_type_counter_items)
+    scene_family_counts = _count_items(scene_family_counter_items)
     overused_motifs = [motif for motif in MOTIF_KEYWORDS if motif_counts.get(motif, 0) >= 2]
+    overused_scene_families = [
+        family for family in _dedupe_stable(scene_family_counter_items) if scene_family_counts.get(family, 0) >= 2
+    ]
     hard_avoid_today = _dedupe_stable(overused_motifs + last_three_cliche_hits)
     recent_scene_types = _dedupe_stable(recent_scene_types_raw)
+    recent_scene_families = _dedupe_stable([normalize_scene_family(scene) for scene in recent_scene_types_raw if normalize_scene_family(scene)])
     recent_selected_styles = _dedupe_stable(recent_selected_styles_raw)
     recent_visual_modes = _dedupe_stable(recent_visual_modes_raw)
     recent_motifs = _dedupe_stable(all_prompt_motifs)
@@ -130,14 +154,17 @@ def build_visual_memory_context(
     return {
         "limit": limit,
         "recent_scene_types": recent_scene_types,
+        "recent_scene_families": recent_scene_families,
         "recent_selected_styles": recent_selected_styles,
         "recent_visual_modes": recent_visual_modes,
         "recent_motifs": recent_motifs,
         "overused_motifs": overused_motifs,
+        "overused_scene_families": overused_scene_families,
         "hard_avoid_today": hard_avoid_today,
         "prefer_scene_types": prefer_scene_types,
         "motif_counts": motif_counts,
         "scene_type_counts": scene_type_counts,
+        "scene_family_counts": scene_family_counts,
     }
 
 

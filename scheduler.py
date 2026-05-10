@@ -23,7 +23,12 @@ from services.generation_history import (
     record_generation_history_best_effort,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
-from services.scene_planner import build_fallback_scene_plan, normalize_scene_plan
+from services.scene_planner import (
+    build_fallback_scene_plan,
+    normalize_scene_family,
+    normalize_scene_plan,
+    resolve_scene_style_family,
+)
 from services.scene_prompt_builder import (
     build_controlled_scene_prompt,
     is_living_nature_style,
@@ -114,6 +119,10 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 soft_action=micro_step,
                 language=language,
                 settings=settings,
+                selected_style=style_mode,
+                resolved_style=style,
+                visual_mode=effective_visual_mode,
+                style_mode=style_mode,
             )
             color_mood = random.choice(_COLOR_MOODS)
             composition_hint = random.choice(_COMPOSITION_HINTS)
@@ -134,6 +143,10 @@ async def send_daily_affirmations(bot: Bot) -> None:
                             build_fallback_scene_plan(
                                 focus_title=focus_text,
                                 visual_memory_context=visual_memory_context,
+                                selected_style=style_mode,
+                                resolved_style=style,
+                                visual_mode=effective_visual_mode,
+                                style_mode=style_mode,
                             ),
                             visual_memory_context=visual_memory_context,
                         )
@@ -162,6 +175,13 @@ async def send_daily_affirmations(bot: Bot) -> None:
                             "photo_scene_preset_override": photo_scene_preset_override,
                             "prompt_source": "scene_planner_local",
                             "used_scene_type": scene_plan.get("scene_type"),
+                            "used_scene_family": normalize_scene_family(scene_plan.get("scene_type")),
+                            "style_family": resolve_scene_style_family(
+                                selected_style=style_mode,
+                                resolved_style=style,
+                                visual_mode=effective_visual_mode,
+                                style_mode=style_mode,
+                            ),
                             "living_nature_constraints_applied": is_living_nature_style(
                                 selected_style=style_mode,
                                 resolved_style=style,
