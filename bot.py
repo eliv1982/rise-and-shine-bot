@@ -8,7 +8,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import get_settings
 from database import init_db
 from handlers import generation, smalltalk, start, subscribe
-from scheduler import setup_scheduler
+from scheduler import scheduler, setup_scheduler
+
+logger = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
@@ -48,10 +50,19 @@ async def main() -> None:
     dp.include_router(smalltalk.router)
 
     setup_scheduler(bot)
-
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
+        await bot.session.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except asyncio.CancelledError:
+        logger.info("Bot polling cancelled")
 
