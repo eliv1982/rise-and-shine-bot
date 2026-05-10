@@ -638,6 +638,133 @@ def test_generate_image_coastal_custom_override_replaces_non_coastal_scene_prese
             _cleanup_generated_image(image_path)
 
 
+def test_generate_image_uses_photo_scene_preset_override_when_passed(monkeypatch):
+    monkeypatch.setenv("YANDEX_API_KEY", "test")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
+    monkeypatch.setenv("PROXI_API_KEY", "test")
+    monkeypatch.setenv("BOT_TOKEN", "test")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"data": [{"b64_json": base64.b64encode(b"png").decode("ascii")}]}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, *args, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return FakeResponse()
+
+    monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
+
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="living_nature_photo",
+                sphere="inner_peace",
+                output_dir="test_outputs_phase42",
+                file_basename="photo_scene_override",
+                prompt_override="Outdoor forest path in natural light. No text.",
+                resolved_style_override="living_nature_photo",
+                visual_mode="photo",
+                focus_key="calm_breath",
+                photo_scene_preset_override="outdoor_path",
+            )
+        )
+
+        final_prompt = captured["payload"]["prompt"].lower()
+        assert "photo scene preset: outdoor_path" in final_prompt
+        assert "botanical_corner" not in final_prompt
+        assert "window_still_life" not in final_prompt
+
+        with open(image_path.replace(".png", "_meta.json"), "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        assert meta["scene_preset"] == "outdoor_path"
+        assert meta["photo_scene_preset"] == "outdoor_path"
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
+
+
+def test_generate_image_without_photo_scene_override_keeps_old_selection_behavior(monkeypatch):
+    monkeypatch.setenv("YANDEX_API_KEY", "test")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
+    monkeypatch.setenv("PROXI_API_KEY", "test")
+    monkeypatch.setenv("BOT_TOKEN", "test")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"data": [{"b64_json": base64.b64encode(b"png").decode("ascii")}]}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, *args, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return FakeResponse()
+
+    monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
+
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="living_nature_photo",
+                sphere="inner_peace",
+                output_dir="test_outputs_phase42",
+                file_basename="photo_scene_default",
+                prompt_override="Outdoor forest path in natural light. No text.",
+                resolved_style_override="living_nature_photo",
+                visual_mode="photo",
+                focus_key="calm_breath",
+            )
+        )
+
+        final_prompt = captured["payload"]["prompt"].lower()
+        assert "photo scene preset:" in final_prompt
+
+        with open(image_path.replace(".png", "_meta.json"), "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        assert meta["scene_preset"] in {"outdoor_path", "botanical_corner"}
+        assert meta["photo_scene_preset"] in {"outdoor_path", "botanical_corner"}
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
+
+
 def test_generate_image_custom_llm_override_uses_coastal_style_notes_for_scene_and_safety(monkeypatch):
     monkeypatch.setenv("YANDEX_API_KEY", "test")
     monkeypatch.setenv("YANDEX_FOLDER_ID", "test")

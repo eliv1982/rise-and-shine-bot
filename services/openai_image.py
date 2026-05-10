@@ -411,6 +411,7 @@ async def generate_image(
     color_mood: Optional[str] = None,
     composition_hint: Optional[str] = None,
     recent_scene_presets: Optional[list[str]] = None,
+    photo_scene_preset_override: Optional[str] = None,
 ) -> str:
     """
     Асинхронно вызывает OpenAI-совместимый image API через ProxiAPI и сохраняет PNG.
@@ -421,7 +422,7 @@ async def generate_image(
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), resolved_style)
     photo_scene_preset = None
     if effective_visual_mode == "photo":
-        photo_scene_preset = resolve_photo_scene_preset(
+        photo_scene_preset = photo_scene_preset_override or resolve_photo_scene_preset(
             sphere,
             resolved_style,
             focus_key=focus_key,
@@ -447,7 +448,7 @@ async def generate_image(
                 or has_coastal_intent(image_hint)
                 or has_coastal_intent(custom_style_description)
             )
-            if coastal_override:
+            if coastal_override and not photo_scene_preset_override:
                 coastal_scene_style = resolved_style if resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"} else "sea_coast_photo"
                 photo_scene_preset = resolve_photo_scene_preset(
                     sphere,

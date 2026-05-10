@@ -1,0 +1,137 @@
+from services.scene_prompt_builder import (
+    build_controlled_scene_prompt,
+    build_living_nature_constraints,
+    is_living_nature_style,
+    select_photo_scene_preset_override,
+    should_use_llm_image_prompt_for_fallback,
+)
+
+
+def test_build_controlled_scene_prompt_includes_scene_and_avoid_constraints():
+    prompt = build_controlled_scene_prompt(
+        scene_plan={
+            "scene_type": "forest_path",
+            "setting": "quiet forest path with soft morning light",
+            "human_presence": "none",
+            "main_subject": "narrow path between trees and tall grasses",
+            "visual_motifs": ["forest", "path", "morning_light"],
+            "composition": "wide natural landscape, open depth, not table-centered",
+            "lighting": "soft morning light",
+            "mood": "quiet self-trust and spaciousness",
+            "avoid": ["mug", "notebook", "table", "window", "beach"],
+        },
+        focus_title="спокойствие и опора",
+        visual_mode="photo",
+        selected_style="living_nature_photo",
+        resolved_style="living_nature_photo",
+        color_palette="fresh greens and soft gold",
+        composition_hint="wide landscape with visible depth",
+        sphere="inner_peace",
+        language="ru",
+    ).lower()
+
+    assert "scene type: forest_path" in prompt
+    assert "forest path" in prompt
+    assert "wide natural landscape" in prompt
+    assert "avoid: mug, notebook, table, window, beach" in prompt
+    assert "no crowd" in prompt
+    assert "no extra people" in prompt
+
+
+def test_build_living_nature_constraints_include_hard_outdoor_rules():
+    constraints = [item.lower() for item in build_living_nature_constraints()]
+    assert "no indoor scene" in constraints
+    assert "no table" in constraints
+    assert "no mug" in constraints
+    assert "no notebook" in constraints
+    assert "no window" in constraints
+    assert "no furniture" in constraints
+    assert "outdoor nature scene only" in constraints
+
+
+def test_is_living_nature_style_detects_runtime_values():
+    assert is_living_nature_style(
+        selected_style="living_nature_photo",
+        resolved_style="living_nature_photo",
+        visual_mode="photo",
+    )
+    assert is_living_nature_style(
+        selected_style="Живая природа",
+        resolved_style=None,
+        visual_mode="photo",
+    )
+    assert not is_living_nature_style(
+        selected_style="quiet_interior",
+        resolved_style="quiet_interior",
+        visual_mode="illustration",
+    )
+
+
+def test_select_photo_scene_preset_override_returns_outdoor_path_for_living_nature():
+    assert (
+        select_photo_scene_preset_override(
+            scene_plan={"scene_type": "botanical_still_life"},
+            selected_style="living_nature_photo",
+            resolved_style="living_nature_photo",
+            visual_mode="photo",
+        )
+        == "outdoor_path"
+    )
+
+
+def test_select_photo_scene_preset_override_returns_outdoor_path_for_outdoor_scene_types():
+    for scene_type in ("forest_path", "open_meadow", "riverside"):
+        assert (
+            select_photo_scene_preset_override(
+                scene_plan={"scene_type": scene_type},
+                selected_style="quiet_interior",
+                resolved_style="quiet_interior",
+                visual_mode="photo",
+            )
+            == "outdoor_path"
+        )
+
+
+def test_select_photo_scene_preset_override_does_not_use_botanical_corner_for_living_nature():
+    override = select_photo_scene_preset_override(
+        scene_plan={"scene_type": "botanical_still_life"},
+        selected_style="sunny_nature_photo",
+        resolved_style="living_nature_photo",
+        visual_mode="photo",
+    )
+    assert override == "outdoor_path"
+    assert override != "botanical_corner"
+
+
+def test_should_use_llm_image_prompt_for_fallback_disables_llm_in_controlled_mode():
+    assert (
+        should_use_llm_image_prompt_for_fallback(
+            scene_planner_image_prompt_enabled=True,
+            llm_image_prompt_enabled=True,
+        )
+        is False
+    )
+    assert (
+        should_use_llm_image_prompt_for_fallback(
+            scene_planner_image_prompt_enabled=True,
+            llm_image_prompt_enabled=False,
+        )
+        is False
+    )
+
+
+def test_should_use_llm_image_prompt_for_fallback_preserves_old_disabled_path():
+    assert (
+        should_use_llm_image_prompt_for_fallback(
+            scene_planner_image_prompt_enabled=False,
+            llm_image_prompt_enabled=True,
+        )
+        is True
+    )
+    assert (
+        should_use_llm_image_prompt_for_fallback(
+            scene_planner_image_prompt_enabled=False,
+            llm_image_prompt_enabled=False,
+        )
+        is False
+    )

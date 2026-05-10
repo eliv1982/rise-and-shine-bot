@@ -77,6 +77,24 @@ def test_scene_planner_shadow_enabled_env(monkeypatch):
     assert settings.scene_planner_shadow_enabled is True
 
 
+def test_scene_planner_image_prompt_disabled_by_default(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("SCENE_PLANNER_IMAGE_PROMPT_ENABLED", raising=False)
+
+    settings = get_settings()
+
+    assert settings.scene_planner_image_prompt_enabled is False
+
+
+def test_scene_planner_image_prompt_enabled_env(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("SCENE_PLANNER_IMAGE_PROMPT_ENABLED", "true")
+
+    settings = get_settings()
+
+    assert settings.scene_planner_image_prompt_enabled is True
+
+
 def test_capability_provider_defaults_are_backward_compatible(monkeypatch):
     _set_required_env(monkeypatch)
     monkeypatch.delenv("TEXT_PROVIDER", raising=False)

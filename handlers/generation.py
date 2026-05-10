@@ -62,6 +62,14 @@ from services.generation_history import (
     record_generation_history_best_effort,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.scene_planner import build_fallback_scene_plan, normalize_scene_plan
+from services.scene_prompt_builder import (
+    build_controlled_scene_prompt,
+    is_living_nature_style,
+    is_scene_planner_image_prompt_enabled,
+    select_photo_scene_preset_override,
+    should_use_llm_image_prompt_for_fallback,
+)
 from services.scene_planner_shadow import (
     attach_scene_plan_shadow_to_visual_motifs,
     build_scene_plan_shadow_best_effort,
@@ -77,6 +85,7 @@ from services.ritual_config import (
 )
 from services.speechkit_stt import transcribe_audio_with_meta
 from services.speechkit_tts import synthesize_affirmations_with_pauses
+from services.visual_memory import get_visual_memory_context
 from services.voice_input import VoiceInputProcessor, VoiceProcessingResult
 from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
 from states import GenerationState
@@ -726,25 +735,84 @@ async def _run_generation(
 
     color_mood = random.choice(_COLOR_MOODS)
     composition_hint = random.choice(_COMPOSITION_HINTS)
+    photo_scene_preset_override = None
+    scene_prompt_controlled_meta = None
     prompt_trace = "template"
+    prompt_final = None
+
+    if is_scene_planner_image_prompt_enabled(settings):
+        try:
+            scene_plan = None
+            if isinstance(scene_plan_shadow_payload, dict):
+                candidate_scene_plan = scene_plan_shadow_payload.get("scene_plan")
+                if isinstance(candidate_scene_plan, dict):
+                    scene_plan = candidate_scene_plan
+            if scene_plan is None:
+                visual_memory_context = await get_visual_memory_context(uid, limit=10)
+                scene_plan = normalize_scene_plan(
+                    build_fallback_scene_plan(
+                        focus_title=focus_text,
+                        visual_memory_context=visual_memory_context,
+                    ),
+                    visual_memory_context=visual_memory_context,
+                )
+            prompt_final = build_controlled_scene_prompt(
+                scene_plan=scene_plan,
+                focus_title=focus_text,
+                visual_mode=effective_visual_mode,
+                selected_style=style,
+                resolved_style=resolved_style,
+                color_palette=color_mood,
+                composition_hint=composition_hint,
+                sphere=sphere,
+                subsphere=subsphere,
+                language=language,
+            )
+            if prompt_final:
+                prompt_trace = "scene_planner_local"
+                photo_scene_preset_override = select_photo_scene_preset_override(
+                    scene_plan=scene_plan,
+                    selected_style=style,
+                    resolved_style=resolved_style,
+                    visual_mode=effective_visual_mode,
+                )
+                scene_prompt_controlled_meta = {
+                    "enabled": True,
+                    "photo_scene_preset_override": photo_scene_preset_override,
+                    "prompt_source": "scene_planner_local",
+                    "used_scene_type": scene_plan.get("scene_type"),
+                    "living_nature_constraints_applied": is_living_nature_style(
+                        selected_style=style,
+                        resolved_style=resolved_style,
+                        visual_mode=effective_visual_mode,
+                    ),
+                }
+        except Exception:
+            logger.exception("Controlled scene prompt build failed for user %s", uid)
+            prompt_final = None
+
     try:
-        prompt_final, prompt_trace = await build_enriched_image_prompt(
-            style=style,
-            sphere=sphere,
-            subsphere=subsphere,
-            user_text=theme_text,
-            custom_style_description=custom_style_description,
-            affirmations=affirmations,
-            color_mood=color_mood,
-            composition_hint=composition_hint,
-            use_llm=settings.llm_image_prompt_enabled,
-            image_hint=image_hint,
-            focus=focus_text,
-            resolved_style=resolved_style,
-            visual_mode=effective_visual_mode,
-        )
-        if prompt_trace == "template_fallback":
-            log_image_prompt_llm_fallback("llm_unavailable_or_bad_json")
+        if not prompt_final:
+            prompt_final, prompt_trace = await build_enriched_image_prompt(
+                style=style,
+                sphere=sphere,
+                subsphere=subsphere,
+                user_text=theme_text,
+                custom_style_description=custom_style_description,
+                affirmations=affirmations,
+                color_mood=color_mood,
+                composition_hint=composition_hint,
+                use_llm=should_use_llm_image_prompt_for_fallback(
+                    scene_planner_image_prompt_enabled=is_scene_planner_image_prompt_enabled(settings),
+                    llm_image_prompt_enabled=settings.llm_image_prompt_enabled,
+                ),
+                image_hint=image_hint,
+                focus=focus_text,
+                resolved_style=resolved_style,
+                visual_mode=effective_visual_mode,
+            )
+            if prompt_trace == "template_fallback":
+                log_image_prompt_llm_fallback("llm_unavailable_or_bad_json")
         image_path = await generate_image(
             style=style,
             sphere=sphere,
@@ -760,6 +828,7 @@ async def _run_generation(
             color_mood=color_mood,
             composition_hint=composition_hint,
             recent_scene_presets=recent_scenes,
+            photo_scene_preset_override=photo_scene_preset_override,
         )
     except Exception as exc:
         logger.exception("Image generation failed: %s", exc)
@@ -834,6 +903,8 @@ async def _run_generation(
         visual_motifs,
         scene_plan_shadow_payload,
     )
+    if scene_prompt_controlled_meta is not None:
+        visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
     await record_generation_history_best_effort(
         telegram_user_id=uid,
         request_type=request_type,
