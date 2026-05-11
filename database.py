@@ -16,6 +16,20 @@ except ModuleNotFoundError:  # pragma: no cover - exercised only when dependency
 
 logger = logging.getLogger(__name__)
 MAX_ACTIVE_SUBSCRIPTIONS = 3
+_PROFILE_PREFERENCE_SCALAR_KEYS = {
+    "tone_preference",
+    "support_style",
+    "text_length_preference",
+    "current_focus",
+}
+_PROFILE_PREFERENCE_LIST_KEYS = {
+    "avoid_topics",
+    "avoid_words",
+    "favorite_visual_styles",
+    "avoid_visual_styles",
+    "life_areas",
+}
+_PROFILE_PREFERENCE_ALLOWED_KEYS = _PROFILE_PREFERENCE_SCALAR_KEYS | _PROFILE_PREFERENCE_LIST_KEYS
 
 DB_PATH = get_sqlite_db_path()
 _POSTGRES_PREFIXES = ("postgres://", "postgresql://")
@@ -28,6 +42,7 @@ _SQLITE_SCHEMA_STATEMENTS = [
         name        TEXT,
         gender      TEXT,
         language    TEXT DEFAULT 'ru',
+        profile_preferences_json TEXT,
         created_at  TEXT
     )
     """,
@@ -106,6 +121,7 @@ _POSTGRES_SCHEMA_STATEMENTS = [
         name        TEXT,
         gender      TEXT,
         language    TEXT DEFAULT 'ru',
+        profile_preferences_json TEXT,
         created_at  TEXT
     )
     """,
@@ -199,6 +215,49 @@ def _deserialize_json(value: Optional[str]) -> Any:
 def _is_missing_table_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "no such table" in message or "relation" in message and "does not exist" in message
+
+
+def _normalize_preference_scalar(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join(value.strip().split())
+    return cleaned or None
+
+
+def _normalize_preference_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    seen: set[str] = set()
+    for raw_item in value:
+        normalized = _normalize_preference_scalar(raw_item)
+        if not normalized:
+            continue
+        dedupe_key = normalized.casefold()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        items.append(normalized)
+    return items
+
+
+def _normalize_profile_preferences(preferences: Any) -> dict[str, Any]:
+    if not isinstance(preferences, dict):
+        return {}
+
+    normalized: dict[str, Any] = {}
+    for key in _PROFILE_PREFERENCE_ALLOWED_KEYS:
+        if key not in preferences:
+            continue
+        if key in _PROFILE_PREFERENCE_SCALAR_KEYS:
+            scalar_value = _normalize_preference_scalar(preferences.get(key))
+            if scalar_value:
+                normalized[key] = scalar_value
+            continue
+        list_value = _normalize_preference_list(preferences.get(key))
+        if list_value:
+            normalized[key] = list_value
+    return normalized
 
 
 def _is_postgres_url(url: Optional[str]) -> bool:
@@ -370,6 +429,24 @@ async def add_column_if_missing(db: Any, table: str, column: str, definition: st
         await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
+async def _update_query_changed(query: str, params: tuple[Any, ...] = ()) -> bool:
+    if get_database_backend_name() == "postgresql":
+        conn = await _connect_postgres()
+        try:
+            returning_query = f"{query.rstrip().rstrip(';')} RETURNING 1"
+            row = await conn.fetchrow(_postgres_query(returning_query), *params)
+            return row is not None
+        finally:
+            await conn.close()
+
+    async with aiosqlite.connect(_prepare_sqlite_db_path()) as db:
+        cur = await db.execute(query, params)
+        changed = cur.rowcount > 0
+        await cur.close()
+        await db.commit()
+    return changed
+
+
 async def init_db() -> None:
     """
     Инициализация схемы БД (если таблиц ещё нет).
@@ -383,6 +460,7 @@ async def init_db() -> None:
             await add_column_if_missing(conn, "subscriptions", "subscription_sphere", "TEXT")
             await add_column_if_missing(conn, "subscriptions", "subscription_style_mode", "TEXT DEFAULT 'auto'")
             await add_column_if_missing(conn, "subscriptions", "visual_mode", "TEXT DEFAULT 'illustration'")
+            await add_column_if_missing(conn, "users", "profile_preferences_json", "TEXT")
         finally:
             await conn.close()
         logger.info("Database initialized")
@@ -394,6 +472,7 @@ async def init_db() -> None:
         await add_column_if_missing(db, "subscriptions", "subscription_sphere", "TEXT")
         await add_column_if_missing(db, "subscriptions", "subscription_style_mode", "TEXT DEFAULT 'auto'")
         await add_column_if_missing(db, "subscriptions", "visual_mode", "TEXT DEFAULT 'illustration'")
+        await add_column_if_missing(db, "users", "profile_preferences_json", "TEXT")
         await db.commit()
     logger.info("Database initialized")
 
@@ -577,6 +656,55 @@ async def get_user(user_id: int) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
+async def get_user_profile_preferences(user_id: int) -> dict[str, Any]:
+    row = await _fetchone(
+        "SELECT profile_preferences_json FROM users WHERE user_id = ?",
+        (user_id,),
+    )
+    if not row:
+        return {}
+    raw_preferences = row[0]
+    if not raw_preferences:
+        return {}
+    return _normalize_profile_preferences(_deserialize_json(raw_preferences))
+
+
+async def update_user_profile_preferences(user_id: int, preferences: dict) -> bool:
+    normalized = _normalize_profile_preferences(preferences)
+    serialized = _serialize_json(normalized) if normalized else None
+    return await _update_query_changed(
+        "UPDATE users SET profile_preferences_json = ? WHERE user_id = ?",
+        (serialized, user_id),
+    )
+
+
+async def merge_user_profile_preferences(user_id: int, patch: dict) -> bool:
+    if not isinstance(patch, dict):
+        patch = {}
+
+    current = await get_user_profile_preferences(user_id)
+    merged = dict(current)
+
+    for key in _PROFILE_PREFERENCE_ALLOWED_KEYS:
+        if key not in patch:
+            continue
+        if key in _PROFILE_PREFERENCE_SCALAR_KEYS:
+            scalar_value = _normalize_preference_scalar(patch.get(key))
+            if scalar_value:
+                merged[key] = scalar_value
+            else:
+                merged.pop(key, None)
+            continue
+
+        list_value = _normalize_preference_list(patch.get(key))
+        if list_value:
+            merged[key] = list_value
+        else:
+            merged.pop(key, None)
+
+    return await update_user_profile_preferences(user_id, merged)
+
+
 async def create_or_update_user(
     user_id: int,
     username: Optional[str],
@@ -719,13 +847,7 @@ async def update_subscription(
     )
 
     if get_database_backend_name() == "postgresql":
-        conn = await _connect_postgres()
-        try:
-            returning_query = f"{query.rstrip().rstrip(';')} RETURNING 1"
-            row = await conn.fetchrow(_postgres_query(returning_query), *params)
-            return row is not None
-        finally:
-            await conn.close()
+        return await _update_query_changed(query, params)
 
     async with aiosqlite.connect(_prepare_sqlite_db_path()) as db:
         cur = await db.execute(query, params)
