@@ -137,9 +137,14 @@ def build_report_from_row(row: sqlite3.Row) -> dict:
         "text_memory": {
             "recent_focus_titles_count": len((text_memory.get("recent_focus_titles") or [])) if "recent_focus_titles" in text_memory else text_memory.get("recent_focus_titles_count", 0),
             "avoid_soft_actions_count": len((text_memory.get("avoid_soft_actions") or [])) if "avoid_soft_actions" in text_memory else text_memory.get("avoid_soft_actions_count", 0),
+            "recent_affirmation_openings": list(text_memory.get("recent_affirmation_openings") or []),
+            "overused_affirmation_openings": list(text_memory.get("overused_affirmation_openings") or []),
             "overused_text_patterns": list(text_memory.get("overused_text_patterns") or []),
             "avoid_soft_action_patterns": list(text_memory.get("avoid_soft_action_patterns") or []),
             "overused_soft_action_patterns": list(text_memory.get("overused_soft_action_patterns") or []),
+            "avoid_soft_action_structures": list(text_memory.get("avoid_soft_action_structures") or []),
+            "overused_soft_action_structures": list(text_memory.get("overused_soft_action_structures") or []),
+            "overused_abstract_words": list(text_memory.get("overused_abstract_words") or []),
         },
         "orchestrator": {
             "route": orchestrator.get("route") or {},
@@ -207,9 +212,14 @@ def _format_human_report(report: dict) -> str:
         "text_memory: "
         + f"recent_focus_titles_count={text_memory.get('recent_focus_titles_count', 0)} "
         + f"avoid_soft_actions_count={text_memory.get('avoid_soft_actions_count', 0)} "
+        + f"recent_affirmation_openings={text_memory.get('recent_affirmation_openings') or []} "
+        + f"overused_affirmation_openings={text_memory.get('overused_affirmation_openings') or []} "
         + f"overused_text_patterns={text_memory.get('overused_text_patterns') or []} "
         + f"avoid_soft_action_patterns={text_memory.get('avoid_soft_action_patterns') or []} "
-        + f"overused_soft_action_patterns={text_memory.get('overused_soft_action_patterns') or []}",
+        + f"overused_soft_action_patterns={text_memory.get('overused_soft_action_patterns') or []} "
+        + f"avoid_soft_action_structures={text_memory.get('avoid_soft_action_structures') or []} "
+        + f"overused_soft_action_structures={text_memory.get('overused_soft_action_structures') or []} "
+        + f"overused_abstract_words={text_memory.get('overused_abstract_words') or []}",
         f"orchestrator_route: {orchestrator.get('route') or {}}",
         f"orchestrator_quality: {orchestrator.get('quality') or {}}",
         f"orchestrator_decisions: {orchestrator.get('decisions') or []}",

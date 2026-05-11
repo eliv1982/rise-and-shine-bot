@@ -44,14 +44,25 @@ def _init_test_db(db_path):
             "text_memory_context": {
                 "recent_focus_titles_count": 2,
                 "avoid_soft_actions_count": 1,
+                "recent_affirmation_openings": ["я принимаю", "сегодня я"],
+                "overused_affirmation_openings": ["я принимаю"],
                 "overused_text_patterns": ["я выбираю"],
                 "avoid_soft_action_patterns": ["name_three_things"],
                 "overused_soft_action_patterns": ["name_three_things"],
+                "avoid_soft_action_structures": ["contrast_from_not_from"],
+                "overused_soft_action_structures": ["contrast_from_not_from"],
+                "overused_abstract_words": ["ясность", "страх"],
             },
             "text_reviewer_shadow": {
                 "score": 0.8,
-                "warnings": ["soft_action_repeated"],
-                "checks": {"soft_action_repeated": True, "gender_mismatch": False},
+                "warnings": ["soft_action_repeated", "abstract_contrast_formula"],
+                "checks": {
+                    "soft_action_repeated": True,
+                    "repeated_soft_action_structure": True,
+                    "abstract_contrast_formula": True,
+                    "too_generic": True,
+                    "gender_mismatch": False,
+                },
             },
             "scene_plan_shadow": {"enabled": True},
             "scene_prompt_controlled": {"enabled": True},
@@ -95,6 +106,8 @@ def test_inspect_generation_roles_human_output_includes_role_flags(tmp_path, cap
     assert exit_code == 0
     assert "text_plan_shadow=true" in captured.out
     assert "text_reviewer_shadow=true" in captured.out
+    assert "overused_affirmation_openings=['я принимаю']" in captured.out
+    assert "overused_soft_action_structures=['contrast_from_not_from']" in captured.out
     assert "orchestrator_decisions" in captured.out
 
 
@@ -109,6 +122,8 @@ def test_inspect_generation_roles_json_output_is_valid_json(tmp_path, capsys):
     assert exit_code == 0
     assert payload["reports"][0]["role_flags"]["orchestrator_shadow"] is True
     assert payload["reports"][0]["reviewer"]["score"] == 0.8
+    assert payload["reports"][0]["reviewer"]["checks"]["repeated_soft_action_structure"] is True
+    assert payload["reports"][0]["text_memory"]["overused_soft_action_structures"] == ["contrast_from_not_from"]
 
 
 def test_inspect_generation_roles_invalid_json_does_not_crash(tmp_path, capsys):
