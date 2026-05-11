@@ -173,6 +173,72 @@ async def safe_confirm_callback_choice(callback: CallbackQuery, text: str) -> No
         logger.debug("Failed to send callback confirmation text", exc_info=True)
 
 
+def _generation_limit_text(language: str, limit: int) -> str:
+    if language == "ru":
+        return (
+            f"Сегодня уже {limit} генераций — это дневной лимит. "
+            "Завтра снова сможешь создать настрой дня."
+        )
+    return f"You've reached the daily limit of {limit} generations. Try again tomorrow."
+
+
+async def _clear_inline_keyboard_best_effort(message: Message | None) -> None:
+    if message is None:
+        return
+    try:
+        await message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        logger.debug("Failed to clear inline keyboard", exc_info=True)
+
+
+async def _handle_generation_limit_reached(
+    message: Message | None,
+    state: FSMContext,
+    *,
+    language: str,
+    limit: int,
+    clear_inline: bool = False,
+) -> None:
+    if clear_inline:
+        await _clear_inline_keyboard_best_effort(message)
+    if message is not None:
+        await message.answer(
+            _generation_limit_text(language, limit),
+            reply_markup=main_reply_keyboard(language),
+        )
+    await state.clear()
+
+
+async def _check_generation_limit_and_handle(
+    message: Message | None,
+    state: FSMContext,
+    *,
+    uid: int,
+    language: str,
+    settings: object | None = None,
+    clear_inline: bool = False,
+) -> bool:
+    effective_settings = settings or get_settings()
+    limit = int(getattr(effective_settings, "generation_daily_limit", 0) or 0)
+    limit_enabled = not getattr(effective_settings, "disable_daily_generation_limit", False) and limit > 0
+    if not limit_enabled:
+        return False
+
+    allowed, used = await can_start_interactive_generation(uid, limit)
+    if allowed:
+        return False
+
+    log_rate_limited(uid, used, limit)
+    await _handle_generation_limit_reached(
+        message,
+        state,
+        language=language,
+        limit=limit,
+        clear_inline=clear_inline,
+    )
+    return True
+
+
 async def _process_generation_voice_input(
     message: Message,
     state: FSMContext,
@@ -210,6 +276,13 @@ async def _start_generation_after_preflight(
     if error_text:
         await _answer_generation_preflight_error(message, state, error_text, language)
         return
+    if await _check_generation_limit_and_handle(
+        message,
+        state,
+        uid=user_telegram_id if user_telegram_id is not None else message.from_user.id,
+        language=language,
+    ):
+        return
     await message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
     await _run_generation(message, state, theme_text=theme_text, user_telegram_id=user_telegram_id)
 
@@ -220,6 +293,14 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
     await callback.answer()
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        return
     await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
@@ -233,6 +314,13 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
 async def cmd_new(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        message,
+        state,
+        uid=message.from_user.id,
+        language=language,
+    ):
+        return
     await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
@@ -247,6 +335,15 @@ async def choose_custom_theme_early(callback: CallbackQuery, state: FSMContext) 
     """Своя тема в меню сферы: запрос текста или голоса."""
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     await state.set_state(GenerationState.waiting_for_theme_early)
     await callback.message.edit_text(
         (
@@ -313,6 +410,13 @@ async def handle_text_theme_early(message: Message, state: FSMContext) -> None:
     if not is_input_language_compatible(text, language):
         await message.answer(_text_language_mismatch_text(language))
         return
+    if await _check_generation_limit_and_handle(
+        message,
+        state,
+        uid=message.from_user.id,
+        language=language,
+    ):
+        return
     await state.update_data(theme_text=text, sphere="inner_peace", subsphere=None)
     await state.set_state(GenerationState.choosing_visual_mode)
     await message.answer(
@@ -328,6 +432,15 @@ async def choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     sphere = callback.data.split(":", maxsplit=1)[1]
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
 
     await state.update_data(sphere=sphere)
     await safe_confirm_callback_choice(
@@ -359,6 +472,15 @@ async def choose_relationship_subsphere(callback: CallbackQuery, state: FSMConte
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     subsphere = callback.data.split(":", maxsplit=1)[1]
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
 
     await state.update_data(subsphere=subsphere)
     await state.set_state(GenerationState.choosing_visual_mode)
@@ -382,6 +504,15 @@ async def choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     visual_mode = normalize_visual_mode(callback.data.split(":", maxsplit=1)[1])
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     await state.update_data(visual_mode=visual_mode)
     await state.set_state(GenerationState.choosing_style)
     await safe_confirm_callback_choice(
@@ -403,6 +534,15 @@ async def choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None
 async def choose_custom_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     await state.update_data(style="custom")
     await state.set_state(GenerationState.waiting_for_custom_style)
     await safe_confirm_callback_choice(
@@ -431,6 +571,15 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     style = callback.data.split(":", maxsplit=1)[1]
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     await state.update_data(style=style, custom_style_description=None)
     data = await state.get_data()
     error_text = _generation_preflight_error(data, data.get("theme_text"), language)
@@ -504,6 +653,15 @@ async def handle_theme_voice_recovery(callback: CallbackQuery, state: FSMContext
             recognized_text_pending=None,
             recognized_text_pending_kind=None,
         )
+        if await _check_generation_limit_and_handle(
+            callback.message,
+            state,
+            uid=callback.from_user.id,
+            language=language,
+            clear_inline=True,
+        ):
+            await callback.answer()
+            return
         await state.set_state(GenerationState.choosing_visual_mode)
         await callback.message.answer(
             (f"Тема: «{pending}».\n\n{_visual_mode_text(language)}" if language == "ru" else f"Theme: “{pending}”.\n\n{_visual_mode_text(language)}"),
@@ -590,9 +748,14 @@ async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext
             await callback.answer()
             await _answer_generation_preflight_error(callback.message, state, error_text, language)
             return
-        await callback.message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
         await callback.answer()
-        await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
+        await _start_generation_after_preflight(
+            callback.message,
+            state,
+            data.get("theme_text"),
+            language,
+            user_telegram_id=callback.from_user.id,
+        )
     elif action == "retry_voice":
         await state.update_data(
             recognized_text_pending=None,
@@ -768,20 +931,13 @@ async def _run_generation(
 
     limit_enabled = not settings.disable_daily_generation_limit and settings.generation_daily_limit > 0
     if limit_enabled:
-        allowed, used = await can_start_interactive_generation(uid, settings.generation_daily_limit)
-        if not allowed:
-            log_rate_limited(uid, used, settings.generation_daily_limit)
-            if language == "ru":
-                await message.answer(
-                    f"Сегодня уже {settings.generation_daily_limit} генераций — это дневной лимит. Завтра снова сможешь создать настрой дня.",
-                    reply_markup=style_keyboard(language, visual_mode=visual_mode),
-                )
-            else:
-                await message.answer(
-                    f"You've reached the daily limit of {settings.generation_daily_limit} generations. Try again tomorrow.",
-                    reply_markup=style_keyboard(language, visual_mode=visual_mode),
-                )
-            await state.set_state(GenerationState.choosing_style)
+        if await _check_generation_limit_and_handle(
+            message,
+            state,
+            uid=uid,
+            language=language,
+            settings=settings,
+        ):
             return
 
     gender_hint = gender_display(gender, language=language)
@@ -1154,6 +1310,15 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         custom_style_description=last.get("custom_style_description"),
     )
     again_language = (await get_user(callback.from_user.id) or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=again_language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     data = await state.get_data()
     error_text = _generation_preflight_error(data, last.get("theme_text"), again_language)
     if error_text:
@@ -1218,6 +1383,14 @@ async def new_request_from_result(callback: CallbackQuery, state: FSMContext) ->
     await callback.answer()
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        return
     await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)

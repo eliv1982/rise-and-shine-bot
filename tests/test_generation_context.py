@@ -268,6 +268,100 @@ def test_choose_visual_mode_confirms_selection_and_shows_style_menu(monkeypatch)
     assert callback.answered is True
 
 
+def test_cmd_new_stops_early_when_daily_limit_is_reached(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    async def _fake_can_start(_uid, _limit):
+        return False, 3
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "can_start_interactive_generation", _fake_can_start)
+    monkeypatch.setattr(generation, "log_rate_limited", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "main_reply_keyboard", lambda language: f"main:{language}")
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(disable_daily_generation_limit=False, generation_daily_limit=3),
+    )
+
+    state = _FakeState({"theme_text": "stale"})
+    message = _FakeMessage(user_id=101)
+
+    asyncio.run(generation.cmd_new(message, state))
+
+    assert state.cleared is True
+    assert state.state is None
+    assert len(message.answers) == 1
+    assert "дневной лимит" in message.answers[0][0].lower()
+    assert message.answers[0][1] == "main:ru"
+
+
+def test_choose_style_clears_inline_keyboard_and_returns_to_main_menu_when_limit_is_reached(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    async def _fake_can_start(_uid, _limit):
+        return False, 5
+
+    async def _unexpected_run(*_args, **_kwargs):
+        raise AssertionError("_run_generation should not be called when the limit is reached")
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "can_start_interactive_generation", _fake_can_start)
+    monkeypatch.setattr(generation, "log_rate_limited", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "main_reply_keyboard", lambda language: f"main:{language}")
+    monkeypatch.setattr(generation, "_run_generation", _unexpected_run)
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(disable_daily_generation_limit=False, generation_daily_limit=5),
+    )
+
+    state = _FakeState({"sphere": "inner_peace", "visual_mode": "photo"})
+    callback = _FakeCallback(user_id=202, fail_edit_text=True)
+    callback.data = "style:sea_coast_photo"
+
+    asyncio.run(generation.choose_style(callback, state))
+
+    assert callback.answered is True
+    assert state.cleared is True
+    assert callback.message.reply_markup_clears == [None]
+    assert len(callback.message.answers) == 1
+    assert "дневной лимит" in callback.message.answers[0][0].lower()
+    assert callback.message.answers[0][1] == "main:ru"
+
+
+def test_new_request_from_result_clears_inline_keyboard_and_returns_to_main_menu_when_limit_is_reached(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    async def _fake_can_start(_uid, _limit):
+        return False, 2
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "can_start_interactive_generation", _fake_can_start)
+    monkeypatch.setattr(generation, "log_rate_limited", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "main_reply_keyboard", lambda language: f"main:{language}")
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(disable_daily_generation_limit=False, generation_daily_limit=2),
+    )
+
+    state = _FakeState()
+    callback = _FakeCallback(user_id=303)
+
+    asyncio.run(generation.new_request_from_result(callback, state))
+
+    assert callback.answered is True
+    assert state.cleared is True
+    assert callback.message.reply_markup_clears == [None]
+    assert len(callback.message.answers) == 1
+    assert "дневной лимит" in callback.message.answers[0][0].lower()
+    assert callback.message.answers[0][1] == "main:ru"
+
+
 def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last_generation(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en", "gender": "female"}

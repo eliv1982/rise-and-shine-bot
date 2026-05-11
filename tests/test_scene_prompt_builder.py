@@ -1,7 +1,11 @@
 from services.scene_prompt_builder import (
     build_controlled_scene_prompt,
     build_cafe_scene_constraints,
+    build_home_scene_constraints,
     build_living_nature_constraints,
+    build_outdoor_liveliness_constraints,
+    build_rural_scene_constraints,
+    build_work_scene_constraints,
     is_living_nature_style,
     select_photo_scene_preset_override,
     should_use_llm_image_prompt_for_fallback,
@@ -65,6 +69,21 @@ def test_build_cafe_scene_constraints_include_lived_in_cafe_and_avoid_guardrails
     assert "avoid sterile dining room" in constraints
     assert "avoid empty classroom feeling" in constraints
     assert "avoid crowded noisy scene" in constraints
+
+
+def test_build_outdoor_home_rural_and_work_constraints_include_liveliness_and_anti_sterile_rules():
+    outdoor_constraints = [item.lower() for item in build_outdoor_liveliness_constraints()]
+    rural_constraints = [item.lower() for item in build_rural_scene_constraints()]
+    home_constraints = [item.lower() for item in build_home_scene_constraints()]
+    work_constraints = [item.lower() for item in build_work_scene_constraints()]
+
+    assert "small signs of life such as butterflies, birds, bees or dragonflies" in outdoor_constraints
+    assert "avoid desolate emptiness" in outdoor_constraints
+    assert "cup of tea or coffee" in rural_constraints[0]
+    assert "avoid sterile empty room" in home_constraints
+    assert "avoid furniture showroom" in home_constraints
+    assert "avoid cold empty office" in work_constraints
+    assert "avoid generic productivity stock photo" in work_constraints
 
 
 def test_is_living_nature_style_detects_runtime_values():
@@ -200,6 +219,42 @@ def test_selected_style_and_visual_mode_affect_candidate_pool():
     assert "sea_horizon" not in nature_candidates
     assert "sea_horizon" in coastal_candidates
     assert "forest_path" not in coastal_candidates
+
+
+def test_build_controlled_scene_prompt_includes_rural_and_work_liveliness_guidance():
+    rural_prompt = build_controlled_scene_prompt(
+        scene_plan={
+            "scene_type": "village_veranda",
+            "setting": "village veranda with morning air",
+            "human_presence": "none",
+            "main_subject": "porch and garden hints",
+            "visual_motifs": ["veranda", "wood", "rural_home"],
+            "composition": "open porch composition",
+            "lighting": "warm morning daylight",
+            "mood": "rest and rootedness",
+            "avoid": [],
+        },
+        language="ru",
+    ).lower()
+    work_prompt = build_controlled_scene_prompt(
+        scene_plan={
+            "scene_type": "office_morning_light",
+            "setting": "quiet office with sunlight",
+            "human_presence": "distant_figure",
+            "main_subject": "wide office atmosphere",
+            "visual_motifs": ["office", "morning_light"],
+            "composition": "wide office scene",
+            "lighting": "soft daylight",
+            "mood": "calm momentum",
+            "avoid": [],
+        },
+        language="ru",
+    ).lower()
+
+    assert "butterflies, birds, bees or dragonflies" in rural_prompt
+    assert "cup of tea or coffee" in rural_prompt
+    assert "tasteful stationery, notebook or planner, coffee cup, laptop, plant and sunlight" in work_prompt
+    assert "avoid cold empty office" in work_prompt
 
 
 def test_professional_context_candidate_pool_contains_multiple_city_cafe_work_scenes():
