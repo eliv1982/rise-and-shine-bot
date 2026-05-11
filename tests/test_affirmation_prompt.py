@@ -115,6 +115,10 @@ def test_affirmation_prompt_keeps_old_path_without_text_plan_guidance():
     )
 
     assert "Text planner guidance:" not in prompt
+    assert "тёплое неформальное обращение на «ты»" in prompt
+    assert "Запрещены формальные или множественные формы" in prompt
+    assert "«Выберите»" in prompt
+    assert "«Выбери»" in prompt
 
 
 def test_affirmation_prompt_includes_text_plan_guidance_when_provided():
@@ -137,6 +141,8 @@ def test_affirmation_prompt_includes_text_plan_guidance_when_provided():
     assert "theme_category: money_stability" in prompt
     assert "tone: gentle_practical" in prompt
     assert "avoid: toxic positivity, pressure, productivity framing" in prompt
+    assert "тёплое неформальное обращение на «ты»" in prompt
+    assert "«Вы/вы»" in prompt
 
 
 def test_affirmation_prompt_with_text_plan_guidance_keeps_feminine_gender_instruction():
@@ -324,3 +330,29 @@ def test_normalize_russian_user_facing_text_fields_keeps_non_first_person_and_un
     assert female_normalized["soft_action"] == "Путь открыт новым возможностям"
     assert female_normalized["micro_step"] == "Я открыта новым возможностям"
     assert unknown_normalized["soft_action"] == "Я готов сделать один спокойный шаг"
+
+
+def test_normalize_russian_user_facing_text_fields_converts_formal_soft_action_phrases():
+    payload = {
+        "soft_action": "Упростите один бытовой шаг, чтобы день ощущался мягче.",
+        "micro_step": "Выберите одно действие, которое даст телу ощущение опоры.",
+    }
+
+    normalized = normalize_russian_user_facing_text_fields(payload, gender_hint="для женщины")
+
+    assert normalized["soft_action"] == "Упрости один бытовой шаг, чтобы день ощущался мягче."
+    assert normalized["micro_step"] == "Выбери одно действие, которое даст телу ощущение опоры."
+
+
+def test_normalize_russian_user_facing_text_fields_converts_name_three_and_keeps_correct_imperatives():
+    payload = {
+        "soft_action": "Назовите три вещи, на которые можно опереться сейчас.",
+        "micro_step": "Прими одно решение из ясности, а не из страха.",
+        "affirmations": ["Выбери одно действие из любопытства."],
+    }
+
+    normalized = normalize_russian_user_facing_text_fields(payload, gender_hint="для пользователя")
+
+    assert normalized["soft_action"] == "Назови три вещи, на которые можно опереться сейчас."
+    assert normalized["micro_step"] == "Прими одно решение из ясности, а не из страха."
+    assert normalized["affirmations"][0] == "Выбери одно действие из любопытства."

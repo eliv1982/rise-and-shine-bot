@@ -38,7 +38,14 @@ def build_text_generation_guidance(
     avoid = ", ".join(normalized["avoid"]) or "—"
     output_language = "Russian" if normalized["language"] == "ru" else "English"
     gender_lines: list[str] = []
+    voice_lines: list[str] = []
     if normalized["language"] == "ru":
+        voice_lines = [
+            "Preserve warm informal singular Russian address: use «ты», not «Вы/вы».",
+            "Soft action should use informal singular imperative.",
+            "Avoid formal/plural imperatives like: выберите, назовите, сделайте, примите, упростите, запишите, заметьте, позвольте.",
+            "Use forms like: выбери, назови, сделай, прими, упрости, запиши, заметь, позволь себе.",
+        ]
         normalized_gender = infer_gender_from_hint(gender_hint)
         if gender_hint:
             if normalized_gender == "female":
@@ -99,5 +106,6 @@ def build_text_generation_guidance(
         "- Avoid toxic positivity, pressure, moralizing and repetitive generic affirmations.\n"
         ]
         + gender_lines
+        + voice_lines
         + memory_lines
     )

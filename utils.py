@@ -6,6 +6,33 @@ from services.text_quality import is_gibberish_text
 
 GenderKey = Literal["male", "female"]
 
+_RUSSIAN_INFORMAL_ADDRESS_REPLACEMENTS: list[tuple[str, str]] = [
+    ("Позвольте себе", "Позволь себе"),
+    ("позвольте себе", "позволь себе"),
+    ("Упростите", "Упрости"),
+    ("упростите", "упрости"),
+    ("Выберите", "Выбери"),
+    ("выберите", "выбери"),
+    ("Назовите", "Назови"),
+    ("назовите", "назови"),
+    ("Сделайте", "Сделай"),
+    ("сделайте", "сделай"),
+    ("Примите", "Прими"),
+    ("примите", "прими"),
+    ("Запишите", "Запиши"),
+    ("запишите", "запиши"),
+    ("Заметьте", "Заметь"),
+    ("заметьте", "заметь"),
+    ("Подумайте", "Подумай"),
+    ("подумайте", "подумай"),
+    ("Отметьте", "Отметь"),
+    ("отметьте", "отметь"),
+    ("Остановитесь", "Остановись"),
+    ("остановитесь", "остановись"),
+    ("Подышите", "Подыши"),
+    ("подышите", "подыши"),
+]
+
 
 def normalize_gender(gender: Optional[str]) -> Optional[GenderKey]:
     """
@@ -46,6 +73,19 @@ def infer_gender_from_hint(gender_hint: Optional[str]) -> Optional[GenderKey]:
     if any(marker in text for marker in male_markers):
         return "male"
     return None
+
+
+def normalize_russian_informal_address(text: Optional[str]) -> Optional[str]:
+    if text is None:
+        return None
+    normalized = text
+    for formal, informal in _RUSSIAN_INFORMAL_ADDRESS_REPLACEMENTS:
+        normalized = re.sub(
+            rf"(?<!\w){re.escape(formal)}(?=[\s,.;:!?]|$)",
+            informal,
+            normalized,
+        )
+    return normalized
 
 
 def extract_name_from_introduction(text: str) -> Optional[str]:

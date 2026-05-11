@@ -6,6 +6,7 @@ from utils import (
     infer_gender_from_hint,
     is_gibberish_text,
     normalize_gender,
+    normalize_russian_informal_address,
 )
 
 
@@ -54,3 +55,16 @@ def test_display_name_transliterates_for_english_ui():
 def test_is_gibberish_text_detects_repeated_nonsense():
     assert is_gibberish_text("Do stoint weh weh weh")
     assert not is_gibberish_text("Достоинство и вера в себя")
+
+
+def test_normalize_russian_informal_address_handles_common_formal_imperatives():
+    assert normalize_russian_informal_address("Упростите один бытовой шаг.") == "Упрости один бытовой шаг."
+    assert normalize_russian_informal_address("Выберите одно действие.") == "Выбери одно действие."
+    assert normalize_russian_informal_address("Назовите три вещи.") == "Назови три вещи."
+    assert normalize_russian_informal_address("Позвольте себе паузу.") == "Позволь себе паузу."
+
+
+def test_normalize_russian_informal_address_leaves_unrelated_or_correct_words_untouched():
+    assert normalize_russian_informal_address("Прими одно решение из ясности.") == "Прими одно решение из ясности."
+    assert normalize_russian_informal_address("Выбери одно действие из любопытства.") == "Выбери одно действие из любопытства."
+    assert normalize_russian_informal_address("Это уже упрощённый шаг.") == "Это уже упрощённый шаг."

@@ -7,7 +7,7 @@ import aiohttp
 
 from config import TextProviderConfig, get_text_provider_config
 from services.ritual_config import get_sphere_label, normalize_visual_mode, resolve_style, visual_mode_for_style
-from utils import infer_gender_from_hint, normalize_gender
+from utils import infer_gender_from_hint, normalize_gender, normalize_russian_informal_address
 
 logger = logging.getLogger(__name__)
 
@@ -123,11 +123,16 @@ def normalize_russian_user_facing_text_fields(
     gender_hint: str | None = None,
     gender: str | None = None,
 ):
+    def _normalize_string(value: str) -> str:
+        value = normalize_russian_first_person_gender(value, gender_hint=gender_hint, gender=gender)
+        value = normalize_russian_informal_address(value) or value
+        return value
+
     if isinstance(payload, str):
-        return normalize_russian_first_person_gender(payload, gender_hint=gender_hint, gender=gender)
+        return _normalize_string(payload)
     if isinstance(payload, list):
         return [
-            normalize_russian_first_person_gender(item, gender_hint=gender_hint, gender=gender)
+            _normalize_string(item)
             if isinstance(item, str)
             else item
             for item in payload
@@ -142,11 +147,7 @@ def normalize_russian_user_facing_text_fields(
             )
         for key in ("soft_action", "micro_step"):
             if isinstance(normalized.get(key), str):
-                normalized[key] = normalize_russian_first_person_gender(
-                    normalized[key],
-                    gender_hint=gender_hint,
-                    gender=gender,
-                )
+                normalized[key] = _normalize_string(normalized[key])
         return normalized
     return payload
 
@@ -475,6 +476,12 @@ def _build_prompt(
         "- Не используй пустые универсальные фразы без эмоциональной конкретики.\n"
         "- Каждая фраза должна быть конкретно связана с фокусом дня, если фокус передан.\n"
         "- Не начинай все пункты одинаково.\n"
+        "- Используй тёплое неформальное обращение на «ты», а не на «Вы/вы».\n"
+        "- Мягкий шаг должен быть в повелительном наклонении единственного числа.\n"
+        "- Запрещены формальные или множественные формы: «Выберите», «Назовите», «Сделайте», "
+        "«Примите», «Упростите», «Запишите», «Заметьте», «Позвольте».\n"
+        "- Используй формы: «Выбери», «Назови», «Сделай», «Прими», «Упрости», "
+        "«Запиши», «Заметь», «Позволь себе».\n"
         "- Избегай чрезмерного повторения начал: «Я спокойна и уверена», «Я спокоен и уверен», "
         "«Я открыта», «Я открыт», «Я способна», «Я способен», «Я благодарна», «Я благодарен», "
         "«Я готова», «Я готов», «Я создаю возможности», «Я принимаю мир таким, какой он есть», "
