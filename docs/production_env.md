@@ -41,3 +41,5 @@ Role metadata inspection:
 
 - Inspect latest role metadata locally or on the server with:
   `python scripts/inspect_generation_roles.py --db bot.db --limit 5`
+- Check the active runtime config profile with:
+  `python scripts/check_runtime_config.py`
