@@ -110,6 +110,8 @@ def test_build_text_generation_guidance_includes_feminine_gender_instruction_for
     assert "Russian grammatical gender: feminine" in guidance
     assert "готова, выбрала, уверена, открыта" in guidance
     assert "готов, выбрал, уверен, открыт" in guidance
+    assert "таким, какой я есть" in guidance
+    assert "такой, какая я есть" in guidance
 
 
 def test_build_text_generation_guidance_includes_masculine_gender_instruction_for_ru():
@@ -154,6 +156,7 @@ def test_build_text_generation_guidance_prefers_gender_neutral_wording_for_unkno
     )
 
     assert "Prefer gender-neutral Russian wording where possible." in guidance
+    assert "Я принимаю себя без необходимости что-то доказывать." in guidance
 
 
 def test_build_text_generation_guidance_detects_real_runtime_gender_hint_values():

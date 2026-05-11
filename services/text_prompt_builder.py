@@ -53,17 +53,22 @@ def build_text_generation_guidance(
                     "Respect the user's Russian grammatical gender: feminine.",
                     "Use feminine forms when needed: готова, выбрала, уверена, открыта, спокойна, сосредоточена.",
                     "Avoid masculine forms when feminine agreement is required: готов, выбрал, уверен, открыт, спокоен, сосредоточен.",
+                    "Avoid masculine self-reference like: таким, какой я есть.",
+                    "Prefer feminine or neutral wording when needed: такой, какая я есть; or a neutral rewrite.",
                 ]
             elif normalized_gender == "male":
                 gender_lines = [
                     "Respect the user's Russian grammatical gender: masculine.",
                     "Use masculine forms when needed: готов, выбрал, уверен, открыт, спокоен, сосредоточен.",
                     "Avoid feminine forms when masculine agreement is required: готова, выбрала, уверена, открыта, спокойна, сосредоточена.",
+                    "Use masculine self-reference when such wording is needed: таким, какой я есть.",
                 ]
             else:
                 gender_lines = [
                     "Respect the user's Russian grammatical gender carefully.",
                     "Prefer gender-neutral Russian wording where possible.",
+                    "Avoid gendered self-descriptions when neutral wording can work better.",
+                    "Prefer neutral rewrites like: Я принимаю себя без необходимости что-то доказывать.",
                 ]
     memory = text_memory_context if isinstance(text_memory_context, dict) else {}
     memory_lines: list[str] = []

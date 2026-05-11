@@ -12,6 +12,16 @@ def test_review_generated_text_female_gender_mismatch_catches_masculine_first_pe
     assert report["checks"]["gender_mismatch"] is True
 
 
+def test_review_generated_text_female_gender_mismatch_catches_takim_kakoy_ya_est():
+    report = review_generated_text(
+        affirmations=["Я принимаю себя таким, какой я есть."],
+        language="ru",
+        gender_hint="для женщины",
+    )
+
+    assert report["checks"]["gender_mismatch"] is True
+
+
 def test_review_generated_text_female_does_not_flag_feminine_first_person():
     report = review_generated_text(
         affirmations=["Я открыта новым возможностям", "Я выбираю спокойствие"],
@@ -25,6 +35,16 @@ def test_review_generated_text_female_does_not_flag_feminine_first_person():
 def test_review_generated_text_unknown_gender_does_not_flag_gender_mismatch():
     report = review_generated_text(
         affirmations=["Я открыт новым возможностям"],
+        language="ru",
+        gender_hint="для пользователя",
+    )
+
+    assert report["checks"]["gender_mismatch"] is False
+
+
+def test_review_generated_text_neutral_wording_does_not_flag_gender_mismatch():
+    report = review_generated_text(
+        affirmations=["Я принимаю себя без необходимости что-то доказывать."],
         language="ru",
         gender_hint="для пользователя",
     )

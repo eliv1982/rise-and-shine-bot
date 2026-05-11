@@ -177,6 +177,8 @@ def test_affirmation_prompt_with_text_plan_guidance_keeps_feminine_gender_instru
     assert "Я выбрал" in prompt
     assert "Я уверен" in prompt
     assert "Я открыт" in prompt
+    assert "таким, какой я есть" in prompt
+    assert "такой, какая я есть" in prompt
 
 
 def test_affirmation_prompt_with_text_plan_guidance_keeps_masculine_gender_instruction():
@@ -202,6 +204,23 @@ def test_affirmation_prompt_with_text_plan_guidance_keeps_masculine_gender_instr
     assert "Я готов" in prompt
     assert "Я уверен в себе" in prompt
     assert "Russian grammatical gender: masculine" in prompt
+    assert "таким, какой я есть" in prompt
+
+
+def test_affirmation_prompt_without_known_gender_prefers_neutral_russian_wording():
+    prompt = _build_prompt(
+        sphere="inner_peace",
+        subsphere=None,
+        language="ru",
+        user_text="принятие себя",
+        focus="принятие себя",
+        micro_theme="один бережный шаг",
+        gender_hint="для пользователя",
+        gender=None,
+    )
+
+    assert "гендерно-нейтральные" in prompt
+    assert "Я принимаю себя без необходимости что-то доказывать" in prompt
 
 
 def test_normalize_russian_first_person_gender_female_fixes_safe_first_person_forms():
