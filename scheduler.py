@@ -41,6 +41,7 @@ from services.scene_planner_shadow import (
     build_scene_plan_shadow_best_effort,
 )
 from services.text_planner import build_fallback_text_plan
+from services.text_memory import get_text_memory_context
 from services.text_prompt_builder import (
     build_text_generation_guidance,
     is_text_planner_controlled_enabled,
@@ -118,6 +119,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
             settings=settings,
         )
         text_plan = None
+        text_memory_context = None
         if is_text_planner_controlled_enabled(settings):
             if isinstance(text_plan_shadow_payload, dict):
                 candidate_text_plan = text_plan_shadow_payload.get("text_plan")
@@ -132,9 +134,12 @@ async def send_daily_affirmations(bot: Bot) -> None:
                     language=language,
                     recent_text_context=None,
                 )
+            if getattr(settings, "text_memory_context_enabled", False):
+                text_memory_context = await get_text_memory_context(user_id, limit=10)
         text_plan_guidance = build_text_generation_guidance(
             text_plan=text_plan,
             language=language,
+            text_memory_context=text_memory_context,
         )
         text_prompt_controlled_meta = None
         if text_plan_guidance:
@@ -144,6 +149,15 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 "theme_category": (text_plan or {}).get("theme_category"),
                 "tone": (text_plan or {}).get("tone"),
                 "guidance_used": True,
+            }
+        text_memory_context_meta = None
+        if isinstance(text_memory_context, dict) and text_memory_context:
+            text_memory_context_meta = {
+                "enabled": True,
+                "limit": text_memory_context.get("limit", 10),
+                "overused_text_patterns": list(text_memory_context.get("overused_text_patterns") or []),
+                "recent_focus_titles_count": len(text_memory_context.get("recent_focus_titles") or []),
+                "avoid_soft_actions_count": len(text_memory_context.get("avoid_soft_actions") or []),
             }
 
         try:
@@ -394,6 +408,8 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
             if text_prompt_controlled_meta is not None:
                 visual_motifs["text_prompt_controlled"] = text_prompt_controlled_meta
+            if text_memory_context_meta is not None:
+                visual_motifs["text_memory_context"] = text_memory_context_meta
             await record_generation_history_best_effort(
                 telegram_user_id=user_id,
                 request_type="subscription",

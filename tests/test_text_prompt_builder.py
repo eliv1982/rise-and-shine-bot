@@ -85,3 +85,34 @@ def test_build_text_generation_guidance_does_not_dump_full_raw_json():
     assert '"theme_category"' not in guidance
     assert "{" not in guidance
     assert "}" not in guidance
+
+
+def test_build_text_generation_guidance_includes_anti_repeat_block_when_text_memory_context_present():
+    guidance = build_text_generation_guidance(
+        text_plan={
+            "theme_category": "inner_peace",
+            "focus_title": "право на отдых",
+            "tone": "soft_grounded",
+            "emotional_direction": "permission to rest without guilt",
+            "affirmation_intent": "support recovery",
+            "affirmation_angles": ["rest", "self-worth"],
+            "soft_action_intent": "one guilt-free pause",
+            "soft_action_style": "small_concrete_step",
+            "avoid": ["toxic positivity", "pressure", "moralizing"],
+            "language": "ru",
+        },
+        language="ru",
+        text_memory_context={
+            "recent_focus_titles": ["право на отдых", "спокойствие и опора"],
+            "overused_text_patterns": ["я позволяю", "спокойствие"],
+            "avoid_soft_actions": ["назови три вещи, которые уже помогают"],
+            "avoid_phrases": ["Я позволяю себе отдых без чувства вины."],
+            "style_guidance": ["avoid repeating recent affirmation openings", "vary sentence rhythm"],
+        },
+    )
+
+    assert "Text memory / anti-repeat guidance:" in guidance
+    assert "overused_text_patterns: я позволяю, спокойствие" in guidance
+    assert "avoid_soft_actions: назови три вещи, которые уже помогают" in guidance
+    assert "Output language: Russian" in guidance
+    assert '{"recent_focus_titles"' not in guidance

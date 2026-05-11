@@ -51,6 +51,7 @@ class Settings:
     text_planner_shadow_enabled: bool
     scene_planner_image_prompt_enabled: bool
     text_planner_controlled_enabled: bool
+    text_memory_context_enabled: bool
     yandex_completion_model: str
     text_provider: str
     image_provider: str
@@ -310,6 +311,7 @@ def get_settings() -> Settings:
         text_planner_shadow_enabled=_get_env_bool("TEXT_PLANNER_SHADOW_ENABLED", False),
         scene_planner_image_prompt_enabled=_get_env_bool("SCENE_PLANNER_IMAGE_PROMPT_ENABLED", False),
         text_planner_controlled_enabled=_get_env_bool("TEXT_PLANNER_CONTROLLED_ENABLED", False),
+        text_memory_context_enabled=_get_env_bool("TEXT_MEMORY_CONTEXT_ENABLED", False),
         yandex_completion_model=text_cfg.model if text_cfg.provider == "yandex" else (_get_env_var("YANDEX_COMPLETION_MODEL", required=False, default="yandexgpt-lite/latest") or "yandexgpt-lite/latest"),
         text_provider=text_cfg.provider,
         image_provider=image_cfg.provider,

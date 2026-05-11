@@ -26,6 +26,7 @@ def build_text_generation_guidance(
     *,
     text_plan: dict | None,
     language: str = "ru",
+    text_memory_context: dict | None = None,
 ) -> str | None:
     if not isinstance(text_plan, dict) or not text_plan:
         return None
@@ -34,8 +35,27 @@ def build_text_generation_guidance(
     affirmation_angles = ", ".join(normalized["affirmation_angles"]) or "—"
     avoid = ", ".join(normalized["avoid"]) or "—"
     output_language = "Russian" if normalized["language"] == "ru" else "English"
+    memory = text_memory_context if isinstance(text_memory_context, dict) else {}
+    memory_lines: list[str] = []
+    if memory:
+        recent_focus_titles = ", ".join(memory.get("recent_focus_titles") or []) or "—"
+        overused_text_patterns = ", ".join(memory.get("overused_text_patterns") or []) or "—"
+        avoid_soft_actions = ", ".join(memory.get("avoid_soft_actions") or []) or "—"
+        avoid_phrases = ", ".join(memory.get("avoid_phrases") or []) or "—"
+        style_guidance = "; ".join(memory.get("style_guidance") or []) or "—"
+        memory_lines = [
+            "Text memory / anti-repeat guidance:",
+            f"- recent_focus_titles: {recent_focus_titles}",
+            f"- overused_text_patterns: {overused_text_patterns}",
+            f"- avoid_soft_actions: {avoid_soft_actions}",
+            f"- avoid_phrases: {avoid_phrases}",
+            f"- style_guidance: {style_guidance}",
+            "- Avoid repeating recent affirmation openings and vary wording.",
+            "- Do not reuse recent soft action verbatim.",
+        ]
 
-    return (
+    return "\n".join(
+        [
         "Text planner guidance:\n"
         f"- theme_category: {normalized['theme_category']}\n"
         f"- focus_title: {normalized['focus_title']}\n"
@@ -49,4 +69,6 @@ def build_text_generation_guidance(
         f"- Output language: {output_language}\n"
         "- Keep the final text gentle, grounded and emotionally precise.\n"
         "- Avoid toxic positivity, pressure, moralizing and repetitive generic affirmations.\n"
+        ]
+        + memory_lines
     )

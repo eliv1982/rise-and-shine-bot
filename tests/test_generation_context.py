@@ -501,6 +501,166 @@ def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkey
     assert "avoid: toxic positivity, pressure, productivity framing" in guidance
 
 
+def test_run_generation_attaches_compact_text_memory_context_metadata_when_enabled(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en", "gender": "female"}
+
+    async def _fake_generate_affirmations(**kwargs):
+        captured["text_kwargs"] = kwargs
+        return ["I trust myself", "I move gently", "I stay present", "I choose clarity"]
+
+    async def _fake_build_enriched_image_prompt(**kwargs):
+        return "prompt", "template"
+
+    async def _fake_generate_image(**kwargs):
+        return "fake_image.png"
+
+    async def _fake_history(**kwargs):
+        captured["history_kwargs"] = kwargs
+
+    async def _fake_text_memory_context(_uid, limit=10):
+        captured["text_memory_limit"] = limit
+        return {
+            "limit": limit,
+            "overused_text_patterns": ["я позволяю", "спокойствие"],
+            "recent_focus_titles": ["спокойствие и опора", "деньги и устойчивость"],
+            "avoid_soft_actions": ["назови три вещи, которые уже помогают"],
+            "avoid_phrases": ["Я позволяю себе паузу без чувства вины."],
+            "style_guidance": ["avoid repeating recent affirmation openings"],
+        }
+
+    captured = {}
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(
+            disable_daily_generation_limit=True,
+            generation_daily_limit=0,
+            llm_image_prompt_enabled=False,
+            show_image_debug=False,
+            image_model="image-model",
+            image_size="1024x1024",
+            text_planner_shadow_enabled=False,
+            text_planner_controlled_enabled=True,
+            text_memory_context_enabled=True,
+            scene_planner_shadow_enabled=False,
+            scene_planner_image_prompt_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
+    monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
+    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
+    monkeypatch.setattr(generation, "get_text_memory_context", _fake_text_memory_context)
+
+    state = _FakeState(
+        {
+            "sphere": "money",
+            "subsphere": None,
+            "style": "auto",
+            "visual_mode": "illustration",
+            "recent_generation_history": [],
+        }
+    )
+    message = _FakeMessage(user_id=92)
+
+    asyncio.run(
+        generation._run_generation(
+            message,
+            state,
+            theme_text="calm stability",
+            user_telegram_id=92,
+        )
+    )
+
+    guidance = captured["text_kwargs"]["text_plan_guidance"]
+    visual_motifs = captured["history_kwargs"]["visual_motifs"]
+    assert captured["text_memory_limit"] == 10
+    assert "Text memory / anti-repeat guidance:" in guidance
+    assert "overused_text_patterns: я позволяю, спокойствие" in guidance
+    assert visual_motifs["text_memory_context"] == {
+        "enabled": True,
+        "limit": 10,
+        "overused_text_patterns": ["я позволяю", "спокойствие"],
+        "recent_focus_titles_count": 2,
+        "avoid_soft_actions_count": 1,
+    }
+
+
+def test_run_generation_does_not_read_text_memory_or_attach_marker_when_disabled(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en", "gender": "female"}
+
+    async def _fake_generate_affirmations(**kwargs):
+        captured["text_kwargs"] = kwargs
+        return ["I trust myself", "I move gently", "I stay present", "I choose clarity"]
+
+    async def _fake_build_enriched_image_prompt(**kwargs):
+        return "prompt", "template"
+
+    async def _fake_generate_image(**kwargs):
+        return "fake_image.png"
+
+    async def _fake_history(**kwargs):
+        captured["history_kwargs"] = kwargs
+
+    async def _unexpected_text_memory(*_args, **_kwargs):
+        raise AssertionError("get_text_memory_context should not be called when disabled")
+
+    captured = {}
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(
+            disable_daily_generation_limit=True,
+            generation_daily_limit=0,
+            llm_image_prompt_enabled=False,
+            show_image_debug=False,
+            image_model="image-model",
+            image_size="1024x1024",
+            text_planner_shadow_enabled=False,
+            text_planner_controlled_enabled=True,
+            text_memory_context_enabled=False,
+            scene_planner_shadow_enabled=False,
+            scene_planner_image_prompt_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
+    monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
+    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
+    monkeypatch.setattr(generation, "get_text_memory_context", _unexpected_text_memory)
+
+    state = _FakeState(
+        {
+            "sphere": "money",
+            "subsphere": None,
+            "style": "auto",
+            "visual_mode": "illustration",
+            "recent_generation_history": [],
+        }
+    )
+    message = _FakeMessage(user_id=93)
+
+    asyncio.run(
+        generation._run_generation(
+            message,
+            state,
+            theme_text="calm stability",
+            user_telegram_id=93,
+        )
+    )
+
+    visual_motifs = captured["history_kwargs"]["visual_motifs"]
+    assert "text_memory_context" not in visual_motifs
+
+
 def test_again_affirmation_restores_context_and_passes_theme_text(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
