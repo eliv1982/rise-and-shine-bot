@@ -22,6 +22,20 @@ TEXT_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("мягко", ("мягко", "gently")),
 ]
 
+AFFIRMATION_OPENING_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+    ("я выбираю", ("я выбираю",)),
+    ("я принимаю", ("я принимаю",)),
+    ("я позволяю", ("я позволяю",)),
+    ("я нахожу", ("я нахожу",)),
+    ("я создаю", ("я создаю",)),
+    ("я доверяю", ("я доверяю",)),
+    ("я замечаю", ("я замечаю",)),
+    ("я чувствую", ("я чувствую",)),
+    ("сегодня я", ("сегодня я",)),
+    ("мой путь", ("мой путь",)),
+    ("моя ценность", ("моя ценность",)),
+]
+
 SOFT_ACTION_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("name_three_things", ("назови три", "найди три", "заметь три")),
     ("choose_one_action", ("выбери одно", "выбери один")),
@@ -87,6 +101,17 @@ def extract_soft_action_patterns(text: str | None) -> list[str]:
     return _dedupe_stable(found)
 
 
+def extract_affirmation_opening(text: str | None) -> str | None:
+    cleaned = _clean_str(text)
+    if not cleaned:
+        return None
+    lowered = cleaned.lower()
+    for label, markers in AFFIRMATION_OPENING_PATTERNS:
+        if any(lowered.startswith(marker) for marker in markers):
+            return label
+    return None
+
+
 def build_text_memory_context(
     recent_generations: list[dict] | None,
     limit: int = 10,
@@ -109,6 +134,8 @@ def build_text_memory_context(
 
     pattern_counter: Counter[str] = Counter()
     recent_affirmation_patterns: list[str] = []
+    recent_affirmation_openings: list[str] = []
+    affirmation_opening_counter: Counter[str] = Counter()
     recent_short_phrases: list[str] = []
 
     for item in recent_items:
@@ -121,6 +148,10 @@ def build_text_memory_context(
         item_patterns: list[str] = []
         for affirmation in affirmations:
             item_patterns.extend(extract_text_patterns(affirmation))
+            opening = extract_affirmation_opening(affirmation)
+            if opening:
+                recent_affirmation_openings.append(opening)
+                affirmation_opening_counter.update([opening])
             cleaned_affirmation = _clean_str(affirmation)
             if cleaned_affirmation and len(cleaned_affirmation) <= 90:
                 recent_short_phrases.append(cleaned_affirmation)
@@ -129,14 +160,19 @@ def build_text_memory_context(
         pattern_counter.update(deduped_item_patterns)
 
     recent_affirmation_patterns = _dedupe_stable(recent_affirmation_patterns)
+    recent_affirmation_openings = _dedupe_stable(recent_affirmation_openings)
     recent_soft_action_patterns = _dedupe_stable(recent_soft_action_patterns)
     pattern_counts = {key: pattern_counter[key] for key in recent_affirmation_patterns}
     overused_text_patterns = [key for key in recent_affirmation_patterns if pattern_counter[key] >= 2]
+    overused_affirmation_openings = [
+        key for key in recent_affirmation_openings if affirmation_opening_counter[key] >= 2
+    ]
     overused_soft_action_patterns = [
         key for key in recent_soft_action_patterns if soft_action_pattern_counter[key] >= 2
     ]
     avoid_phrases = _dedupe_stable(recent_short_phrases)[:5]
     avoid_soft_actions = recent_soft_actions[:3]
+    avoid_affirmation_openings = recent_affirmation_openings[:4]
     avoid_soft_action_patterns = recent_soft_action_patterns[:3]
 
     style_guidance = [
@@ -148,8 +184,17 @@ def build_text_memory_context(
     ]
     if overused_text_patterns:
         style_guidance.append("reduce repeated generic reassurance patterns")
+    if overused_affirmation_openings:
+        style_guidance.append("do not start multiple affirmations with the same opening")
     if overused_soft_action_patterns:
         style_guidance.append("switch to a different soft action family when recent patterns repeat")
+    variation_guidance = [
+        "vary affirmation openings",
+        "avoid repeating the same first-person verb structure",
+        "mix sentence rhythm and phrasing",
+    ]
+    if overused_affirmation_openings:
+        variation_guidance.append("switch away from overused recent affirmation openings")
 
     return {
         "limit": limit,
@@ -157,12 +202,16 @@ def build_text_memory_context(
         "recent_soft_actions": recent_soft_actions,
         "recent_soft_action_patterns": recent_soft_action_patterns,
         "recent_affirmation_patterns": recent_affirmation_patterns,
+        "recent_affirmation_openings": recent_affirmation_openings,
         "overused_text_patterns": overused_text_patterns,
+        "overused_affirmation_openings": overused_affirmation_openings,
         "overused_soft_action_patterns": overused_soft_action_patterns,
         "avoid_phrases": avoid_phrases,
+        "avoid_affirmation_openings": avoid_affirmation_openings,
         "avoid_soft_actions": avoid_soft_actions,
         "avoid_soft_action_patterns": avoid_soft_action_patterns,
         "style_guidance": _dedupe_stable(style_guidance),
+        "variation_guidance": _dedupe_stable(variation_guidance),
         "pattern_counts": pattern_counts,
     }
 

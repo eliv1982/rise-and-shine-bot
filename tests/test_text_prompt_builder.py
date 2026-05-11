@@ -63,6 +63,8 @@ def test_build_text_generation_guidance_mentions_russian_output_for_ru():
     )
 
     assert "Output language: Russian" in guidance
+    assert "keep all user-facing text strictly in Russian" in guidance
+    assert "Do not leave English words or English action phrases" in guidance
 
 
 def test_build_text_generation_guidance_does_not_dump_full_raw_json():
@@ -209,19 +211,28 @@ def test_build_text_generation_guidance_includes_anti_repeat_block_when_text_mem
         language="ru",
         text_memory_context={
             "recent_focus_titles": ["право на отдых", "спокойствие и опора"],
+            "recent_affirmation_openings": ["я позволяю", "сегодня я"],
             "overused_text_patterns": ["я позволяю", "спокойствие"],
+            "overused_affirmation_openings": ["я позволяю"],
+            "avoid_affirmation_openings": ["я позволяю", "сегодня я"],
             "avoid_soft_actions": ["назови три вещи, которые уже помогают"],
             "avoid_soft_action_patterns": ["name_three_things"],
             "avoid_phrases": ["Я позволяю себе отдых без чувства вины."],
             "style_guidance": ["avoid repeating recent affirmation openings", "vary sentence rhythm"],
+            "variation_guidance": ["vary affirmation openings", "avoid repeating the same first-person verb structure"],
         },
     )
 
     assert "Text memory / anti-repeat guidance:" in guidance
+    assert "recent_affirmation_openings: я позволяю, сегодня я" in guidance
     assert "overused_text_patterns: я позволяю, спокойствие" in guidance
+    assert "overused_affirmation_openings: я позволяю" in guidance
+    assert "avoid_affirmation_openings: я позволяю, сегодня я" in guidance
     assert "avoid_soft_actions: назови три вещи, которые уже помогают" in guidance
     assert "avoid_soft_action_patterns: name_three_things" in guidance
+    assert "variation_guidance: vary affirmation openings; avoid repeating the same first-person verb structure" in guidance
     assert "Do not reuse recent soft action structure." in guidance
+    assert "Do not make every affirmation start with the same 'I + verb' pattern." in guidance
     assert "If recent actions asked the user to name three things, choose a different action type." in guidance
     assert "Vary the soft action verb and structure." in guidance
     assert "Output language: Russian" in guidance

@@ -41,6 +41,41 @@ def test_review_generated_text_detects_repeated_openings():
     assert report["checks"]["repeated_openings"] is True
 
 
+def test_review_generated_text_detects_overused_affirmation_openings_from_memory():
+    report = review_generated_text(
+        affirmations=["Я выбираю спокойствие", "Я нахожу опору"],
+        language="ru",
+        text_memory_context={
+            "avoid_affirmation_openings": ["я выбираю"],
+            "overused_affirmation_openings": ["я выбираю"],
+        },
+    )
+
+    assert report["checks"]["overused_affirmation_openings"] is True
+
+
+def test_review_generated_text_detects_language_mismatch_for_russian_output():
+    report = review_generated_text(
+        affirmations=["I choose calm clarity", "Я нахожу опору"],
+        language="ru",
+    )
+
+    assert report["checks"]["language_mismatch"] is True
+
+
+def test_review_generated_text_softly_flags_too_generic_text():
+    report = review_generated_text(
+        affirmations=[
+            "Я выбираю спокойствие и ясность.",
+            "Я принимаю устойчивость и достаточность.",
+            "Я создаю гармонию внутри себя.",
+        ],
+        language="ru",
+    )
+
+    assert report["checks"]["too_generic"] is True
+
+
 def test_review_generated_text_detects_pressure_language():
     report = review_generated_text(
         affirmations=["Я должна срочно собраться", "Я выбираю ясность"],
@@ -102,6 +137,21 @@ def test_review_generated_text_does_not_flag_unrelated_soft_action_family():
     )
 
     assert report["checks"]["soft_action_repeated"] is False
+
+
+def test_review_generated_text_does_not_flag_unrelated_openings_or_language():
+    report = review_generated_text(
+        affirmations=["Я замечаю живое тепло утра", "Сегодня я иду мягче и яснее"],
+        soft_action="Запиши одну тихую мысль перед сном",
+        language="ru",
+        text_memory_context={
+            "avoid_affirmation_openings": ["я выбираю"],
+            "overused_affirmation_openings": ["я выбираю"],
+        },
+    )
+
+    assert report["checks"]["overused_affirmation_openings"] is False
+    assert report["checks"]["language_mismatch"] is False
 
 
 def test_review_generated_text_score_decreases_when_warnings_exist():

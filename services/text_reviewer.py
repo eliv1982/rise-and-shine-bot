@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from services.text_memory import extract_soft_action_patterns
+from services.text_memory import extract_affirmation_opening, extract_soft_action_patterns
 from utils import infer_gender_from_hint, normalize_gender
 
 _FEMALE_MISMATCH_PATTERNS = [
@@ -52,6 +52,22 @@ _PRODUCTIVITY_PATTERNS = [
     "выжму максимум",
 ]
 
+_LANGUAGE_MISMATCH_PATTERNS = [
+    "choose a phrase",
+    "take one small step",
+    "i choose",
+    "i accept",
+    "i allow",
+]
+
+_TOO_GENERIC_WORDS = [
+    "спокойствие",
+    "ясность",
+    "устойчивость",
+    "достаточность",
+    "гармония",
+]
+
 
 def _clean_text(value: str | None) -> str:
     return (value or "").strip()
@@ -81,6 +97,9 @@ def _resolve_gender(gender_hint: str | None) -> str | None:
 
 
 def _first_opening(text: str) -> str:
+    detected = extract_affirmation_opening(text)
+    if detected:
+        return detected
     normalized = _normalize_match_text(text)
     parts = normalized.split()
     return " ".join(parts[:2]) if len(parts) >= 2 else (parts[0] if parts else "")
@@ -105,6 +124,42 @@ def _pattern_hits(texts: list[str], patterns: list[str], *, repeated_only: bool 
 
 def _contains_exact_phrase(text: str, phrase: str) -> bool:
     return bool(re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", text))
+
+
+def _language_mismatch(texts: list[str], language: str) -> bool:
+    if language != "ru":
+        return False
+    combined = "\n".join(_normalize_match_text(text) for text in texts if _clean_text(text))
+    return any(pattern in combined for pattern in _LANGUAGE_MISMATCH_PATTERNS)
+
+
+def _overused_affirmation_openings(safe_affirmations: list[str], text_memory_context: dict | None) -> bool:
+    opening_counts: dict[str, int] = {}
+    current_openings: set[str] = set()
+    for item in safe_affirmations:
+        opening = _first_opening(item)
+        if not opening:
+            continue
+        current_openings.add(opening)
+        opening_counts[opening] = opening_counts.get(opening, 0) + 1
+    if any(count >= 2 for count in opening_counts.values()):
+        return True
+    memory = text_memory_context if isinstance(text_memory_context, dict) else {}
+    avoid_openings = {
+        _clean_text(item) for item in (memory.get("avoid_affirmation_openings") or []) if _clean_text(item)
+    }
+    overused_openings = {
+        _clean_text(item) for item in (memory.get("overused_affirmation_openings") or []) if _clean_text(item)
+    }
+    return bool(current_openings & avoid_openings) or bool(current_openings & overused_openings)
+
+
+def _too_generic(safe_affirmations: list[str], language: str) -> bool:
+    if language != "ru" or len(safe_affirmations) < 2:
+        return False
+    combined = "\n".join(_normalize_match_text(text) for text in safe_affirmations)
+    generic_hits = sum(1 for word in _TOO_GENERIC_WORDS if word in combined)
+    return generic_hits >= 3
 
 
 def _is_soft_action_repeated(soft_action: str | None, text_memory_context: dict | None) -> bool:
@@ -168,18 +223,24 @@ def review_generated_text(
         if opening:
             opening_counts[opening] = opening_counts.get(opening, 0) + 1
     repeated_openings = any(count >= 2 for count in opening_counts.values())
+    overused_affirmation_openings = _overused_affirmation_openings(safe_affirmations, text_memory_context)
     generic_patterns = _pattern_hits(texts, _GENERIC_PATTERNS, repeated_only=True)
     soft_action_repeated = _is_soft_action_repeated(safe_soft_action, text_memory_context)
     pressure_language = bool(_pattern_hits(texts, _PRESSURE_PATTERNS))
     too_productivity_framed = bool(_pattern_hits(texts, _PRODUCTIVITY_PATTERNS))
+    language_mismatch = _language_mismatch(texts, language)
+    too_generic = _too_generic(safe_affirmations, language)
 
     checks = {
         "gender_mismatch": gender_mismatch,
         "repeated_openings": repeated_openings,
+        "overused_affirmation_openings": overused_affirmation_openings,
         "generic_patterns": generic_patterns,
         "soft_action_repeated": soft_action_repeated,
         "pressure_language": pressure_language,
         "too_productivity_framed": too_productivity_framed,
+        "language_mismatch": language_mismatch,
+        "too_generic": too_generic,
     }
 
     warnings: list[str] = []
@@ -187,6 +248,8 @@ def review_generated_text(
         warnings.append("gender_mismatch")
     if repeated_openings:
         warnings.append("repeated_openings")
+    if overused_affirmation_openings:
+        warnings.append("overused_affirmation_openings")
     if generic_patterns:
         warnings.append("generic_patterns: " + ", ".join(generic_patterns))
     if soft_action_repeated:
@@ -195,15 +258,22 @@ def review_generated_text(
         warnings.append("pressure_language")
     if too_productivity_framed:
         warnings.append("too_productivity_framed")
+    if language_mismatch:
+        warnings.append("language_mismatch")
+    if too_generic:
+        warnings.append("too_generic")
     if not texts:
         warnings.append("empty_generated_text")
 
     score = 1.0
     score -= 0.2 if gender_mismatch else 0.0
     score -= 0.15 if repeated_openings else 0.0
+    score -= 0.1 if overused_affirmation_openings else 0.0
     score -= 0.1 if soft_action_repeated else 0.0
     score -= 0.1 if pressure_language else 0.0
     score -= 0.1 if too_productivity_framed else 0.0
+    score -= 0.1 if language_mismatch else 0.0
+    score -= 0.05 if too_generic else 0.0
     score -= min(0.2, 0.05 * len(generic_patterns))
     if not texts:
         score -= 0.1

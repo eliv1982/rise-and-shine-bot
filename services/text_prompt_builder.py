@@ -70,19 +70,29 @@ def build_text_generation_guidance(
     if memory:
         recent_focus_titles = ", ".join(memory.get("recent_focus_titles") or []) or "—"
         overused_text_patterns = ", ".join(memory.get("overused_text_patterns") or []) or "—"
+        recent_affirmation_openings = ", ".join(memory.get("recent_affirmation_openings") or []) or "—"
+        overused_affirmation_openings = ", ".join(memory.get("overused_affirmation_openings") or []) or "—"
+        avoid_affirmation_openings = ", ".join(memory.get("avoid_affirmation_openings") or []) or "—"
         avoid_soft_actions = ", ".join(memory.get("avoid_soft_actions") or []) or "—"
         avoid_soft_action_patterns = ", ".join(memory.get("avoid_soft_action_patterns") or []) or "—"
         avoid_phrases = ", ".join(memory.get("avoid_phrases") or []) or "—"
         style_guidance = "; ".join(memory.get("style_guidance") or []) or "—"
+        variation_guidance = "; ".join(memory.get("variation_guidance") or []) or "—"
         memory_lines = [
             "Text memory / anti-repeat guidance:",
             f"- recent_focus_titles: {recent_focus_titles}",
+            f"- recent_affirmation_openings: {recent_affirmation_openings}",
             f"- overused_text_patterns: {overused_text_patterns}",
+            f"- overused_affirmation_openings: {overused_affirmation_openings}",
+            f"- avoid_affirmation_openings: {avoid_affirmation_openings}",
             f"- avoid_soft_actions: {avoid_soft_actions}",
             f"- avoid_soft_action_patterns: {avoid_soft_action_patterns}",
             f"- avoid_phrases: {avoid_phrases}",
             f"- style_guidance: {style_guidance}",
+            f"- variation_guidance: {variation_guidance}",
             "- Avoid repeating recent affirmation openings and vary wording.",
+            "- Vary affirmation openings and sentence structures, not only the final noun.",
+            "- Do not make every affirmation start with the same 'I + verb' pattern.",
             "- Do not reuse recent soft action verbatim.",
             "- Do not reuse recent soft action structure.",
             "- If recent actions asked the user to name three things, choose a different action type.",
@@ -102,8 +112,11 @@ def build_text_generation_guidance(
         f"- soft_action_style: {normalized['soft_action_style']}\n"
         f"- avoid: {avoid}\n"
         f"- Output language: {output_language}\n"
+        "- For Russian output, keep all user-facing text strictly in Russian.\n"
+        "- Do not leave English words or English action phrases in focus, affirmations, soft action or micro-step.\n"
         "- Keep the final text gentle, grounded and emotionally precise.\n"
         "- Avoid toxic positivity, pressure, moralizing and repetitive generic affirmations.\n"
+        "- Use varied affirmation openings and keep wording warm, natural and personal.\n"
         ]
         + gender_lines
         + voice_lines

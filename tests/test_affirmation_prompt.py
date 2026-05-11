@@ -119,6 +119,9 @@ def test_affirmation_prompt_keeps_old_path_without_text_plan_guidance():
     assert "Запрещены формальные или множественные формы" in prompt
     assert "«Выберите»" in prompt
     assert "«Выбери»" in prompt
+    assert "строго на русском языке" in prompt
+    assert "Не делай все четыре аффирмации одинаковой конструкцией" in prompt
+    assert "Варьируй начала аффирмаций" in prompt
 
 
 def test_affirmation_prompt_includes_text_plan_guidance_when_provided():
@@ -143,6 +146,8 @@ def test_affirmation_prompt_includes_text_plan_guidance_when_provided():
     assert "avoid: toxic positivity, pressure, productivity framing" in prompt
     assert "тёплое неформальное обращение на «ты»" in prompt
     assert "«Вы/вы»" in prompt
+    assert "строго на русском языке" in prompt
+    assert "не каждая строка должна строиться одинаково" in prompt
 
 
 def test_affirmation_prompt_with_text_plan_guidance_keeps_feminine_gender_instruction():
