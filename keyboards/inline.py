@@ -318,9 +318,117 @@ def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
 
 def profile_keyboard(language: str, has_subscription: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
+    b.button(text=_t(language, "✏️ Как обращаться", "✏️ How to address you"), callback_data="profile_edit:name")
+    b.button(text=_t(language, "👤 Изменить обращение", "👤 Change pronouns"), callback_data="profile_edit:gender")
+    b.button(text=_t(language, "🌍 Изменить язык", "🌍 Change language"), callback_data="profile_edit:language")
+    b.button(text=_t(language, "🫶 Тон общения", "🫶 Tone"), callback_data="profile_edit:tone_preference")
+    b.button(text=_t(language, "🌿 Формат поддержки", "🌿 Support style"), callback_data="profile_edit:support_style")
+    b.button(text=_t(language, "📝 Длина текста", "📝 Text length"), callback_data="profile_edit:text_length_preference")
+    b.button(text=_t(language, "🧭 Жизненные сферы", "🧭 Life areas"), callback_data="profile_edit:life_areas")
+    b.button(text=_t(language, "🎯 Текущий фокус", "🎯 Current focus"), callback_data="profile_edit:current_focus")
+    b.button(text=_t(language, "🚫 Избегать тем", "🚫 Avoid topics"), callback_data="profile_edit:avoid_topics")
+    b.button(text=_t(language, "🔕 Избегать слов", "🔕 Avoid words"), callback_data="profile_edit:avoid_words")
     b.button(text=_t(language, "⚙️ Настроить подписки", "⚙️ Manage subscriptions"), callback_data="sub:dash")
-    b.button(text=_t(language, "👩 Она", "👩 She"), callback_data="gender:female")
-    b.button(text=_t(language, "👨 Он", "👨 He"), callback_data="gender:male")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def profile_back_keyboard(language: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text=_t(language, "↩️ Назад в профиль", "↩️ Back to profile"), callback_data="profile:open")
+    b.button(text=_t(language, "🏠 В меню", "🏠 Menu"), callback_data="profile:menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def profile_text_edit_keyboard(language: str, field: str, *, allow_clear: bool = False) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    if allow_clear:
+        b.button(text=_t(language, "🗑 Очистить", "🗑 Clear"), callback_data=f"profile_clear:{field}")
+    b.button(text=_t(language, "↩️ Назад в профиль", "↩️ Back to profile"), callback_data="profile:open")
+    b.button(text=_t(language, "🏠 В меню", "🏠 Menu"), callback_data="profile:menu")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def profile_gender_keyboard(language: str, selected_value: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    female_text = _t(language, "👩 Она", "👩 She")
+    male_text = _t(language, "👨 Он", "👨 He")
+    if selected_value == "female":
+        female_text = f"✅ {female_text}"
+    if selected_value == "male":
+        male_text = f"✅ {male_text}"
+    b.button(text=female_text, callback_data="profile_gender:female")
+    b.button(text=male_text, callback_data="profile_gender:male")
+    b.button(text=_t(language, "↩️ Назад в профиль", "↩️ Back to profile"), callback_data="profile:open")
+    b.adjust(2, 1)
+    return b.as_markup()
+
+
+def profile_language_keyboard(language: str, selected_value: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    ru_text = "🇷🇺 Русский"
+    en_text = "🇬🇧 English"
+    if selected_value == "ru":
+        ru_text = f"✅ {ru_text}"
+    if selected_value == "en":
+        en_text = f"✅ {en_text}"
+    b.button(text=ru_text, callback_data="profile_lang:ru")
+    b.button(text=en_text, callback_data="profile_lang:en")
+    b.button(text=_t(language, "↩️ Назад в профиль", "↩️ Back to profile"), callback_data="profile:open")
+    b.adjust(2, 1)
+    return b.as_markup()
+
+
+def profile_tone_keyboard(language: str, selected_value: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    options = [
+        ("calm_no_pathos", _t(language, "Спокойно, без пафоса", "Calm, no pathos")),
+        ("warm_soft", _t(language, "Мягко и бережно", "Warm and gentle")),
+        ("energetic", _t(language, "Бодро и поддерживающе", "Energetic and supportive")),
+        ("lightly_ironic", _t(language, "С лёгкой иронией", "Lightly ironic")),
+        ("poetic", _t(language, "Поэтично", "Poetic")),
+    ]
+    for value, label in options:
+        text = f"✅ {label}" if value == selected_value else label
+        b.button(text=text, callback_data=f"profile_pref:tone_preference:{value}")
+    b.button(text=_t(language, "🗑 Очистить", "🗑 Clear"), callback_data="profile_clear:tone_preference")
+    b.button(text=_t(language, "↩️ Назад в профиль", "↩️ Back to profile"), callback_data="profile:open")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def profile_support_style_keyboard(language: str, selected_value: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    options = [
+        ("support", _t(language, "Поддержать", "Support")),
+        ("grounding", _t(language, "Заземлить", "Ground")),
+        ("focus", _t(language, "Помочь собраться", "Help focus")),
+        ("gentle_action", _t(language, "Дать маленький шаг", "Give a gentle step")),
+        ("no_advice", _t(language, "Без советов, только настрой", "No advice, only mood")),
+    ]
+    for value, label in options:
+        text = f"✅ {label}" if value == selected_value else label
+        b.button(text=text, callback_data=f"profile_pref:support_style:{value}")
+    b.button(text=_t(language, "🗑 Очистить", "🗑 Clear"), callback_data="profile_clear:support_style")
+    b.button(text=_t(language, "↩️ Назад в профиль", "↩️ Back to profile"), callback_data="profile:open")
+    b.adjust(1)
+    return b.as_markup()
+
+
+def profile_text_length_keyboard(language: str, selected_value: str | None = None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    options = [
+        ("short", _t(language, "Коротко", "Short")),
+        ("standard", _t(language, "Стандартно", "Standard")),
+        ("detailed", _t(language, "Подробнее", "Detailed")),
+    ]
+    for value, label in options:
+        text = f"✅ {label}" if value == selected_value else label
+        b.button(text=text, callback_data=f"profile_pref:text_length_preference:{value}")
+    b.button(text=_t(language, "🗑 Очистить", "🗑 Clear"), callback_data="profile_clear:text_length_preference")
+    b.button(text=_t(language, "↩️ Назад в профиль", "↩️ Back to profile"), callback_data="profile:open")
     b.adjust(1)
     return b.as_markup()
 

@@ -13,7 +13,10 @@ from database import (
     delete_user_completely,
     get_active_subscriptions,
     get_user,
+    get_user_profile_preferences,
+    merge_user_profile_preferences,
     update_user_language,
+    update_user_profile_preferences,
     update_user_profile,
 )
 from keyboards.inline import (
@@ -21,7 +24,14 @@ from keyboards.inline import (
     language_keyboard,
     main_reply_keyboard,
     new_affirmation_keyboard,
+    profile_back_keyboard,
+    profile_gender_keyboard,
     profile_keyboard,
+    profile_language_keyboard,
+    profile_support_style_keyboard,
+    profile_text_edit_keyboard,
+    profile_text_length_keyboard,
+    profile_tone_keyboard,
     start_menu_keyboard,
 )
 from database import MAX_ACTIVE_SUBSCRIPTIONS
@@ -36,11 +46,154 @@ from services.subscription_ui import build_subscription_summary, build_subscript
 from services.main_menu_intents import _normalize_intent_text, detect_main_menu_intent
 from services.speechkit_stt import transcribe_audio_with_meta
 from services.voice_input import VoiceInputProcessor
-from states import RegistrationState
+from states import ProfileEditState, RegistrationState
 from utils import display_name_for_language, extract_name_from_introduction, is_input_language_compatible
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+_PROFILE_TEXT_PROMPTS = {
+    "ru": {
+        "name": "Как к тебе обращаться? Напиши имя для общения.",
+        "current_focus": "Напиши текущий фокус одной короткой фразой. Например: восстановиться, спокойно разобраться с деньгами.",
+        "avoid_topics": "Напиши темы через запятую, которых лучше избегать. Например: давление, конфликт, болезни.\nЧтобы очистить, отправь `-`.",
+        "avoid_words": "Напиши слова или формулировки через запятую, которых лучше избегать. Например: должен, срочно, продуктивность.\nЧтобы очистить, отправь `-`.",
+        "life_areas": "Напиши важные жизненные сферы через запятую. Например: работа, отношения, дом.\nЧтобы очистить, отправь `-`.",
+    },
+    "en": {
+        "name": "How should I address you? Send the name you'd like me to use.",
+        "current_focus": "Send your current focus in one short phrase.",
+        "avoid_topics": "Send topics to avoid, separated by commas. Send `-` to clear.",
+        "avoid_words": "Send words or phrases to avoid, separated by commas. Send `-` to clear.",
+        "life_areas": "Send important life areas, separated by commas. Send `-` to clear.",
+    },
+}
+_PROFILE_PLACEHOLDER = {"ru": "не задано", "en": "not set"}
+_PROFILE_TONE_LABELS = {
+    "calm_no_pathos": {"ru": "Спокойно, без пафоса", "en": "Calm, no pathos"},
+    "warm_soft": {"ru": "Мягко и бережно", "en": "Warm and gentle"},
+    "energetic": {"ru": "Бодро и поддерживающе", "en": "Energetic and supportive"},
+    "lightly_ironic": {"ru": "С лёгкой иронией", "en": "Lightly ironic"},
+    "poetic": {"ru": "Поэтично", "en": "Poetic"},
+}
+_PROFILE_SUPPORT_STYLE_LABELS = {
+    "support": {"ru": "Поддержать", "en": "Support"},
+    "grounding": {"ru": "Заземлить", "en": "Ground"},
+    "focus": {"ru": "Помочь собраться", "en": "Help focus"},
+    "gentle_action": {"ru": "Дать маленький шаг", "en": "Give a gentle step"},
+    "no_advice": {"ru": "Без советов, только настрой", "en": "No advice, only mood"},
+}
+_PROFILE_TEXT_LENGTH_LABELS = {
+    "short": {"ru": "Коротко", "en": "Short"},
+    "standard": {"ru": "Стандартно", "en": "Standard"},
+    "detailed": {"ru": "Подробнее", "en": "Detailed"},
+}
+
+
+def _profile_label(options: dict[str, dict[str, str]], value: Optional[str], language: str) -> str:
+    if not value:
+        return _PROFILE_PLACEHOLDER.get(language, "—")
+    return options.get(value, {}).get(language, value)
+
+
+def _profile_list_label(values: object, language: str) -> str:
+    if not isinstance(values, list) or not values:
+        return _PROFILE_PLACEHOLDER.get(language, "—")
+    return ", ".join(str(value) for value in values)
+
+
+def build_profile_summary_text(
+    user: dict,
+    preferences: dict,
+    subscriptions_summary: str,
+    subscriptions_count: int,
+    language: str,
+) -> str:
+    name = display_name_for_language(user.get("name"), language) or "—"
+    gender_label = gender_profile_label(user.get("gender"), language)
+    tone_label = _profile_label(_PROFILE_TONE_LABELS, preferences.get("tone_preference"), language)
+    support_label = _profile_label(_PROFILE_SUPPORT_STYLE_LABELS, preferences.get("support_style"), language)
+    length_label = _profile_label(_PROFILE_TEXT_LENGTH_LABELS, preferences.get("text_length_preference"), language)
+    current_focus = preferences.get("current_focus") or _PROFILE_PLACEHOLDER.get(language, "—")
+    avoid_topics = _profile_list_label(preferences.get("avoid_topics"), language)
+    avoid_words = _profile_list_label(preferences.get("avoid_words"), language)
+    life_areas = _profile_list_label(preferences.get("life_areas"), language)
+
+    if language == "ru":
+        return (
+            f"👤 Твой профиль\n\n"
+            f"💬 Как обращаться: {name}\n"
+            f"🧍 Пол: {gender_label}\n"
+            f"🌐 Язык: Русский\n"
+            f"🎨 Тон общения: {tone_label}\n"
+            f"🤝 Формат поддержки: {support_label}\n"
+            f"📝 Длина текста: {length_label}\n"
+            f"🧭 Жизненные сферы: {life_areas}\n"
+            f"🎯 Текущий фокус: {current_focus}\n"
+            f"🚫 Избегать тем: {avoid_topics}\n"
+            f"🧹 Избегать слов: {avoid_words}\n\n"
+            f"🧾 Подписки: {subscriptions_count}/{MAX_ACTIVE_SUBSCRIPTIONS}\n{subscriptions_summary}"
+        )
+
+    return (
+        f"👤 Your profile\n\n"
+        f"💬 How to address you: {name}\n"
+        f"🧍 Pronouns: {gender_label}\n"
+        f"🌐 Language: English\n"
+        f"🎨 Tone: {tone_label}\n"
+        f"🤝 Support style: {support_label}\n"
+        f"📝 Text length: {length_label}\n"
+        f"🧭 Life areas: {life_areas}\n"
+        f"🎯 Current focus: {current_focus}\n"
+        f"🚫 Avoid topics: {avoid_topics}\n"
+        f"🧹 Avoid words: {avoid_words}\n\n"
+        f"🧾 Subscriptions: {subscriptions_count}/{MAX_ACTIVE_SUBSCRIPTIONS}\n{subscriptions_summary}"
+    )
+
+
+async def _build_profile_view(*, user_id: int, user: Optional[dict] = None) -> tuple[str, object, str]:
+    user = user or await get_user(user_id)
+    if not user:
+        return "Похоже, мы ещё не знакомы. Напиши /start.", None, "ru"
+
+    lang = (user or {}).get("language", "ru")
+    preferences = await get_user_profile_preferences(user_id)
+    subscriptions = await get_active_subscriptions(user_id)
+    subscriptions_summary = build_subscriptions_summary(subscriptions, lang)
+    count = len(subscriptions)
+    text = build_profile_summary_text(user, preferences, subscriptions_summary, count, lang)
+    markup = profile_keyboard(lang, has_subscription=bool(subscriptions))
+    return text, markup, lang
+
+
+async def _show_profile(
+    message: Message,
+    state: FSMContext,
+    *,
+    user_id: int,
+    user: Optional[dict] = None,
+    edit: bool = False,
+) -> None:
+    text, markup, _lang = await _build_profile_view(user_id=user_id, user=user)
+    if edit:
+        try:
+            await message.edit_text(text, reply_markup=markup)
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=markup)
+
+
+async def _edit_or_answer(message: Message, text: str, reply_markup=None) -> None:
+    try:
+        await message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        await message.answer(text, reply_markup=reply_markup)
+
+
+async def _return_to_main_menu(message: Message, language: str) -> None:
+    text = "🏠 Главное меню снова внизу." if language == "ru" else "🏠 The main menu is available below."
+    await message.answer(text, reply_markup=main_reply_keyboard(language))
 
 
 def _greet_returning(name: Optional[str], gender: Optional[str]) -> str:
@@ -257,42 +410,267 @@ async def cmd_language_callback(callback: CallbackQuery, state: FSMContext) -> N
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message, state: FSMContext) -> None:
-    user = await get_user(message.from_user.id)
-    if not user:
-        await message.answer("Похоже, мы ещё не знакомы. Напиши /start.")
-        return
-
-    lang = (user or {}).get("language", "ru")
-    name = display_name_for_language(user.get("name"), lang) or "—"
-    gender_label = gender_profile_label(user.get("gender"), lang)
-    subscriptions = await get_active_subscriptions(message.from_user.id)
-    subscriptions_summary = build_subscriptions_summary(subscriptions, lang)
-    count = len(subscriptions)
-    if lang == "ru":
-        text = (
-            f"👤 Твой профиль\n\n"
-            f"Имя: {name}\n"
-            f"Обращение: {gender_label}\n\n"
-            f"🧾 Подписки: {count}/{MAX_ACTIVE_SUBSCRIPTIONS}\n{subscriptions_summary}\n\n"
-            "Чтобы изменить имя — просто напиши новое.\n"
-            "Чтобы изменить обращение — выбери кнопку ниже."
-        )
-    else:
-        text = (
-            f"👤 Your profile\n\n"
-            f"Name: {name}\n"
-            f"Pronouns: {gender_label}\n\n"
-            f"🧾 Subscriptions: {count}/{MAX_ACTIVE_SUBSCRIPTIONS}\n{subscriptions_summary}\n\n"
-            "To change your name, just send a new one.\n"
-            "To change form of address, use the buttons below."
-        )
-    await message.answer(text, reply_markup=profile_keyboard(lang, has_subscription=bool(subscriptions)))
+    await _show_profile(message, state, user_id=message.from_user.id)
 
 
 @router.callback_query(F.data == "profile:open")
 async def profile_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     await callback.answer()
-    await cmd_profile(callback.message, state)
+    await _show_profile(callback.message, state, user_id=callback.from_user.id, edit=True)
+
+
+@router.callback_query(F.data == "profile:menu")
+async def profile_menu_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    await callback.answer()
+    await _return_to_main_menu(callback.message, lang)
+
+
+@router.callback_query(F.data == "profile_edit:gender")
+async def profile_edit_gender(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    text = "Выбери обращение:" if lang == "ru" else "Choose pronouns:"
+    selected_gender = (user or {}).get("gender")
+    await callback.answer()
+    await _edit_or_answer(callback.message, text, reply_markup=profile_gender_keyboard(lang, selected_gender))
+
+
+@router.callback_query(F.data.startswith("profile_gender:"))
+async def profile_set_gender(callback: CallbackQuery, state: FSMContext) -> None:
+    gender = callback.data.split(":", maxsplit=1)[1]
+    await update_user_profile(user_id=callback.from_user.id, gender=gender)
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    text = "✅ Обращение обновлено." if lang == "ru" else "✅ Pronouns updated."
+    await callback.answer(text)
+    await _show_profile(callback.message, state, user_id=callback.from_user.id, user=user, edit=True)
+
+
+@router.callback_query(F.data == "profile_edit:language")
+async def profile_edit_language(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    text = "Выбери язык профиля:" if lang == "ru" else "Choose profile language:"
+    await callback.answer()
+    await _edit_or_answer(callback.message, text, reply_markup=profile_language_keyboard(lang, lang))
+
+
+@router.callback_query(F.data.startswith("profile_lang:"))
+async def profile_set_language(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = callback.data.split(":", maxsplit=1)[1]
+    if lang not in ("ru", "en"):
+        await callback.answer()
+        return
+    await update_user_language(callback.from_user.id, lang)
+    text = "✅ Язык профиля обновлён." if lang == "ru" else "✅ Profile language updated."
+    await callback.answer(text)
+    user = await get_user(callback.from_user.id)
+    await _show_profile(callback.message, state, user_id=callback.from_user.id, user=user, edit=True)
+
+
+@router.callback_query(F.data == "profile_edit:tone_preference")
+async def profile_edit_tone(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    preferences = await get_user_profile_preferences(callback.from_user.id)
+    text = "Выбери тон общения:" if lang == "ru" else "Choose a tone:"
+    await callback.answer()
+    await _edit_or_answer(
+        callback.message,
+        text,
+        reply_markup=profile_tone_keyboard(lang, preferences.get("tone_preference")),
+    )
+
+
+@router.callback_query(F.data == "profile_edit:support_style")
+async def profile_edit_support_style(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    preferences = await get_user_profile_preferences(callback.from_user.id)
+    text = "Выбери формат поддержки:" if lang == "ru" else "Choose a support style:"
+    await callback.answer()
+    await _edit_or_answer(
+        callback.message,
+        text,
+        reply_markup=profile_support_style_keyboard(lang, preferences.get("support_style")),
+    )
+
+
+@router.callback_query(F.data == "profile_edit:text_length_preference")
+async def profile_edit_text_length(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    preferences = await get_user_profile_preferences(callback.from_user.id)
+    text = "Выбери желаемую длину текста:" if lang == "ru" else "Choose preferred text length:"
+    await callback.answer()
+    await _edit_or_answer(
+        callback.message,
+        text,
+        reply_markup=profile_text_length_keyboard(lang, preferences.get("text_length_preference")),
+    )
+
+
+@router.callback_query(F.data.startswith("profile_pref:"))
+async def profile_set_preference_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    _, field, value = callback.data.split(":", maxsplit=2)
+    await merge_user_profile_preferences(callback.from_user.id, {field: value})
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    text = "✅ Профиль обновлён." if lang == "ru" else "✅ Profile updated."
+    await callback.answer(text)
+    await _show_profile(callback.message, state, user_id=callback.from_user.id, user=user, edit=True)
+
+
+@router.callback_query(F.data.startswith("profile_clear:"))
+async def profile_clear_preference_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    field = callback.data.split(":", maxsplit=1)[1]
+    if field == "name":
+        await callback.answer()
+        return
+    if field in {"tone_preference", "support_style", "text_length_preference", "current_focus"}:
+        patch = {field: ""}
+    else:
+        patch = {field: []}
+    await merge_user_profile_preferences(callback.from_user.id, patch)
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    text = "✅ Поле очищено." if lang == "ru" else "✅ Preference cleared."
+    await callback.answer(text)
+    await _show_profile(callback.message, state, user_id=callback.from_user.id, user=user, edit=True)
+
+
+async def _start_profile_text_edit(
+    callback: CallbackQuery,
+    state: FSMContext,
+    *,
+    field: str,
+    target_state,
+    allow_clear: bool,
+) -> None:
+    user = await get_user(callback.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    await state.set_state(target_state)
+    await callback.answer()
+    await callback.message.answer(
+        _PROFILE_TEXT_PROMPTS[lang][field],
+        reply_markup=profile_text_edit_keyboard(lang, field, allow_clear=allow_clear),
+    )
+
+
+@router.callback_query(F.data == "profile_edit:name")
+async def profile_edit_name(callback: CallbackQuery, state: FSMContext) -> None:
+    await _start_profile_text_edit(
+        callback,
+        state,
+        field="name",
+        target_state=ProfileEditState.editing_name,
+        allow_clear=False,
+    )
+
+
+@router.callback_query(F.data == "profile_edit:current_focus")
+async def profile_edit_current_focus(callback: CallbackQuery, state: FSMContext) -> None:
+    await _start_profile_text_edit(
+        callback,
+        state,
+        field="current_focus",
+        target_state=ProfileEditState.editing_current_focus,
+        allow_clear=True,
+    )
+
+
+@router.callback_query(F.data == "profile_edit:avoid_topics")
+async def profile_edit_avoid_topics(callback: CallbackQuery, state: FSMContext) -> None:
+    await _start_profile_text_edit(
+        callback,
+        state,
+        field="avoid_topics",
+        target_state=ProfileEditState.editing_avoid_topics,
+        allow_clear=True,
+    )
+
+
+@router.callback_query(F.data == "profile_edit:avoid_words")
+async def profile_edit_avoid_words(callback: CallbackQuery, state: FSMContext) -> None:
+    await _start_profile_text_edit(
+        callback,
+        state,
+        field="avoid_words",
+        target_state=ProfileEditState.editing_avoid_words,
+        allow_clear=True,
+    )
+
+
+@router.callback_query(F.data == "profile_edit:life_areas")
+async def profile_edit_life_areas(callback: CallbackQuery, state: FSMContext) -> None:
+    await _start_profile_text_edit(
+        callback,
+        state,
+        field="life_areas",
+        target_state=ProfileEditState.editing_life_areas,
+        allow_clear=True,
+    )
+
+
+async def _save_profile_text_field(
+    message: Message,
+    state: FSMContext,
+    *,
+    field: str,
+    is_name: bool = False,
+    allow_clear: bool = False,
+) -> None:
+    user = await get_user(message.from_user.id)
+    lang = (user or {}).get("language", "ru")
+    raw = (message.text or "").strip()
+    if not raw:
+        await message.answer(_PROFILE_TEXT_PROMPTS[lang][field], reply_markup=profile_text_edit_keyboard(lang, field, allow_clear=allow_clear))
+        return
+
+    if is_name:
+        if len(raw) > 50:
+            await message.answer("Пожалуйста, напиши короткое имя для общения." if lang == "ru" else "Please send a short display name.")
+            return
+        await update_user_profile(message.from_user.id, name=raw)
+    else:
+        value = "" if raw == "-" else raw
+        patch_value = value if field == "current_focus" else [item.strip() for item in value.split(",")] if value else []
+        await merge_user_profile_preferences(message.from_user.id, {field: patch_value})
+
+    await state.clear()
+    user = await get_user(message.from_user.id)
+    success = "✅ Профиль обновлён." if lang == "ru" else "✅ Profile updated."
+    await message.answer(success, reply_markup=main_reply_keyboard((user or {}).get("language", lang)))
+    await _show_profile(message, state, user_id=message.from_user.id, user=user)
+
+
+@router.message(ProfileEditState.editing_name)
+async def profile_process_name(message: Message, state: FSMContext) -> None:
+    await _save_profile_text_field(message, state, field="name", is_name=True)
+
+
+@router.message(ProfileEditState.editing_current_focus)
+async def profile_process_current_focus(message: Message, state: FSMContext) -> None:
+    await _save_profile_text_field(message, state, field="current_focus", allow_clear=True)
+
+
+@router.message(ProfileEditState.editing_avoid_topics)
+async def profile_process_avoid_topics(message: Message, state: FSMContext) -> None:
+    await _save_profile_text_field(message, state, field="avoid_topics", allow_clear=True)
+
+
+@router.message(ProfileEditState.editing_avoid_words)
+async def profile_process_avoid_words(message: Message, state: FSMContext) -> None:
+    await _save_profile_text_field(message, state, field="avoid_words", allow_clear=True)
+
+
+@router.message(ProfileEditState.editing_life_areas)
+async def profile_process_life_areas(message: Message, state: FSMContext) -> None:
+    await _save_profile_text_field(message, state, field="life_areas", allow_clear=True)
 
 
 @router.message(F.text.in_({"👤 Профиль", "👤 Profile"}))

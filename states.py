@@ -28,3 +28,11 @@ class SubscriptionState(StatesGroup):
     confirming = State()
     choosing_edit_action = State()
 
+
+class ProfileEditState(StatesGroup):
+    editing_name = State()
+    editing_current_focus = State()
+    editing_avoid_topics = State()
+    editing_avoid_words = State()
+    editing_life_areas = State()
+

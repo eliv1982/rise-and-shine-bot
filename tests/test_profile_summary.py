@@ -146,3 +146,46 @@ def test_start_flow_does_not_send_bare_done_message():
     source = inspect.getsource(start)
     assert '"Готово."' not in source
     assert '"Done."' not in source
+
+
+def test_build_profile_summary_text_includes_preference_labels():
+    text = start.build_profile_summary_text(
+        {"name": "Алина", "gender": "female", "language": "ru"},
+        {
+            "tone_preference": "warm_soft",
+            "support_style": "grounding",
+            "text_length_preference": "standard",
+            "life_areas": ["работа", "дом"],
+            "current_focus": "спокойнее прожить неделю",
+            "avoid_topics": ["давление"],
+            "avoid_words": ["срочно"],
+        },
+        "Пока нет активных подписок.",
+        0,
+        "ru",
+    )
+    assert "💬 Как обращаться: Алина" in text
+    assert "🎨 Тон общения: Мягко и бережно" in text
+    assert "🤝 Формат поддержки: Заземлить" in text
+    assert "📝 Длина текста: Стандартно" in text
+    assert "🧭 Жизненные сферы: работа, дом" in text
+    assert "🎯 Текущий фокус: спокойнее прожить неделю" in text
+    assert "🚫 Избегать тем: давление" in text
+    assert "🧹 Избегать слов: срочно" in text
+
+
+def test_build_profile_summary_text_uses_soft_placeholders():
+    text = start.build_profile_summary_text(
+        {"name": None, "gender": "female", "language": "ru"},
+        {},
+        "Пока нет активных подписок.",
+        0,
+        "ru",
+    )
+    assert "🎨 Тон общения: не задано" in text
+    assert "🤝 Формат поддержки: не задано" in text
+    assert "📝 Длина текста: не задано" in text
+    assert "🧭 Жизненные сферы: не задано" in text
+    assert "🎯 Текущий фокус: не задано" in text
+    assert "🚫 Избегать тем: не задано" in text
+    assert "🧹 Избегать слов: не задано" in text
