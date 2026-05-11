@@ -155,3 +155,14 @@ def test_selected_style_and_visual_mode_affect_candidate_pool():
     assert "sea_horizon" not in nature_candidates
     assert "sea_horizon" in coastal_candidates
     assert "forest_path" not in coastal_candidates
+
+
+def test_professional_context_candidate_pool_contains_multiple_city_cafe_work_scenes():
+    candidates = get_scene_candidates_for_style(
+        sphere="career",
+        focus_title="professional growth and stability",
+    )
+    assert "quiet_city_morning" in candidates
+    assert "calm_cafe_corner" in candidates
+    assert "office_morning_light" in candidates
+    assert "coworking_quiet_corner" in candidates

@@ -66,6 +66,23 @@ def test_normalize_scene_plan_merges_avoid_from_memory():
     assert "generic wellness stock photo" in plan["avoid"]
 
 
+def test_scene_presets_include_cafe_city_and_work_scenes():
+    assert "calm_cafe_corner" in scene_planner.SCENE_PRESETS
+    assert "quiet_city_morning" in scene_planner.SCENE_PRESETS
+    assert "office_morning_light" in scene_planner.SCENE_PRESETS
+
+
+def test_normalize_scene_family_groups_cafe_scenes():
+    assert scene_planner.normalize_scene_family("calm_cafe_corner") == "cafe_quiet"
+    assert scene_planner.normalize_scene_family("quiet_cafe_window") == "cafe_quiet"
+    assert scene_planner.normalize_scene_family("bookstore_cafe") == "cafe_quiet"
+
+
+def test_normalize_scene_family_groups_work_scenes():
+    assert scene_planner.normalize_scene_family("office_morning_light") == "work_quiet"
+    assert scene_planner.normalize_scene_family("coworking_quiet_corner") == "work_quiet"
+
+
 def test_build_fallback_scene_plan_uses_preferred_scene_type():
     plan = scene_planner.build_fallback_scene_plan(
         focus_title="Inner trust",
@@ -151,6 +168,51 @@ def test_get_scene_candidates_for_style_interior_is_not_only_table_mug():
     assert "library_corner" in candidates
     assert "reading_corner" in candidates
     assert len(candidates) >= 4
+
+
+def test_get_scene_candidates_for_style_money_career_work_pool_contains_city_cafe_and_work():
+    candidates = scene_planner.get_scene_candidates_for_style(
+        sphere="money",
+        focus_title="спокойная карьера и устойчивость",
+    )
+    assert "quiet_city_morning" in candidates
+    assert "calm_cafe_corner" in candidates
+    assert "office_morning_light" in candidates
+    assert "library_corner" in candidates
+
+
+def test_build_fallback_scene_plan_can_choose_professional_scene_for_money_context():
+    plan = scene_planner.build_fallback_scene_plan(
+        focus_title="спокойная работа и достаточность",
+        visual_memory_context={"recent_scene_types": [], "recent_scene_families": [], "overused_scene_families": []},
+        sphere="money",
+    )
+    assert plan["scene_type"] in {
+        "quiet_city_morning",
+        "calm_cafe_corner",
+        "bookstore_cafe",
+        "city_park_before_work",
+        "courtyard_morning",
+        "office_morning_light",
+        "coworking_quiet_corner",
+        "bridge_walkway",
+        "street_after_rain",
+        "tram_stop_morning",
+        "library_corner",
+    }
+
+
+def test_build_fallback_scene_plan_avoids_repeated_cafe_family_for_professional_context():
+    plan = scene_planner.build_fallback_scene_plan(
+        focus_title="career stability",
+        visual_memory_context={
+            "recent_scene_types": ["calm_cafe_corner", "quiet_cafe_window"],
+            "recent_scene_families": ["cafe_quiet", "cafe_quiet"],
+            "overused_scene_families": ["cafe_quiet"],
+        },
+        sphere="career",
+    )
+    assert scene_planner.normalize_scene_family(plan["scene_type"]) != "cafe_quiet"
 
 
 def test_build_scene_image_prompt_includes_avoid_constraints():

@@ -123,6 +123,8 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 resolved_style=style,
                 visual_mode=effective_visual_mode,
                 style_mode=style_mode,
+                sphere=sphere,
+                subsphere=subsphere,
             )
             color_mood = random.choice(_COLOR_MOODS)
             composition_hint = random.choice(_COMPOSITION_HINTS)
@@ -147,6 +149,8 @@ async def send_daily_affirmations(bot: Bot) -> None:
                                 resolved_style=style,
                                 visual_mode=effective_visual_mode,
                                 style_mode=style_mode,
+                                sphere=sphere,
+                                subsphere=subsphere,
                             ),
                             visual_memory_context=visual_memory_context,
                         )
@@ -181,6 +185,18 @@ async def send_daily_affirmations(bot: Bot) -> None:
                                 resolved_style=style,
                                 visual_mode=effective_visual_mode,
                                 style_mode=style_mode,
+                                sphere=sphere,
+                                subsphere=subsphere,
+                                focus_title=focus_text,
+                            ),
+                            "candidate_pool_name": resolve_scene_style_family(
+                                selected_style=style_mode,
+                                resolved_style=style,
+                                visual_mode=effective_visual_mode,
+                                style_mode=style_mode,
+                                sphere=sphere,
+                                subsphere=subsphere,
+                                focus_title=focus_text,
                             ),
                             "living_nature_constraints_applied": is_living_nature_style(
                                 selected_style=style_mode,

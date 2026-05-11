@@ -76,6 +76,8 @@ async def build_scene_plan_shadow_best_effort(
     resolved_style: str | None = None,
     visual_mode: str | None = None,
     style_mode: str | None = None,
+    sphere: str | None = None,
+    subsphere: str | None = None,
 ) -> dict | None:
     if not is_scene_planner_shadow_enabled(settings):
         return None
@@ -97,6 +99,8 @@ async def build_scene_plan_shadow_best_effort(
             resolved_style=resolved_style,
             visual_mode=visual_mode,
             style_mode=style_mode,
+            sphere=sphere,
+            subsphere=subsphere,
         )
         normalized_scene_plan = normalize_scene_plan(
             scene_plan,

@@ -740,6 +740,8 @@ async def _run_generation(
         resolved_style=resolved_style,
         visual_mode=effective_visual_mode,
         style_mode=style,
+        sphere=sphere,
+        subsphere=subsphere,
     )
 
     color_mood = random.choice(_COLOR_MOODS)
@@ -766,6 +768,8 @@ async def _run_generation(
                         resolved_style=resolved_style,
                         visual_mode=effective_visual_mode,
                         style_mode=style,
+                        sphere=sphere,
+                        subsphere=subsphere,
                     ),
                     visual_memory_context=visual_memory_context,
                 )
@@ -800,6 +804,18 @@ async def _run_generation(
                         resolved_style=resolved_style,
                         visual_mode=effective_visual_mode,
                         style_mode=style,
+                        sphere=sphere,
+                        subsphere=subsphere,
+                        focus_title=focus_text,
+                    ),
+                    "candidate_pool_name": resolve_scene_style_family(
+                        selected_style=style,
+                        resolved_style=resolved_style,
+                        visual_mode=effective_visual_mode,
+                        style_mode=style,
+                        sphere=sphere,
+                        subsphere=subsphere,
+                        focus_title=focus_text,
                     ),
                     "living_nature_constraints_applied": is_living_nature_style(
                         selected_style=style,

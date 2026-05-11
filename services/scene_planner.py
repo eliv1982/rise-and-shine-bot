@@ -38,6 +38,9 @@ GENERIC_SCENE_CANDIDATES = [
     "library_corner",
     "hands_detail",
     "abstract_light",
+    "calm_cafe_corner",
+    "city_park_before_work",
+    "office_morning_light",
 ]
 
 SCENE_PRESETS = {
@@ -289,6 +292,86 @@ SCENE_PRESETS = {
         "lighting": "soft diffused daylight",
         "mood": "calm order and emotional spaciousness",
     },
+    "calm_cafe_corner": {
+        "setting": "calm cafe corner with open space, quiet atmosphere and soft morning activity",
+        "main_subject": "small cafe seating area and light-filled surroundings rather than a close-up table object",
+        "visual_motifs": ["cafe", "quiet_corner", "morning_light"],
+        "composition": "wide cafe environment with breathing space, not mug-centered and not tabletop close-up",
+        "lighting": "soft morning window light across the room",
+        "mood": "calm readiness, collected focus and grounded ease",
+    },
+    "quiet_cafe_window": {
+        "setting": "quiet cafe by a broad window with soft city light and open calm atmosphere",
+        "main_subject": "cafe interior volume, chair silhouettes and soft exterior light rather than drink props",
+        "visual_motifs": ["cafe", "window_light", "urban_morning"],
+        "composition": "room-focused composition with depth and no object close-up",
+        "lighting": "gentle side light from a large window",
+        "mood": "clear thinking and quiet professional steadiness",
+    },
+    "bookstore_cafe": {
+        "setting": "peaceful bookstore cafe with shelves, warm order and quiet morning energy",
+        "main_subject": "bookshelves, seating and calm spatial rhythm rather than table details",
+        "visual_motifs": ["books", "cafe", "shelves"],
+        "composition": "layered interior with shelves and open walkway",
+        "lighting": "warm diffused daylight with soft ambient glow",
+        "mood": "thoughtful confidence and gentle concentration",
+    },
+    "city_park_before_work": {
+        "setting": "city park in the early morning before work with open paths and composed air",
+        "main_subject": "pathway, trees and subtle city structures in the distance",
+        "visual_motifs": ["park", "city", "morning_path"],
+        "composition": "balanced path scene with urban calm in the background",
+        "lighting": "fresh early daylight",
+        "mood": "preparedness, clarity and grounded momentum",
+    },
+    "courtyard_morning": {
+        "setting": "quiet courtyard in the morning with clean lines, trees and soft city light",
+        "main_subject": "courtyard space, passageway and morning openness",
+        "visual_motifs": ["courtyard", "city", "morning_light"],
+        "composition": "architectural calm with open foreground",
+        "lighting": "soft reflected daylight",
+        "mood": "stability, order and quiet confidence",
+    },
+    "bridge_walkway": {
+        "setting": "quiet bridge walkway with open perspective and steady urban air",
+        "main_subject": "walkway lines leading forward across water or city space",
+        "visual_motifs": ["bridge", "walkway", "urban_space"],
+        "composition": "strong leading lines with open forward depth",
+        "lighting": "clear morning or overcast urban light",
+        "mood": "direction, resolve and steady forward movement",
+    },
+    "street_after_rain": {
+        "setting": "quiet city street after rain with reflective pavement and softened motion",
+        "main_subject": "street reflections, facades and calm empty passage",
+        "visual_motifs": ["street", "rain_reflection", "city"],
+        "composition": "clean street perspective with reflective foreground",
+        "lighting": "soft overcast light with reflected glow",
+        "mood": "reset, composure and thoughtful clarity",
+    },
+    "tram_stop_morning": {
+        "setting": "calm tram stop in the morning with clean structure and urban stillness",
+        "main_subject": "shelter lines, empty platform and open street atmosphere",
+        "visual_motifs": ["tram_stop", "city", "morning_commute"],
+        "composition": "structured urban frame with open waiting space",
+        "lighting": "soft cool daylight",
+        "mood": "quiet anticipation and grounded readiness",
+    },
+    "office_morning_light": {
+        "setting": "quiet professional office in the morning with space, light and calm order",
+        "main_subject": "room atmosphere, shelves or desk area as part of a wider environment rather than laptop close-up",
+        "visual_motifs": ["office", "morning_light", "professional_space"],
+        "composition": "wide professional interior with open negative space, not productivity-stock close-up",
+        "lighting": "soft daylight across a calm work setting",
+        "mood": "collected competence and steady focus",
+    },
+    "coworking_quiet_corner": {
+        "setting": "quiet coworking corner with natural light and a composed professional atmosphere",
+        "main_subject": "seating area, shelves and calm shared workspace rather than devices as focal point",
+        "visual_motifs": ["coworking", "quiet_corner", "work_space"],
+        "composition": "environment-focused scene with layered depth and no close object hero",
+        "lighting": "soft daylight with warm interior balance",
+        "mood": "professional calm and thoughtful momentum",
+    },
 }
 
 
@@ -333,13 +416,66 @@ def _normalize_human_presence(value) -> str:
     return "none"
 
 
+def _has_professional_theme_context(
+    *,
+    sphere: str | None = None,
+    subsphere: str | None = None,
+    focus_title: str | None = None,
+    selected_style: str | None = None,
+    resolved_style: str | None = None,
+    style_mode: str | None = None,
+) -> bool:
+    haystack = " ".join(
+        text.lower()
+        for text in (
+            _clean_str(sphere),
+            _clean_str(subsphere),
+            _clean_str(focus_title),
+            _clean_str(selected_style),
+            _clean_str(resolved_style),
+            _clean_str(style_mode),
+        )
+        if text
+    )
+    keywords = (
+        "money",
+        "finance",
+        "financial",
+        "career",
+        "work",
+        "professional",
+        "job",
+        "stability",
+        "достаточность",
+        "деньги",
+        "финансы",
+        "карьера",
+        "работа",
+        "профессион",
+        "устойчив",
+    )
+    return any(keyword in haystack for keyword in keywords)
+
+
 def resolve_scene_style_family(
     *,
     selected_style: str | None = None,
     resolved_style: str | None = None,
     visual_mode: str | None = None,
     style_mode: str | None = None,
+    sphere: str | None = None,
+    subsphere: str | None = None,
+    focus_title: str | None = None,
 ) -> str:
+    if _has_professional_theme_context(
+        sphere=sphere,
+        subsphere=subsphere,
+        focus_title=focus_title,
+        selected_style=selected_style,
+        resolved_style=resolved_style,
+        style_mode=style_mode,
+    ):
+        return "professional_calm"
     values = " ".join(
         text.lower()
         for text in (
@@ -379,7 +515,10 @@ def normalize_scene_family(scene_type: str | None) -> str | None:
         "garden_botanical": {"garden_morning", "botanical_still_life", "balcony_garden", "flowering_garden_path", "rain_on_leaves"},
         "water_nature": {"riverside", "lake_shore"},
         "mountain": {"mountain_view"},
-        "urban_quiet": {"quiet_city_morning", "urban_street", "city_park"},
+        "urban_quiet": {"quiet_city_morning", "urban_street", "street_after_rain", "tram_stop_morning", "bridge_walkway"},
+        "urban_green": {"city_park", "city_park_before_work", "courtyard_morning"},
+        "cafe_quiet": {"calm_cafe_corner", "quiet_cafe_window", "bookstore_cafe"},
+        "work_quiet": {"office_morning_light", "coworking_quiet_corner"},
         "hands_detail": {"hands_detail", "hands_with_leaf", "hands_with_fabric", "hand_on_tree_bark"},
         "abstract_light": {"abstract_light", "soft_color_gradient", "water_reflection", "paper_shadow", "sky_light"},
         "interior_quiet": {"library_corner", "cozy_room", "reading_corner", "calm_room_wide"},
@@ -399,6 +538,9 @@ def get_scene_candidates_for_style(
     resolved_style: str | None = None,
     visual_mode: str | None = None,
     style_mode: str | None = None,
+    sphere: str | None = None,
+    subsphere: str | None = None,
+    focus_title: str | None = None,
     visual_memory_context: dict | None = None,
 ) -> list[str]:
     family = resolve_scene_style_family(
@@ -406,8 +548,24 @@ def get_scene_candidates_for_style(
         resolved_style=resolved_style,
         visual_mode=visual_mode,
         style_mode=style_mode,
+        sphere=sphere,
+        subsphere=subsphere,
+        focus_title=focus_title,
     )
     pools = {
+        "professional_calm": [
+            "quiet_city_morning",
+            "calm_cafe_corner",
+            "bookstore_cafe",
+            "city_park_before_work",
+            "courtyard_morning",
+            "office_morning_light",
+            "coworking_quiet_corner",
+            "bridge_walkway",
+            "street_after_rain",
+            "tram_stop_morning",
+            "library_corner",
+        ],
         "living_nature": [
             "forest_path",
             "open_meadow",
@@ -439,6 +597,9 @@ def get_scene_candidates_for_style(
         ],
         "interior_cozy": [
             "library_corner",
+            "calm_cafe_corner",
+            "quiet_cafe_window",
+            "bookstore_cafe",
             "reading_corner",
             "calm_room_wide",
             "rain_window",
@@ -447,6 +608,11 @@ def get_scene_candidates_for_style(
         "urban": [
             "quiet_city_morning",
             "city_park",
+            "city_park_before_work",
+            "courtyard_morning",
+            "bridge_walkway",
+            "street_after_rain",
+            "tram_stop_morning",
             "autumn_park",
             "library_corner",
         ],
@@ -463,6 +629,8 @@ def get_scene_candidates_for_style(
         ],
         "photo_general": [
             "quiet_city_morning",
+            "calm_cafe_corner",
+            "office_morning_light",
             "riverside",
             "garden_morning",
             "lake_shore",
@@ -611,6 +779,8 @@ def build_fallback_scene_plan(
     resolved_style: str | None = None,
     visual_mode: str | None = None,
     style_mode: str | None = None,
+    sphere: str | None = None,
+    subsphere: str | None = None,
 ) -> dict:
     memory = _safe_dict(visual_memory_context)
     recent_scene_types = _dedupe_stable(_safe_list(memory.get("recent_scene_types")))
@@ -620,6 +790,13 @@ def build_fallback_scene_plan(
     has_style_context = any(
         _clean_str(value)
         for value in (selected_style, resolved_style, visual_mode, style_mode)
+    ) or _has_professional_theme_context(
+        sphere=sphere,
+        subsphere=subsphere,
+        focus_title=focus_title,
+        selected_style=selected_style,
+        resolved_style=resolved_style,
+        style_mode=style_mode,
     )
     style_candidates = (
         get_scene_candidates_for_style(
@@ -627,6 +804,9 @@ def build_fallback_scene_plan(
             resolved_style=resolved_style,
             visual_mode=visual_mode,
             style_mode=style_mode,
+            sphere=sphere,
+            subsphere=subsphere,
+            focus_title=focus_title,
             visual_memory_context=memory,
         )
         if has_style_context
