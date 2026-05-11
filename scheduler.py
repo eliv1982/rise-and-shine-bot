@@ -40,6 +40,10 @@ from services.scene_planner_shadow import (
     attach_scene_plan_shadow_to_visual_motifs,
     build_scene_plan_shadow_best_effort,
 )
+from services.text_planner_shadow import (
+    attach_text_plan_shadow_to_metadata,
+    build_text_plan_shadow_best_effort,
+)
 from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
@@ -125,6 +129,15 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 style_mode=style_mode,
                 sphere=sphere,
                 subsphere=subsphere,
+            )
+            text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
+                sphere=sphere,
+                subsphere=subsphere,
+                focus_title=focus_text,
+                user_custom_topic=None,
+                language=language,
+                recent_text_context=None,
+                settings=settings,
             )
             color_mood = random.choice(_COLOR_MOODS)
             composition_hint = random.choice(_COMPOSITION_HINTS)
@@ -338,6 +351,10 @@ async def send_daily_affirmations(bot: Bot) -> None:
             visual_motifs = attach_scene_plan_shadow_to_visual_motifs(
                 visual_motifs,
                 scene_plan_shadow_payload,
+            )
+            visual_motifs = attach_text_plan_shadow_to_metadata(
+                visual_motifs,
+                text_plan_shadow_payload,
             )
             if scene_prompt_controlled_meta is not None:
                 visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
