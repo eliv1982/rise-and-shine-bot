@@ -36,3 +36,8 @@ Deployment reminders:
 
 - After changing `.env`, restart the container.
 - After code changes, rebuild the container.
+
+Role metadata inspection:
+
+- Inspect latest role metadata locally or on the server with:
+  `python scripts/inspect_generation_roles.py --db bot.db --limit 5`
