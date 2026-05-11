@@ -14,6 +14,19 @@ OPENAI_TTS_MODEL=gpt-4o-mini-tts
 OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 ```
 
+Database backend:
+
+```env
+# Beta / production PostgreSQL
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+
+# Local development override for SQLite (optional)
+SQLITE_DB_PATH=bot.db
+```
+
+- If `DATABASE_URL` is absent, the bot keeps using SQLite by default.
+- If `DATABASE_URL` starts with `postgres://` or `postgresql://`, the bot uses PostgreSQL.
+
 Recommended planner flags:
 
 ```env

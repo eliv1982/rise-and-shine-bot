@@ -121,6 +121,21 @@ def get_bot_data_dir() -> str:
     return os.getenv("BOT_DATA_DIR", "").strip()
 
 
+def get_database_url() -> str | None:
+    """PostgreSQL URL for production/beta; when absent, SQLite remains the default backend."""
+    value = os.getenv("DATABASE_URL", "").strip()
+    return value or None
+
+
+def get_sqlite_db_path() -> str:
+    """Local SQLite path override; falls back to BOT_DATA_DIR/bot.db or plain bot.db."""
+    override = os.getenv("SQLITE_DB_PATH", "").strip()
+    if override:
+        return override
+    d = get_bot_data_dir()
+    return os.path.join(d, "bot.db") if d else "bot.db"
+
+
 def get_outputs_dir() -> str:
     """Каталог для сгенерированных файлов (картинки, TTS)."""
     d = get_bot_data_dir()

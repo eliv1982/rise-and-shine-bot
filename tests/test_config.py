@@ -1,8 +1,10 @@
 from pathlib import Path
 
 from config import (
+    get_database_url,
     get_image_provider_config,
     get_settings,
+    get_sqlite_db_path,
     get_stt_provider_config,
     get_text_provider_config,
     get_tts_provider_config,
@@ -34,6 +36,31 @@ def test_daily_generation_limit_defaults_to_five(monkeypatch):
     assert settings.generation_daily_limit == 5
     assert settings.disable_daily_generation_limit is False
     assert settings.show_image_debug is False
+
+
+def test_database_url_defaults_to_none(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    assert get_database_url() is None
+
+
+def test_database_url_reads_env(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
+
+    assert get_database_url() == "postgresql://user:pass@localhost:5432/rise"
+
+
+def test_sqlite_db_path_defaults_to_bot_db(monkeypatch):
+    monkeypatch.delenv("SQLITE_DB_PATH", raising=False)
+    monkeypatch.delenv("BOT_DATA_DIR", raising=False)
+
+    assert get_sqlite_db_path() == "bot.db"
+
+
+def test_sqlite_db_path_respects_override(monkeypatch):
+    monkeypatch.setenv("SQLITE_DB_PATH", "data/local-dev.db")
+
+    assert get_sqlite_db_path() == "data/local-dev.db"
 
 
 def test_daily_generation_limit_zero_means_no_limit(monkeypatch):
