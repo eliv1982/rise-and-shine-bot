@@ -11,6 +11,7 @@ MAIN_SPHERES = [
     "money",
     "relationships",
     "self_realization",
+    "home_support",
 ]
 
 LEGACY_SPHERES = ["spirituality"]
@@ -22,7 +23,8 @@ SPHERE_LABELS = {
     "career": {"ru": "💼 Дело и карьера", "en": "💼 Work and career"},
     "money": {"ru": "💰 Деньги и устойчивость", "en": "💰 Money and stability"},
     "relationships": {"ru": "🤝 Отношения и границы", "en": "🤝 Relationships and boundaries"},
-    "self_realization": {"ru": "🎨 Самореализация и творчество", "en": "🎨 Self-realization and creativity"},
+    "self_realization": {"ru": "🎨 Творчество и самореализация", "en": "🎨 Creativity and self-realization"},
+    "home_support": {"ru": "🏡 Дом и опора", "en": "🏡 Home and grounding"},
     "spirituality": {"ru": "Духовный рост", "en": "Spiritual growth"},
 }
 
@@ -399,23 +401,84 @@ FOCUSES = {
             "micro_step_en": "Check an inner feeling against one real fact.",
         }
     ],
+    "home_support": [
+        {
+            "key": "safe_home_base",
+            "ru": "дом как тихая база",
+            "en": "home as a quiet base",
+            "micro_step_ru": "Сделай один маленький жест уюта или порядка вокруг себя.",
+            "micro_step_en": "Make one small gesture of comfort or order around you.",
+            "image_hint_en": "calm lived-in home, soft lamp light, blanket, shelf, grounded comfort",
+        },
+        {
+            "key": "return_to_support",
+            "ru": "возвращение в опору",
+            "en": "returning to support",
+            "micro_step_ru": "Выбери одно простое действие, которое даст телу и дому ощущение опоры.",
+            "micro_step_en": "Choose one simple action that gives your body and home a sense of support.",
+        },
+        {
+            "key": "everyday_stability",
+            "ru": "бытовая устойчивость",
+            "en": "everyday stability",
+            "micro_step_ru": "Упростите один бытовой шаг, чтобы день ощущался мягче.",
+            "micro_step_en": "Simplify one household step so the day feels gentler.",
+        },
+        {
+            "key": "soft_recovery",
+            "ru": "мягкое восстановление",
+            "en": "soft recovery",
+            "micro_step_ru": "Оставь себе десять минут на тёплый, восстанавливающий ритуал дома.",
+            "micro_step_en": "Leave yourself ten minutes for a warm restorative ritual at home.",
+        },
+        {
+            "key": "grounded_comfort",
+            "ru": "спокойный уют",
+            "en": "grounded comfort",
+            "micro_step_ru": "Добавь одну деталь, которая делает пространство более тёплым и своим.",
+            "micro_step_en": "Add one detail that makes your space feel warmer and more your own.",
+        },
+        {
+            "key": "gentle_order",
+            "ru": "бережный порядок",
+            "en": "gentle order",
+            "micro_step_ru": "Наведи порядок только в одном маленьком месте, не пытаясь охватить всё.",
+            "micro_step_en": "Bring order to one small place without trying to fix everything.",
+        },
+        {
+            "key": "restful_safety",
+            "ru": "безопасность и отдых",
+            "en": "safety and rest",
+            "micro_step_ru": "Спроси себя, что сегодня даст ощущение защищённости и покоя.",
+            "micro_step_en": "Ask yourself what would create a sense of safety and rest today.",
+        },
+    ],
 }
 
 VALID_VISUAL_MODES = ("photo", "illustration", "mixed")
 
 PHOTO_STYLE_KEYS = [
-    "sunny_photo_scene",
+    "sunny_morning_photo",
     "living_nature_photo",
+    "urban_city_photo",
+    "cafe_terrace_photo",
+    "rural_calm_photo",
     "sea_coast_photo",
-    "bright_ocean_coast_photo",
-    "light_interior_photo",
+    "cozy_home_photo",
+    "book_nook_photo",
     "calm_lifestyle_photo",
 ]
 
 PHOTO_STYLE_ALIASES = {
-    "bright_photo_card": "sunny_photo_scene",
+    "bright_photo_card": "sunny_morning_photo",
+    "sunny_photo_scene": "sunny_morning_photo",
+    "sunny_morning_scene": "sunny_morning_photo",
     "sunny_nature_photo": "living_nature_photo",
     "cinematic_real_photo": "calm_lifestyle_photo",
+    "light_interior_photo": "cozy_home_photo",
+    "bright_ocean_coast_photo": "sea_coast_photo",
+    "vivid_ocean_photo": "sea_coast_photo",
+    "bright_ocean": "sea_coast_photo",
 }
 
 ILLUSTRATION_STYLE_KEYS = [
@@ -436,14 +499,20 @@ LEGACY_STYLE_KEYS = ["realistic", "nature", "cosmos", "mandala", "sacred_geometr
 STYLE_LABELS = {
     "auto": {"ru": "Автоподбор", "en": "Auto"},
     "random_suitable": {"ru": "Разные подходящие стили", "en": "Different suitable styles"},
-    "sunny_photo_scene": {"ru": "Солнечная фотосцена", "en": "Sunny photo scene"},
+    "sunny_morning_photo": {"ru": "Солнечное утро", "en": "Sunny morning"},
     "living_nature_photo": {"ru": "Живая природа", "en": "Living nature"},
+    "urban_city_photo": {"ru": "Городской стиль", "en": "City style"},
+    "cafe_terrace_photo": {"ru": "Кафе и городские веранды", "en": "Cafe & city terraces"},
+    "rural_calm_photo": {"ru": "Сельское спокойствие", "en": "Rural calm"},
     "sea_coast_photo": {"ru": "Побережье моря / океана", "en": "Sea & ocean coast"},
-    "bright_ocean_coast_photo": {"ru": "🌊 Яркое океанское побережье", "en": "🌊 Bright ocean coast"},
-    "light_interior_photo": {"ru": "Светлый интерьер", "en": "Light interior"},
+    "cozy_home_photo": {"ru": "Уютный дом", "en": "Cozy home"},
+    "book_nook_photo": {"ru": "Книжный уголок", "en": "Book nook"},
     "calm_lifestyle_photo": {"ru": "Спокойный lifestyle", "en": "Calm lifestyle"},
-    "bright_photo_card": {"ru": "Солнечная фотосцена", "en": "Sunny photo scene"},
+    "bright_photo_card": {"ru": "Солнечное утро", "en": "Sunny morning"},
+    "sunny_photo_scene": {"ru": "Солнечное утро", "en": "Sunny morning"},
     "sunny_nature_photo": {"ru": "Живая природа", "en": "Living nature"},
+    "light_interior_photo": {"ru": "Уютный дом", "en": "Cozy home"},
+    "bright_ocean_coast_photo": {"ru": "Побережье моря / океана", "en": "Sea & ocean coast"},
     "cinematic_real_photo": {"ru": "Спокойный lifestyle", "en": "Calm lifestyle"},
     "bright_nature_card": {"ru": "Светлая открытка дня", "en": "Bright daily card"},
     "dreamy_painterly": {"ru": "Мягкая акварель", "en": "Dreamy painterly"},
@@ -463,14 +532,20 @@ STYLE_LABELS = {
 }
 
 STYLE_DESCRIPTIONS = {
-    "sunny_photo_scene": "warm real-life photo, sunlit atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
+    "sunny_morning_photo": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
     "living_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
+    "urban_city_photo": "calm realistic city photography, quiet street, courtyard, park or bridge walkway, soft natural light, believable urban atmosphere, editorial lifestyle realism, no crowd as focal point, no harsh corporate stock feeling",
+    "cafe_terrace_photo": "realistic cafe terrace or city veranda photography, calm urban atmosphere, awning, planters, facade details and small seating groups, coffee or pastry hints allowed but never as mug close-up hero object, editorial cafe environment realism",
+    "rural_calm_photo": "realistic rural morning photography, cottage garden, orchard, wooden porch, country road or village veranda, soft daylight, grounded countryside atmosphere, calm lived-in details, no generic wild forest default",
     "sea_coast_photo": "real coastal photograph, sea or ocean coastline photography, realistic natural light, realistic sky and cloud formations, believable wave and water behavior, natural atmospheric perspective, camera realism, editorial landscape photography feel, calm restorative airy mood",
-    "bright_ocean_coast_photo": "bright vivid real ocean coast photograph, clear sea or ocean horizon, visible shoreline, waves, surf and sea foam, natural vivid colors with realistic saturation, bright sky and expressive clouds, higher brightness, clarity and contrast, editorial travel coastal landscape photography, not washed out and not grey fog",
-    "light_interior_photo": "realistic interior and lifestyle photo, soft daylight through a window, real ceramics, wood, linen, glass, plants, believable shadows, camera realism, notebook without visible text",
+    "cozy_home_photo": "realistic cozy home photography, lived-in calm home atmosphere, chair, lamp, shelf, blanket or fireplace glow, believable textures and daylight, emotionally supportive without sterile showroom feeling",
+    "book_nook_photo": "realistic library or reading nook photography, bookshelves, reading chair, lamp or bookstore atmosphere, calm reflective mood, no office feeling, no laptop-centered productivity stock look",
     "calm_lifestyle_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
-    "bright_photo_card": "warm real-life photo, sunlit atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
+    "bright_photo_card": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
+    "sunny_photo_scene": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
     "sunny_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
+    "light_interior_photo": "realistic cozy home photography, lived-in calm home atmosphere, chair, lamp, shelf, blanket or fireplace glow, believable textures and daylight, emotionally supportive without sterile showroom feeling",
+    "bright_ocean_coast_photo": "real coastal photograph, sea or ocean coastline photography, realistic natural light, realistic sky and cloud formations, believable wave and water behavior, natural atmospheric perspective, camera realism, editorial landscape photography feel, calm restorative airy mood",
     "cinematic_real_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
     "bright_nature_card": "bright uplifting daily card, warm natural light, beautiful nature or light airy scene, fresh atmosphere, photorealistic or soft semi-realistic quality, optimistic and emotionally supportive mood, clear composition",
     "dreamy_painterly": "light dreamy painterly artwork, airy watercolor and gouache texture, luminous pastel atmosphere, soft but clear forms, warm and hopeful mood, delicate artistic charm",
@@ -490,18 +565,20 @@ ILLUSTRATION_RECOMMENDED_STYLES = {
     "money": ["bright_nature_card", "quiet_interior", "minimal_botanical"],
     "relationships": ["bright_nature_card", "quiet_interior", "dreamy_painterly"],
     "self_realization": ["bright_nature_card", "cinematic_light", "dreamy_painterly", "textured_collage"],
+    "home_support": ["quiet_interior", "minimal_botanical", "bright_nature_card", "dreamy_painterly"],
     "spirituality": ["ethereal_landscape", "bright_nature_card", "symbolic_luxe"],
 }
 
 PHOTO_RECOMMENDED_STYLES = {
-    "inner_peace": ["bright_ocean_coast_photo", "sea_coast_photo", "light_interior_photo", "living_nature_photo", "calm_lifestyle_photo"],
-    "self_worth": ["bright_ocean_coast_photo", "light_interior_photo", "calm_lifestyle_photo", "sea_coast_photo", "sunny_photo_scene"],
-    "health": ["bright_ocean_coast_photo", "calm_lifestyle_photo", "sea_coast_photo", "living_nature_photo", "light_interior_photo", "sunny_photo_scene"],
-    "career": ["light_interior_photo", "calm_lifestyle_photo", "sunny_photo_scene", "sea_coast_photo", "bright_ocean_coast_photo"],
-    "money": ["light_interior_photo", "calm_lifestyle_photo", "sunny_photo_scene", "sea_coast_photo", "bright_ocean_coast_photo"],
-    "relationships": ["bright_ocean_coast_photo", "calm_lifestyle_photo", "light_interior_photo", "sea_coast_photo", "sunny_photo_scene"],
-    "self_realization": ["bright_ocean_coast_photo", "calm_lifestyle_photo", "sea_coast_photo", "light_interior_photo", "sunny_photo_scene"],
-    "spirituality": ["bright_ocean_coast_photo", "light_interior_photo", "sea_coast_photo", "calm_lifestyle_photo", "living_nature_photo"],
+    "inner_peace": ["sea_coast_photo", "cozy_home_photo", "living_nature_photo", "calm_lifestyle_photo", "sunny_morning_photo"],
+    "self_worth": ["cozy_home_photo", "calm_lifestyle_photo", "sea_coast_photo", "sunny_morning_photo", "book_nook_photo"],
+    "health": ["living_nature_photo", "rural_calm_photo", "calm_lifestyle_photo", "sea_coast_photo", "sunny_morning_photo"],
+    "career": ["urban_city_photo", "calm_lifestyle_photo", "book_nook_photo", "cafe_terrace_photo", "sea_coast_photo", "sunny_morning_photo"],
+    "money": ["urban_city_photo", "cafe_terrace_photo", "book_nook_photo", "calm_lifestyle_photo", "sea_coast_photo", "sunny_morning_photo"],
+    "relationships": ["cozy_home_photo", "cafe_terrace_photo", "sea_coast_photo", "calm_lifestyle_photo", "sunny_morning_photo"],
+    "self_realization": ["book_nook_photo", "urban_city_photo", "calm_lifestyle_photo", "sea_coast_photo", "sunny_morning_photo"],
+    "home_support": ["cozy_home_photo", "book_nook_photo", "rural_calm_photo", "living_nature_photo", "calm_lifestyle_photo"],
+    "spirituality": ["sea_coast_photo", "cozy_home_photo", "living_nature_photo", "calm_lifestyle_photo", "sunny_morning_photo"],
 }
 
 RECOMMENDED_STYLES = ILLUSTRATION_RECOMMENDED_STYLES
@@ -529,6 +606,34 @@ PHOTO_SCENE_PRESETS = {
     "restful_daily_scene": (
         "Photo scene preset: restful_daily_scene. Water glass, tea, blanket, chair, book or soft daylight, "
         "realistic cozy recovery scene, lifestyle photography, calm but clearly photographic."
+    ),
+    "street_cafe_terrace": (
+        "Photo scene preset: street_cafe_terrace. Realistic outdoor cafe terrace with facade details, awning, planters, "
+        "small tables and visible street atmosphere, editorial urban photography, not mug close-up and not empty dining hall."
+    ),
+    "city_veranda_morning": (
+        "Photo scene preset: city_veranda_morning. Realistic city veranda or cafe porch in the morning, soft daylight, "
+        "chairs and facade details as part of the environment, calm urban openness, photographic realism."
+    ),
+    "courtyard_cafe": (
+        "Photo scene preset: courtyard_cafe. Quiet cafe in a courtyard with greenery, tables as supporting elements, "
+        "open spatial composition, realistic urban lifestyle photography, not tabletop hero shot."
+    ),
+    "village_veranda": (
+        "Photo scene preset: village_veranda. Real rural veranda or porch, morning air, wood textures, plants and lived-in calm, "
+        "realistic countryside photography with grounded home detail."
+    ),
+    "cottage_garden": (
+        "Photo scene preset: cottage_garden. Real cottage garden with path, plants and calm home atmosphere, "
+        "natural daylight, realistic rural details, editorial countryside photography."
+    ),
+    "warm_living_room": (
+        "Photo scene preset: warm_living_room. Real calm living room with chair, blanket, shelf or lamp, "
+        "soft believable daylight or warm ambient light, lived-in home feeling, not showroom styling."
+    ),
+    "bookshop_aisle": (
+        "Photo scene preset: bookshop_aisle. Real bookstore or library aisle with shelves, reading atmosphere and warm order, "
+        "realistic interior photography, calm reflective mood, not office-like."
     ),
     "relationship_table_scene": (
         "Photo scene preset: relationship_table_scene. Two cups, two chairs, table setting or shared space, "
@@ -592,20 +697,16 @@ PHOTO_SCENE_ROUTING = {
     "money": ["calm_workspace", "window_still_life", "botanical_corner"],
     "relationships": ["relationship_table_scene", "window_still_life", "botanical_corner", "coastal_path", "quiet_beach_morning", "outdoor_path"],
     "self_realization": ["calm_workspace", "coastal_path", "botanical_corner", "window_still_life", "outdoor_path"],
+    "home_support": ["warm_living_room", "bookshop_aisle", "village_veranda", "cottage_garden", "restful_daily_scene"],
     "spirituality": ["window_still_life", "botanical_corner", "ocean_sunrise", "restful_daily_scene"],
 }
 
 PHOTO_STYLE_SCENE_HINTS = {
-    "sunny_photo_scene": ["calm_workspace", "botanical_corner", "outdoor_path", "window_still_life"],
+    "sunny_morning_photo": ["outdoor_path", "restful_daily_scene", "city_veranda_morning", "window_still_life"],
     "living_nature_photo": ["outdoor_path", "botanical_corner"],
-    "bright_ocean_coast_photo": [
-        "bright_ocean_sunrise",
-        "vivid_seaside_sunset",
-        "sunny_beach_morning",
-        "turquoise_shoreline",
-        "rocky_ocean_coast",
-        "seabirds_over_waves",
-    ],
+    "urban_city_photo": ["city_veranda_morning", "courtyard_cafe", "calm_workspace", "outdoor_path"],
+    "cafe_terrace_photo": ["street_cafe_terrace", "city_veranda_morning", "courtyard_cafe", "bookshop_aisle"],
+    "rural_calm_photo": ["village_veranda", "cottage_garden", "outdoor_path", "restful_daily_scene"],
     "sea_coast_photo": [
         "ocean_sunrise",
         "seaside_sunset",
@@ -614,8 +715,19 @@ PHOTO_STYLE_SCENE_HINTS = {
         "dunes_and_seabirds",
         "coastal_path",
     ],
-    "light_interior_photo": ["window_still_life", "botanical_corner", "relationship_table_scene", "calm_workspace"],
+    "cozy_home_photo": ["warm_living_room", "restful_daily_scene", "window_still_life", "botanical_corner"],
+    "book_nook_photo": ["bookshop_aisle", "warm_living_room", "window_still_life"],
     "calm_lifestyle_photo": ["restful_daily_scene", "calm_workspace", "relationship_table_scene", "window_still_life"],
+    "bright_ocean_coast_photo": [
+        "bright_ocean_sunrise",
+        "vivid_seaside_sunset",
+        "sunny_beach_morning",
+        "turquoise_shoreline",
+        "rocky_ocean_coast",
+        "seabirds_over_waves",
+    ],
+    "sunny_photo_scene": ["outdoor_path", "restful_daily_scene", "city_veranda_morning", "window_still_life"],
+    "light_interior_photo": ["warm_living_room", "restful_daily_scene", "window_still_life", "botanical_corner"],
 }
 
 
@@ -624,7 +736,8 @@ def get_sphere_label(sphere: str, language: str = "ru") -> str:
 
 
 def get_style_label(style: str, language: str = "ru") -> str:
-    return STYLE_LABELS.get(style, {"ru": style, "en": style}).get(language, style)
+    normalized = normalize_style_key(style)
+    return STYLE_LABELS.get(normalized, STYLE_LABELS.get(style, {"ru": style, "en": style})).get(language, style)
 
 
 def normalize_style_key(style: Optional[str]) -> str:
@@ -667,7 +780,7 @@ def get_visual_mode_label(visual_mode: str, language: str = "ru") -> str:
     labels = {
         "photo": {"ru": "📷 Фото-стиль", "en": "📷 Photo style"},
         "illustration": {"ru": "🖌 Мягкая иллюстрация", "en": "🖌 Soft illustration"},
-        "mixed": {"ru": "🔀 Смешивать стили", "en": "🔀 Mix styles"},
+        "mixed": {"ru": "🔀 Смешанный стиль", "en": "🔀 Mixed style"},
     }
     mode = normalize_visual_mode(visual_mode)
     return labels[mode][language if language == "en" else "ru"]
@@ -763,7 +876,7 @@ def resolve_photo_scene_preset(
 
 def _resolve_photo_auto_style(recommended: List[str], sphere: str, weekday: int) -> str:
     if not recommended:
-        return "light_interior_photo"
+        return "cozy_home_photo"
     if sphere in ("money", "career"):
         # Keep work/finance grounded in interiors; coast is occasional, never dominant.
         if weekday == 7 and "sea_coast_photo" in recommended:
@@ -813,7 +926,7 @@ def resolve_style(
             rng = random.Random(f"{salt}-{mode}-{user_id}-{sphere}-{focus_key or ''}-{iso_year}-{iso_week}-{weekday}")
             if mode == "photo" and style == "auto":
                 return _resolve_photo_auto_style(recommended, sphere, weekday)
-            if style == "auto" and recommended and recommended[0] in ("bright_nature_card", "sunny_photo_scene"):
+            if style == "auto" and recommended and recommended[0] in ("bright_nature_card", "sunny_morning_photo"):
                 if weekday in (1, 3, 5, 7):
                     return recommended[0]
                 return rng.choice(recommended[1:] or recommended)

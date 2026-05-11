@@ -51,7 +51,7 @@ def visual_mode_keyboard(language: str, *, for_subscription: bool = False) -> In
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "📷 Фото-стиль", "📷 Photo style"), callback_data="visual:photo")
     b.button(text=_t(language, "🖌 Мягкая иллюстрация", "🖌 Soft illustration"), callback_data="visual:illustration")
-    b.button(text=_t(language, "🔀 Смешивать стили", "🔀 Mix styles"), callback_data="visual:mixed")
+    b.button(text=_t(language, "🔀 Смешанный стиль", "🔀 Mixed style"), callback_data="visual:mixed")
     b.adjust(1)
     return b.as_markup()
 
@@ -76,13 +76,20 @@ def _style_keys_for_visual_mode(visual_mode: str) -> list[str]:
 
 def _style_button_label(style: str, language: str) -> str:
     icons = {
-        "sunny_photo_scene": "☀️",
+        "sunny_morning_photo": "☀️",
         "living_nature_photo": "🌿",
+        "urban_city_photo": "🏙",
+        "cafe_terrace_photo": "☕",
+        "rural_calm_photo": "🌾",
         "sea_coast_photo": "🌊",
+        "cozy_home_photo": "🏡",
+        "book_nook_photo": "📚",
         "calm_lifestyle_photo": "📸",
         "bright_photo_card": "☀️",
+        "sunny_photo_scene": "☀️",
         "sunny_nature_photo": "🌿",
-        "light_interior_photo": "🪟",
+        "light_interior_photo": "🏡",
+        "bright_ocean_coast_photo": "🌊",
         "cinematic_real_photo": "📸",
         "bright_nature_card": "🌸",
         "dreamy_painterly": "🖌",
@@ -105,7 +112,7 @@ def style_keyboard(language: str, visual_mode: str = "illustration") -> InlineKe
     b.button(text=_t(language, "🎨 Автоподбор", "🎨 Auto"), callback_data="style:auto")
     for style in _style_keys_for_visual_mode(visual_mode):
         b.button(text=_style_button_label(style, language), callback_data=f"style:{style}")
-    b.button(text=_t(language, "Свой стиль", "Custom style"), callback_data="style:custom")
+    b.button(text=_t(language, "✍️ Свой стиль", "✍️ Custom style"), callback_data="style:custom")
     b.adjust(1)
     return b.as_markup()
 

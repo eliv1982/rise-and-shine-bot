@@ -95,6 +95,36 @@ def test_select_photo_scene_preset_override_returns_outdoor_path_for_outdoor_sce
         )
 
 
+def test_select_photo_scene_preset_override_supports_new_cafe_rural_and_book_scenes():
+    assert (
+        select_photo_scene_preset_override(
+            scene_plan={"scene_type": "street_cafe_terrace"},
+            selected_style="cafe_terrace_photo",
+            resolved_style="cafe_terrace_photo",
+            visual_mode="photo",
+        )
+        == "street_cafe_terrace"
+    )
+    assert (
+        select_photo_scene_preset_override(
+            scene_plan={"scene_type": "village_veranda"},
+            selected_style="rural_calm_photo",
+            resolved_style="rural_calm_photo",
+            visual_mode="photo",
+        )
+        == "village_veranda"
+    )
+    assert (
+        select_photo_scene_preset_override(
+            scene_plan={"scene_type": "library_corner"},
+            selected_style="book_nook_photo",
+            resolved_style="book_nook_photo",
+            visual_mode="photo",
+        )
+        == "bookshop_aisle"
+    )
+
+
 def test_select_photo_scene_preset_override_does_not_use_botanical_corner_for_living_nature():
     override = select_photo_scene_preset_override(
         scene_plan={"scene_type": "botanical_still_life"},
@@ -166,3 +196,24 @@ def test_professional_context_candidate_pool_contains_multiple_city_cafe_work_sc
     assert "calm_cafe_corner" in candidates
     assert "office_morning_light" in candidates
     assert "coworking_quiet_corner" in candidates
+
+
+def test_new_photo_style_candidate_pools_are_specialized():
+    cafe_candidates = get_scene_candidates_for_style(
+        selected_style="cafe_terrace_photo",
+        resolved_style="cafe_terrace_photo",
+        visual_mode="photo",
+    )
+    rural_candidates = get_scene_candidates_for_style(
+        selected_style="rural_calm_photo",
+        resolved_style="rural_calm_photo",
+        visual_mode="photo",
+    )
+    home_candidates = get_scene_candidates_for_style(
+        selected_style="cozy_home_photo",
+        resolved_style="cozy_home_photo",
+        visual_mode="photo",
+    )
+    assert "street_cafe_terrace" in cafe_candidates
+    assert "village_veranda" in rural_candidates
+    assert "warm_living_room" in home_candidates

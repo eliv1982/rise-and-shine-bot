@@ -372,6 +372,150 @@ SCENE_PRESETS = {
         "lighting": "soft daylight with warm interior balance",
         "mood": "professional calm and thoughtful momentum",
     },
+    "street_cafe_terrace": {
+        "setting": "street cafe terrace with awning shade, planters and a calm city morning atmosphere",
+        "main_subject": "terrace seating and facade details as part of an open urban environment rather than a cup close-up",
+        "visual_motifs": ["cafe", "terrace", "city_morning"],
+        "composition": "wide terrace scene with small tables as supporting details, not tabletop hero framing",
+        "lighting": "soft morning daylight with gentle facade reflections",
+        "mood": "social ease, composure and light urban openness",
+    },
+    "city_veranda_morning": {
+        "setting": "quiet city veranda in the morning with chairs, plants and soft open-air light",
+        "main_subject": "veranda atmosphere and calm street-facing depth rather than object details",
+        "visual_motifs": ["veranda", "city", "morning_light"],
+        "composition": "balanced semi-outdoor composition with depth and breathing room",
+        "lighting": "fresh morning daylight",
+        "mood": "calm anticipation and gentle urban optimism",
+    },
+    "courtyard_cafe": {
+        "setting": "courtyard cafe with greenery, calm facades and open morning space",
+        "main_subject": "courtyard seating area and planted edges rather than food or drink close-ups",
+        "visual_motifs": ["courtyard", "cafe", "greenery"],
+        "composition": "open courtyard composition with layered space and soft architecture",
+        "lighting": "soft reflected daylight",
+        "mood": "settled confidence and quiet sociability",
+    },
+    "sidewalk_cafe_after_rain": {
+        "setting": "sidewalk cafe after rain with reflective pavement and a soft city hush",
+        "main_subject": "terrace edge, awning and street reflections rather than tabletop objects",
+        "visual_motifs": ["cafe", "rain_reflection", "street"],
+        "composition": "street-facing cafe scene with reflective foreground and open depth",
+        "lighting": "muted post-rain daylight with gentle glow",
+        "mood": "reset, thoughtfulness and calm urban rhythm",
+    },
+    "village_veranda": {
+        "setting": "village veranda with morning air, wood textures and simple lived-in calm",
+        "main_subject": "porch space, chairs and surrounding garden hints in a rural home setting",
+        "visual_motifs": ["veranda", "wood", "rural_home"],
+        "composition": "open porch composition with soft depth and grounded domestic detail",
+        "lighting": "warm morning daylight",
+        "mood": "rest, safety and gentle rootedness",
+    },
+    "cottage_garden": {
+        "setting": "cottage garden with path, flowers and a calm home atmosphere nearby",
+        "main_subject": "garden edges and cottage details rather than wild open landscape",
+        "visual_motifs": ["garden", "cottage", "flowers"],
+        "composition": "garden path composition with home detail in the background",
+        "lighting": "fresh daylight with soft floral highlights",
+        "mood": "belonging, care and steady restoration",
+    },
+    "orchard_morning": {
+        "setting": "orchard in the morning with fruit trees, dew and open countryside air",
+        "main_subject": "rows of trees and grassy ground in a cared-for rural landscape",
+        "visual_motifs": ["orchard", "trees", "morning_air"],
+        "composition": "layered orchard view with grounded natural rhythm",
+        "lighting": "clear early daylight",
+        "mood": "abundance, softness and calm steadiness",
+    },
+    "country_road": {
+        "setting": "quiet country road with fields, fences and slow rural morning light",
+        "main_subject": "simple road line leading through calm countryside",
+        "visual_motifs": ["country_road", "fields", "rural_space"],
+        "composition": "open leading-line landscape with rural detail",
+        "lighting": "soft golden morning light",
+        "mood": "direction, patience and grounded calm",
+    },
+    "farmhouse_kitchen_window": {
+        "setting": "farmhouse kitchen by a window with natural materials and lived-in warmth",
+        "main_subject": "wide home atmosphere with shelves, curtains and daylight rather than tabletop close-up",
+        "visual_motifs": ["farmhouse", "kitchen", "window_light"],
+        "composition": "wide home interior with airy spacing and no mug hero object",
+        "lighting": "soft window daylight",
+        "mood": "safety, nourishment and domestic ease",
+    },
+    "greenhouse_calm": {
+        "setting": "quiet greenhouse with plants, glass and soft humid daylight",
+        "main_subject": "greenhouse path and layered plant life in a calm tended setting",
+        "visual_motifs": ["greenhouse", "plants", "garden_path"],
+        "composition": "deep greenhouse perspective with gentle botanical structure",
+        "lighting": "diffused daylight through glass",
+        "mood": "renewal, patience and living support",
+    },
+    "wooden_porch": {
+        "setting": "wooden porch with soft rural light, simple seating and open air",
+        "main_subject": "porch boards, railing and surrounding countryside hints",
+        "visual_motifs": ["porch", "wood", "open_air"],
+        "composition": "grounded porch scene with outward depth",
+        "lighting": "warm daylight with gentle shadow lines",
+        "mood": "quiet shelter and practical comfort",
+    },
+    "field_edge_sunrise": {
+        "setting": "field edge at sunrise with tall grasses and a nearby rural path",
+        "main_subject": "field border and soft early light across open land",
+        "visual_motifs": ["field_edge", "sunrise", "grass"],
+        "composition": "open field-edge scene with delicate horizon",
+        "lighting": "early sunrise glow",
+        "mood": "hope, steadiness and new-day softness",
+    },
+    "bench_under_tree_near_cottage": {
+        "setting": "bench under a tree near a cottage with calm shade and garden quiet",
+        "main_subject": "simple bench, tree canopy and cottage-side stillness",
+        "visual_motifs": ["bench", "tree", "cottage"],
+        "composition": "restful outdoor nook with anchored focal point",
+        "lighting": "soft filtered daylight through leaves",
+        "mood": "pause, comfort and gentle support",
+    },
+    "warm_living_room": {
+        "setting": "warm living room with soft light, quiet order and lived-in calm",
+        "main_subject": "room atmosphere, chair, shelf and lamp rather than decorative props alone",
+        "visual_motifs": ["living_room", "lamp", "soft_home"],
+        "composition": "wide room-focused composition with breathing space",
+        "lighting": "warm diffused daylight or lamp glow",
+        "mood": "safety, comfort and grounded ease",
+    },
+    "fireplace_reading_chair": {
+        "setting": "reading chair by a fireplace with calm home light and quiet warmth",
+        "main_subject": "chair, hearth glow and surrounding cozy atmosphere",
+        "visual_motifs": ["chair", "fireplace", "reading_home"],
+        "composition": "cozy corner composition centered on atmosphere, not object close-up",
+        "lighting": "soft mixed firelight and ambient room light",
+        "mood": "restoration, warmth and emotional shelter",
+    },
+    "lamp_and_bookshelf": {
+        "setting": "bookshelf and lamp in a calm home corner with warm evening softness",
+        "main_subject": "shelf rhythm, lamp glow and quiet home order",
+        "visual_motifs": ["bookshelf", "lamp", "home_corner"],
+        "composition": "simple vertical interior composition with gentle negative space",
+        "lighting": "warm lamp light with soft ambient balance",
+        "mood": "continuity, steadiness and thoughtful calm",
+    },
+    "fireplace_library": {
+        "setting": "library room with fireplace, shelves and a quiet reflective atmosphere",
+        "main_subject": "bookshelves and hearth glow in a calm reading environment",
+        "visual_motifs": ["library", "fireplace", "books"],
+        "composition": "layered interior with quiet depth and no office mood",
+        "lighting": "warm ambient light with gentle fire glow",
+        "mood": "reflection, depth and protected calm",
+    },
+    "bookshop_aisle": {
+        "setting": "quiet bookshop aisle with shelves, soft light and a thoughtful atmosphere",
+        "main_subject": "walkway between bookshelves and calm bookstore rhythm",
+        "visual_motifs": ["bookshop", "shelves", "walkway"],
+        "composition": "aisle perspective with layered shelf depth",
+        "lighting": "warm diffused daylight or interior glow",
+        "mood": "curiosity, focus and quiet inspiration",
+    },
 }
 
 
@@ -467,15 +611,6 @@ def resolve_scene_style_family(
     subsphere: str | None = None,
     focus_title: str | None = None,
 ) -> str:
-    if _has_professional_theme_context(
-        sphere=sphere,
-        subsphere=subsphere,
-        focus_title=focus_title,
-        selected_style=selected_style,
-        resolved_style=resolved_style,
-        style_mode=style_mode,
-    ):
-        return "professional_calm"
     values = " ".join(
         text.lower()
         for text in (
@@ -488,6 +623,16 @@ def resolve_scene_style_family(
     )
     if any(marker in values for marker in ("living_nature_photo", "sunny_nature_photo", "living nature", "живая природа")):
         return "living_nature"
+    if any(marker in values for marker in ("urban_city_photo", "city style", "городской стиль")):
+        return "urban"
+    if any(marker in values for marker in ("cafe_terrace_photo", "cafe terrace", "кафе и городские веранды")):
+        return "cafe_terrace"
+    if any(marker in values for marker in ("rural_calm_photo", "rural calm", "сельское спокойствие")):
+        return "rural_calm"
+    if any(marker in values for marker in ("cozy_home_photo", "уютный дом", "home_support", "home and grounding")):
+        return "cozy_home"
+    if any(marker in values for marker in ("book_nook_photo", "книжный уголок", "book nook")):
+        return "book_nook"
     if any(marker in values for marker in ("sea_coast_photo", "bright_ocean_coast_photo", "coast", "coastal", "beach", "ocean", "sea_horizon")):
         return "coastal"
     if any(marker in values for marker in ("minimal_botanical", "botanical", "garden", "plant")):
@@ -500,6 +645,15 @@ def resolve_scene_style_family(
         return "abstract_symbolic"
     if any(marker in values for marker in ("hands", "detail")):
         return "hands_detail"
+    if _has_professional_theme_context(
+        sphere=sphere,
+        subsphere=subsphere,
+        focus_title=focus_title,
+        selected_style=selected_style,
+        resolved_style=resolved_style,
+        style_mode=style_mode,
+    ):
+        return "professional_calm"
     if "photo" in values:
         return "photo_general"
     return "generic"
@@ -517,8 +671,14 @@ def normalize_scene_family(scene_type: str | None) -> str | None:
         "mountain": {"mountain_view"},
         "urban_quiet": {"quiet_city_morning", "urban_street", "street_after_rain", "tram_stop_morning", "bridge_walkway"},
         "urban_green": {"city_park", "city_park_before_work", "courtyard_morning"},
+        "cafe_terrace": {"street_cafe_terrace", "city_veranda_morning", "courtyard_cafe", "sidewalk_cafe_after_rain"},
         "cafe_quiet": {"calm_cafe_corner", "quiet_cafe_window", "bookstore_cafe"},
         "work_quiet": {"office_morning_light", "coworking_quiet_corner"},
+        "rural_quiet": {"village_veranda", "country_road", "wooden_porch"},
+        "country_garden": {"cottage_garden", "orchard_morning", "greenhouse_calm", "bench_under_tree_near_cottage", "field_edge_sunrise"},
+        "farmhouse_cozy": {"farmhouse_kitchen_window"},
+        "cozy_home": {"warm_living_room", "fireplace_reading_chair", "soft_blanket_corner", "lamp_and_bookshelf", "calm_room_wide", "morning_light_wall"},
+        "book_nook": {"library_corner", "reading_chair", "fireplace_library", "bookshop_aisle", "reading_corner"},
         "hands_detail": {"hands_detail", "hands_with_leaf", "hands_with_fabric", "hand_on_tree_bark"},
         "abstract_light": {"abstract_light", "soft_color_gradient", "water_reflection", "paper_shadow", "sky_light"},
         "interior_quiet": {"library_corner", "cozy_room", "reading_corner", "calm_room_wide"},
@@ -566,6 +726,15 @@ def get_scene_candidates_for_style(
             "tram_stop_morning",
             "library_corner",
         ],
+        "cafe_terrace": [
+            "street_cafe_terrace",
+            "city_veranda_morning",
+            "courtyard_cafe",
+            "sidewalk_cafe_after_rain",
+            "quiet_cafe_window",
+            "bookstore_cafe",
+            "calm_cafe_corner",
+        ],
         "living_nature": [
             "forest_path",
             "open_meadow",
@@ -594,6 +763,32 @@ def get_scene_candidates_for_style(
             "flowering_garden_path",
             "rain_on_leaves",
             "tree_canopy",
+        ],
+        "rural_calm": [
+            "village_veranda",
+            "cottage_garden",
+            "orchard_morning",
+            "country_road",
+            "farmhouse_kitchen_window",
+            "greenhouse_calm",
+            "wooden_porch",
+            "field_edge_sunrise",
+            "bench_under_tree_near_cottage",
+        ],
+        "cozy_home": [
+            "warm_living_room",
+            "fireplace_reading_chair",
+            "soft_blanket_corner",
+            "lamp_and_bookshelf",
+            "calm_room_wide",
+            "morning_light_wall",
+        ],
+        "book_nook": [
+            "library_corner",
+            "reading_chair",
+            "fireplace_library",
+            "bookshop_aisle",
+            "bookstore_cafe",
         ],
         "interior_cozy": [
             "library_corner",

@@ -87,9 +87,9 @@ def test_new_style_keys_return_non_empty_phrases():
         assert _style_to_phrase(style)
 
 
-def test_bright_ocean_coast_style_has_localized_labels():
-    assert STYLE_LABELS["bright_ocean_coast_photo"]["ru"] == "🌊 Яркое океанское побережье"
-    assert STYLE_LABELS["bright_ocean_coast_photo"]["en"] == "🌊 Bright ocean coast"
+def test_bright_ocean_coast_style_uses_legacy_alias_label():
+    assert STYLE_LABELS["bright_ocean_coast_photo"]["ru"] == "Побережье моря / океана"
+    assert STYLE_LABELS["bright_ocean_coast_photo"]["en"] == "Sea & ocean coast"
 
 
 def test_photo_prompt_contains_photo_direction_and_negatives():

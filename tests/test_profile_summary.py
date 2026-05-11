@@ -106,12 +106,12 @@ def test_style_labels_are_non_empty():
 
 
 def test_photo_style_labels_are_photographic():
-    assert get_style_label("sunny_photo_scene", "ru") == "Солнечная фотосцена"
+    assert get_style_label("sunny_photo_scene", "ru") == "Солнечное утро"
     assert get_style_label("living_nature_photo", "en") == "Living nature"
     assert get_style_label("sea_coast_photo", "ru") == "Побережье моря / океана"
     assert get_style_label("sea_coast_photo", "en") == "Sea & ocean coast"
     assert get_style_label("calm_lifestyle_photo", "ru") == "Спокойный lifestyle"
-    assert get_style_label("bright_photo_card", "ru") == "Солнечная фотосцена"
+    assert get_style_label("bright_photo_card", "ru") == "Солнечное утро"
 
 
 def test_sea_coast_photo_is_selectable_with_emoji():

@@ -21,6 +21,64 @@ _OUTDOOR_SCENE_TYPES = {
     "riverside",
     "autumn_park",
     "sunrise_field",
+    "wild_grass_field",
+    "lake_shore",
+    "tree_canopy",
+    "flowering_garden_path",
+    "rain_on_leaves",
+    "street_cafe_terrace",
+    "city_veranda_morning",
+    "courtyard_cafe",
+    "sidewalk_cafe_after_rain",
+    "quiet_city_morning",
+    "city_park_before_work",
+    "courtyard_morning",
+    "bridge_walkway",
+    "street_after_rain",
+    "tram_stop_morning",
+    "village_veranda",
+    "cottage_garden",
+    "orchard_morning",
+    "country_road",
+    "greenhouse_calm",
+    "wooden_porch",
+    "field_edge_sunrise",
+    "bench_under_tree_near_cottage",
+}
+
+_SCENE_TYPE_PRESET_OVERRIDES = {
+    "street_cafe_terrace": "street_cafe_terrace",
+    "city_veranda_morning": "city_veranda_morning",
+    "courtyard_cafe": "courtyard_cafe",
+    "sidewalk_cafe_after_rain": "street_cafe_terrace",
+    "quiet_city_morning": "city_veranda_morning",
+    "city_park_before_work": "outdoor_path",
+    "courtyard_morning": "city_veranda_morning",
+    "bridge_walkway": "outdoor_path",
+    "street_after_rain": "city_veranda_morning",
+    "tram_stop_morning": "city_veranda_morning",
+    "office_morning_light": "calm_workspace",
+    "coworking_quiet_corner": "calm_workspace",
+    "village_veranda": "village_veranda",
+    "cottage_garden": "cottage_garden",
+    "orchard_morning": "cottage_garden",
+    "country_road": "outdoor_path",
+    "farmhouse_kitchen_window": "warm_living_room",
+    "greenhouse_calm": "cottage_garden",
+    "wooden_porch": "village_veranda",
+    "field_edge_sunrise": "outdoor_path",
+    "bench_under_tree_near_cottage": "cottage_garden",
+    "warm_living_room": "warm_living_room",
+    "fireplace_reading_chair": "warm_living_room",
+    "lamp_and_bookshelf": "warm_living_room",
+    "calm_room_wide": "warm_living_room",
+    "library_corner": "bookshop_aisle",
+    "reading_corner": "bookshop_aisle",
+    "fireplace_library": "bookshop_aisle",
+    "bookshop_aisle": "bookshop_aisle",
+    "bookstore_cafe": "bookshop_aisle",
+    "calm_cafe_corner": "street_cafe_terrace",
+    "quiet_cafe_window": "city_veranda_morning",
 }
 
 
@@ -189,6 +247,8 @@ def select_photo_scene_preset_override(
 
     safe_plan = _safe_dict(scene_plan)
     scene_type = _clean_str(safe_plan.get("scene_type"))
+    if scene_type in _SCENE_TYPE_PRESET_OVERRIDES:
+        return _SCENE_TYPE_PRESET_OVERRIDES[scene_type]
     if scene_type in _OUTDOOR_SCENE_TYPES:
         return "outdoor_path"
     return None

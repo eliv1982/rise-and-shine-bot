@@ -72,6 +72,13 @@ def test_scene_presets_include_cafe_city_and_work_scenes():
     assert "office_morning_light" in scene_planner.SCENE_PRESETS
 
 
+def test_scene_presets_include_new_cafe_rural_home_and_book_scenes():
+    assert "street_cafe_terrace" in scene_planner.SCENE_PRESETS
+    assert "village_veranda" in scene_planner.SCENE_PRESETS
+    assert "warm_living_room" in scene_planner.SCENE_PRESETS
+    assert "bookshop_aisle" in scene_planner.SCENE_PRESETS
+
+
 def test_normalize_scene_family_groups_cafe_scenes():
     assert scene_planner.normalize_scene_family("calm_cafe_corner") == "cafe_quiet"
     assert scene_planner.normalize_scene_family("quiet_cafe_window") == "cafe_quiet"
@@ -81,6 +88,13 @@ def test_normalize_scene_family_groups_cafe_scenes():
 def test_normalize_scene_family_groups_work_scenes():
     assert scene_planner.normalize_scene_family("office_morning_light") == "work_quiet"
     assert scene_planner.normalize_scene_family("coworking_quiet_corner") == "work_quiet"
+
+
+def test_normalize_scene_family_groups_new_cafe_terrace_rural_cozy_and_book_scenes():
+    assert scene_planner.normalize_scene_family("street_cafe_terrace") == "cafe_terrace"
+    assert scene_planner.normalize_scene_family("village_veranda") == "rural_quiet"
+    assert scene_planner.normalize_scene_family("warm_living_room") == "cozy_home"
+    assert scene_planner.normalize_scene_family("library_corner") == "book_nook"
 
 
 def test_build_fallback_scene_plan_uses_preferred_scene_type():
@@ -170,6 +184,52 @@ def test_get_scene_candidates_for_style_interior_is_not_only_table_mug():
     assert len(candidates) >= 4
 
 
+def test_get_scene_candidates_for_style_cafe_contains_terrace_and_cafe_scenes():
+    candidates = scene_planner.get_scene_candidates_for_style(
+        selected_style="cafe_terrace_photo",
+        resolved_style="cafe_terrace_photo",
+        visual_mode="photo",
+    )
+    assert "street_cafe_terrace" in candidates
+    assert "city_veranda_morning" in candidates
+    assert "courtyard_cafe" in candidates
+    assert "bookstore_cafe" in candidates
+
+
+def test_get_scene_candidates_for_style_rural_contains_rural_scenes():
+    candidates = scene_planner.get_scene_candidates_for_style(
+        selected_style="rural_calm_photo",
+        resolved_style="rural_calm_photo",
+        visual_mode="photo",
+    )
+    assert "village_veranda" in candidates
+    assert "cottage_garden" in candidates
+    assert "country_road" in candidates
+    assert "bench_under_tree_near_cottage" in candidates
+
+
+def test_get_scene_candidates_for_style_cozy_home_contains_home_scenes():
+    candidates = scene_planner.get_scene_candidates_for_style(
+        selected_style="cozy_home_photo",
+        resolved_style="cozy_home_photo",
+        visual_mode="photo",
+    )
+    assert "warm_living_room" in candidates
+    assert "fireplace_reading_chair" in candidates
+    assert "calm_room_wide" in candidates
+
+
+def test_get_scene_candidates_for_style_book_nook_contains_library_and_bookshop_scenes():
+    candidates = scene_planner.get_scene_candidates_for_style(
+        selected_style="book_nook_photo",
+        resolved_style="book_nook_photo",
+        visual_mode="photo",
+    )
+    assert "library_corner" in candidates
+    assert "fireplace_library" in candidates
+    assert "bookshop_aisle" in candidates
+
+
 def test_get_scene_candidates_for_style_money_career_work_pool_contains_city_cafe_and_work():
     candidates = scene_planner.get_scene_candidates_for_style(
         sphere="money",
@@ -213,6 +273,40 @@ def test_build_fallback_scene_plan_avoids_repeated_cafe_family_for_professional_
         sphere="career",
     )
     assert scene_planner.normalize_scene_family(plan["scene_type"]) != "cafe_quiet"
+
+
+def test_build_fallback_scene_plan_can_choose_cafe_scene_for_cafe_style():
+    plan = scene_planner.build_fallback_scene_plan(
+        focus_title="soft professional reset",
+        visual_memory_context={"recent_scene_types": [], "recent_scene_families": [], "overused_scene_families": []},
+        selected_style="cafe_terrace_photo",
+        resolved_style="cafe_terrace_photo",
+        visual_mode="photo",
+    )
+    assert plan["scene_type"] in {
+        "street_cafe_terrace",
+        "city_veranda_morning",
+        "courtyard_cafe",
+        "sidewalk_cafe_after_rain",
+        "quiet_cafe_window",
+        "bookstore_cafe",
+        "calm_cafe_corner",
+    }
+
+
+def test_build_fallback_scene_plan_avoids_repeated_cafe_terrace_family():
+    plan = scene_planner.build_fallback_scene_plan(
+        focus_title="urban pause",
+        visual_memory_context={
+            "recent_scene_types": ["street_cafe_terrace", "city_veranda_morning"],
+            "recent_scene_families": ["cafe_terrace", "cafe_terrace"],
+            "overused_scene_families": ["cafe_terrace"],
+        },
+        selected_style="cafe_terrace_photo",
+        resolved_style="cafe_terrace_photo",
+        visual_mode="photo",
+    )
+    assert scene_planner.normalize_scene_family(plan["scene_type"]) != "cafe_terrace"
 
 
 def test_build_scene_image_prompt_includes_avoid_constraints():

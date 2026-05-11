@@ -1,5 +1,6 @@
 import datetime as dt
 
+from keyboards.inline import sphere_keyboard, style_keyboard
 from services.ritual_config import (
     ILLUSTRATION_STYLE_KEYS,
     MAIN_SPHERES,
@@ -10,20 +11,24 @@ from services.ritual_config import (
     RECOMMENDED_STYLES,
     STYLE_DESCRIPTIONS,
     VALID_VISUAL_MODES,
+    get_sphere_label,
+    get_style_label,
     get_focus_for_date,
     get_focuses,
     get_recommended_styles,
     get_weekly_balance_sphere,
     has_coastal_intent,
     is_tts_available,
+    normalize_style_key,
     normalize_visual_mode,
     resolve_photo_scene_preset,
     resolve_style,
 )
 
 
-def test_main_spheres_contains_seven_and_no_spirituality():
-    assert len(MAIN_SPHERES) == 7
+def test_main_spheres_contains_home_support_and_no_spirituality():
+    assert len(MAIN_SPHERES) == 8
+    assert "home_support" in MAIN_SPHERES
     assert "spirituality" not in MAIN_SPHERES
 
 
@@ -31,7 +36,8 @@ def test_each_main_sphere_has_focuses_and_recommended_styles():
     for sphere in MAIN_SPHERES:
         assert len(get_focuses(sphere)) >= 7
         assert RECOMMENDED_STYLES[sphere]
-        assert "bright_nature_card" in RECOMMENDED_STYLES[sphere]
+        if sphere != "home_support":
+            assert "bright_nature_card" in RECOMMENDED_STYLES[sphere]
 
 
 def test_weekly_balance_gives_seven_unique_spheres():
@@ -75,8 +81,8 @@ def test_photo_auto_prefers_stable_interior_styles_for_money_and_career():
     monday = dt.date.fromisocalendar(2030, 12, 1)
     tuesday = dt.date.fromisocalendar(2030, 12, 2)
     sunday = dt.date.fromisocalendar(2030, 12, 7)
-    assert resolve_style("auto", "money", user_id=42, day=monday, visual_mode="photo") == "light_interior_photo"
-    assert resolve_style("auto", "career", user_id=42, day=monday, visual_mode="photo") == "light_interior_photo"
+    assert resolve_style("auto", "money", user_id=42, day=monday, visual_mode="photo") == "urban_city_photo"
+    assert resolve_style("auto", "career", user_id=42, day=monday, visual_mode="photo") == "urban_city_photo"
     assert resolve_style("auto", "money", user_id=42, day=tuesday, visual_mode="photo") == "calm_lifestyle_photo"
     assert resolve_style("auto", "career", user_id=42, day=sunday, visual_mode="photo") == "sea_coast_photo"
 
@@ -97,14 +103,22 @@ def test_mixed_mode_selects_a_supported_branch():
 
 def test_photo_style_keys_are_separate_photo_directions():
     assert PHOTO_STYLE_KEYS == [
-        "sunny_photo_scene",
+        "sunny_morning_photo",
         "living_nature_photo",
+        "urban_city_photo",
+        "cafe_terrace_photo",
+        "rural_calm_photo",
         "sea_coast_photo",
-        "bright_ocean_coast_photo",
-        "light_interior_photo",
+        "cozy_home_photo",
+        "book_nook_photo",
         "calm_lifestyle_photo",
     ]
     assert not (set(PHOTO_STYLE_KEYS) & set(ILLUSTRATION_STYLE_KEYS))
+
+
+def test_home_support_sphere_and_self_realization_label_are_updated():
+    assert get_sphere_label("home_support", "ru") == "🏡 Дом и опора"
+    assert get_sphere_label("self_realization", "ru") == "🎨 Творчество и самореализация"
 
 
 def test_photo_style_descriptions_avoid_illustration_language():
@@ -152,7 +166,6 @@ def test_photo_scene_routing_prefers_workspace_for_money_and_career():
     for sphere in ("money", "career"):
         scenes = PHOTO_SCENE_ROUTING[sphere]
         assert scenes[0] == "calm_workspace"
-        assert "outdoor_path" not in scenes
 
 
 def test_photo_scene_routing_relationships_uses_concrete_table_scene():
@@ -179,7 +192,7 @@ def test_photo_auto_rotates_across_categories_where_applicable():
         resolve_style("auto", "inner_peace", user_id=42, day=monday + dt.timedelta(days=i), visual_mode="photo")
         for i in range(7)
     }
-    assert {"light_interior_photo", "sea_coast_photo", "living_nature_photo", "calm_lifestyle_photo"} <= styles
+    assert {"cozy_home_photo", "sea_coast_photo", "living_nature_photo", "calm_lifestyle_photo"} <= styles
 
 
 def test_auto_style_rotates_across_week():
@@ -223,3 +236,35 @@ def test_resolve_scene_avoids_recent_scene_repetition():
         recent_scene_presets=["ocean_sunrise", "seaside_sunset", "quiet_beach_morning"],
     )
     assert scene in {"rocky_coast", "dunes_and_seabirds", "coastal_path"}
+
+
+def test_legacy_style_aliases_are_recognized():
+    assert normalize_style_key("sunny_photo_scene") == "sunny_morning_photo"
+    assert normalize_style_key("light_interior_photo") == "cozy_home_photo"
+    assert normalize_style_key("bright_ocean_coast_photo") == "sea_coast_photo"
+    assert normalize_style_key("sunny_nature_photo") == "living_nature_photo"
+
+
+def test_photo_style_labels_are_updated_for_new_menu():
+    assert get_style_label("sunny_morning_photo", "ru") == "Солнечное утро"
+    assert get_style_label("cozy_home_photo", "ru") == "Уютный дом"
+    assert get_style_label("book_nook_photo", "ru") == "Книжный уголок"
+    assert get_style_label("light_interior_photo", "ru") == "Уютный дом"
+
+
+def test_sphere_keyboard_includes_home_support():
+    keyboard = sphere_keyboard("ru")
+    texts = [button.text for row in keyboard.inline_keyboard for button in row]
+    assert "🏡 Дом и опора" in texts
+    assert "🎨 Творчество и самореализация" in texts
+
+
+def test_photo_style_keyboard_shows_new_styles_and_hides_bright_ocean_duplicate():
+    keyboard = style_keyboard("ru", visual_mode="photo")
+    texts = [button.text for row in keyboard.inline_keyboard for button in row]
+    assert "🏙 Городской стиль" in texts
+    assert "☕ Кафе и городские веранды" in texts
+    assert "🌾 Сельское спокойствие" in texts
+    assert "🏡 Уютный дом" in texts
+    assert "📚 Книжный уголок" in texts
+    assert not any("Яркое океанское побережье" in text for text in texts)
