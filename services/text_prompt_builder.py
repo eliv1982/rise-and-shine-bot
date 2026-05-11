@@ -1,5 +1,6 @@
 from config import get_settings
 from services.text_planner import normalize_text_plan
+from utils import infer_gender_from_hint
 
 
 def _coerce_bool(value) -> bool:
@@ -26,6 +27,7 @@ def build_text_generation_guidance(
     *,
     text_plan: dict | None,
     language: str = "ru",
+    gender_hint: str | None = None,
     text_memory_context: dict | None = None,
 ) -> str | None:
     if not isinstance(text_plan, dict) or not text_plan:
@@ -35,6 +37,27 @@ def build_text_generation_guidance(
     affirmation_angles = ", ".join(normalized["affirmation_angles"]) or "—"
     avoid = ", ".join(normalized["avoid"]) or "—"
     output_language = "Russian" if normalized["language"] == "ru" else "English"
+    gender_lines: list[str] = []
+    if normalized["language"] == "ru":
+        normalized_gender = infer_gender_from_hint(gender_hint)
+        if gender_hint:
+            if normalized_gender == "female":
+                gender_lines = [
+                    "Respect the user's Russian grammatical gender: feminine.",
+                    "Use feminine forms when needed: готова, выбрала, уверена, открыта, спокойна, сосредоточена.",
+                    "Avoid masculine forms when feminine agreement is required: готов, выбрал, уверен, открыт, спокоен, сосредоточен.",
+                ]
+            elif normalized_gender == "male":
+                gender_lines = [
+                    "Respect the user's Russian grammatical gender: masculine.",
+                    "Use masculine forms when needed: готов, выбрал, уверен, открыт, спокоен, сосредоточен.",
+                    "Avoid feminine forms when masculine agreement is required: готова, выбрала, уверена, открыта, спокойна, сосредоточена.",
+                ]
+            else:
+                gender_lines = [
+                    "Respect the user's Russian grammatical gender carefully.",
+                    "Prefer gender-neutral Russian wording where possible.",
+                ]
     memory = text_memory_context if isinstance(text_memory_context, dict) else {}
     memory_lines: list[str] = []
     if memory:
@@ -70,5 +93,6 @@ def build_text_generation_guidance(
         "- Keep the final text gentle, grounded and emotionally precise.\n"
         "- Avoid toxic positivity, pressure, moralizing and repetitive generic affirmations.\n"
         ]
+        + gender_lines
         + memory_lines
     )

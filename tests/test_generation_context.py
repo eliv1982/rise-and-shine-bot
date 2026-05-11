@@ -439,7 +439,7 @@ def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last
 
 def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkeypatch):
     async def _fake_get_user(_uid):
-        return {"language": "en", "gender": "female"}
+        return {"language": "ru", "gender": "female"}
 
     async def _fake_generate_affirmations(**kwargs):
         captured["text_kwargs"] = kwargs
@@ -499,6 +499,8 @@ def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkey
     assert guidance is not None
     assert "theme_category: money_stability" in guidance
     assert "avoid: toxic positivity, pressure, productivity framing" in guidance
+    assert "Russian grammatical gender: feminine" in guidance
+    assert "готова, выбрала, уверена, открыта" in guidance
 
 
 def test_run_generation_attaches_compact_text_memory_context_metadata_when_enabled(monkeypatch):

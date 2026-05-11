@@ -1000,6 +1000,7 @@ async def _run_generation(
     text_plan_guidance = build_text_generation_guidance(
         text_plan=text_plan,
         language=language,
+        gender_hint=gender_hint,
         text_memory_context=text_memory_context,
     )
     text_prompt_controlled_meta = None

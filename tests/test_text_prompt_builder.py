@@ -87,6 +87,111 @@ def test_build_text_generation_guidance_does_not_dump_full_raw_json():
     assert "}" not in guidance
 
 
+def test_build_text_generation_guidance_includes_feminine_gender_instruction_for_ru():
+    guidance = build_text_generation_guidance(
+        text_plan={
+            "theme_category": "self_worth",
+            "focus_title": "достоинство",
+            "tone": "soft_grounded",
+            "emotional_direction": "quiet confidence",
+            "affirmation_intent": "support self-trust",
+            "affirmation_angles": ["dignity"],
+            "soft_action_intent": "one calm step",
+            "soft_action_style": "small_concrete_step",
+            "avoid": ["pressure"],
+            "language": "ru",
+        },
+        language="ru",
+        gender_hint="для женщины",
+    )
+
+    assert "Russian grammatical gender: feminine" in guidance
+    assert "готова, выбрала, уверена, открыта" in guidance
+    assert "готов, выбрал, уверен, открыт" in guidance
+
+
+def test_build_text_generation_guidance_includes_masculine_gender_instruction_for_ru():
+    guidance = build_text_generation_guidance(
+        text_plan={
+            "theme_category": "work_career",
+            "focus_title": "дело и карьера",
+            "tone": "calm_clear",
+            "emotional_direction": "steady progress",
+            "affirmation_intent": "support focus",
+            "affirmation_angles": ["clarity"],
+            "soft_action_intent": "one work step",
+            "soft_action_style": "small_concrete_step",
+            "avoid": ["pressure"],
+            "language": "ru",
+        },
+        language="ru",
+        gender_hint="для мужчины",
+    )
+
+    assert "Russian grammatical gender: masculine" in guidance
+    assert "готов, выбрал, уверен, открыт" in guidance
+    assert "готова, выбрала, уверена, открыта" in guidance
+
+
+def test_build_text_generation_guidance_prefers_gender_neutral_wording_for_unknown_hint():
+    guidance = build_text_generation_guidance(
+        text_plan={
+            "theme_category": "inner_peace",
+            "focus_title": "мягкая опора",
+            "tone": "soft_grounded",
+            "emotional_direction": "calm support",
+            "affirmation_intent": "support steadiness",
+            "affirmation_angles": ["calm"],
+            "soft_action_intent": "one quiet pause",
+            "soft_action_style": "small_concrete_step",
+            "avoid": ["pressure"],
+            "language": "ru",
+        },
+        language="ru",
+        gender_hint="для пользователя",
+    )
+
+    assert "Prefer gender-neutral Russian wording where possible." in guidance
+
+
+def test_build_text_generation_guidance_detects_real_runtime_gender_hint_values():
+    female_guidance = build_text_generation_guidance(
+        text_plan={
+            "theme_category": "self_worth",
+            "focus_title": "достоинство",
+            "tone": "soft_grounded",
+            "emotional_direction": "quiet confidence",
+            "affirmation_intent": "support self-trust",
+            "affirmation_angles": ["dignity"],
+            "soft_action_intent": "one calm step",
+            "soft_action_style": "small_concrete_step",
+            "avoid": ["pressure"],
+            "language": "ru",
+        },
+        language="ru",
+        gender_hint="она",
+    )
+    male_guidance = build_text_generation_guidance(
+        text_plan={
+            "theme_category": "work_career",
+            "focus_title": "дело и карьера",
+            "tone": "calm_clear",
+            "emotional_direction": "steady progress",
+            "affirmation_intent": "support focus",
+            "affirmation_angles": ["clarity"],
+            "soft_action_intent": "one work step",
+            "soft_action_style": "small_concrete_step",
+            "avoid": ["pressure"],
+            "language": "ru",
+        },
+        language="ru",
+        gender_hint="для мужчины",
+    )
+
+    assert "Russian grammatical gender: feminine" in female_guidance
+    assert "Russian grammatical gender: masculine" in male_guidance
+
+
 def test_build_text_generation_guidance_includes_anti_repeat_block_when_text_memory_context_present():
     guidance = build_text_generation_guidance(
         text_plan={
