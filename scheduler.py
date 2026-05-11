@@ -50,6 +50,10 @@ from services.text_planner_shadow import (
     attach_text_plan_shadow_to_metadata,
     build_text_plan_shadow_best_effort,
 )
+from services.text_reviewer_shadow import (
+    attach_text_reviewer_shadow_to_metadata,
+    build_text_reviewer_shadow_best_effort,
+)
 from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
@@ -173,6 +177,16 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 micro_theme=micro_step,
                 sphere_label=get_sphere_label(sphere, language),
                 text_plan_guidance=text_plan_guidance,
+            )
+            text_reviewer_shadow_payload = build_text_reviewer_shadow_best_effort(
+                affirmations=affirmations,
+                soft_action=micro_step,
+                focus_title=focus_text,
+                language=language,
+                gender_hint=gender_hint,
+                text_plan=text_plan,
+                text_memory_context=text_memory_context,
+                settings=settings,
             )
             scene_plan_shadow_payload = await build_scene_plan_shadow_best_effort(
                 telegram_user_id=user_id,
@@ -404,6 +418,10 @@ async def send_daily_affirmations(bot: Bot) -> None:
             visual_motifs = attach_text_plan_shadow_to_metadata(
                 visual_motifs,
                 text_plan_shadow_payload,
+            )
+            visual_motifs = attach_text_reviewer_shadow_to_metadata(
+                visual_motifs,
+                text_reviewer_shadow_payload,
             )
             if scene_prompt_controlled_meta is not None:
                 visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta

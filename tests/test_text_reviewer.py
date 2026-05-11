@@ -1,0 +1,100 @@
+from services.text_reviewer import review_generated_text
+
+
+def test_review_generated_text_female_gender_mismatch_catches_masculine_first_person():
+    report = review_generated_text(
+        affirmations=["Я открыт новым возможностям", "Я выбираю спокойствие"],
+        soft_action="Сделай один мягкий шаг",
+        language="ru",
+        gender_hint="для женщины",
+    )
+
+    assert report["checks"]["gender_mismatch"] is True
+
+
+def test_review_generated_text_female_does_not_flag_feminine_first_person():
+    report = review_generated_text(
+        affirmations=["Я открыта новым возможностям", "Я выбираю спокойствие"],
+        language="ru",
+        gender_hint="она",
+    )
+
+    assert report["checks"]["gender_mismatch"] is False
+
+
+def test_review_generated_text_unknown_gender_does_not_flag_gender_mismatch():
+    report = review_generated_text(
+        affirmations=["Я открыт новым возможностям"],
+        language="ru",
+        gender_hint="для пользователя",
+    )
+
+    assert report["checks"]["gender_mismatch"] is False
+
+
+def test_review_generated_text_detects_repeated_openings():
+    report = review_generated_text(
+        affirmations=["Я выбираю спокойствие", "Я выбираю ясность", "Я нахожу опору"],
+        language="ru",
+    )
+
+    assert report["checks"]["repeated_openings"] is True
+
+
+def test_review_generated_text_detects_pressure_language():
+    report = review_generated_text(
+        affirmations=["Я должна срочно собраться", "Я выбираю ясность"],
+        language="ru",
+    )
+
+    assert report["checks"]["pressure_language"] is True
+
+
+def test_review_generated_text_detects_productivity_framing():
+    report = review_generated_text(
+        affirmations=["Я выжму максимум из этого дня", "Я выбираю эффективность"],
+        language="ru",
+    )
+
+    assert report["checks"]["too_productivity_framed"] is True
+
+
+def test_review_generated_text_detects_soft_action_repeated_from_memory_context():
+    report = review_generated_text(
+        affirmations=["Я выбираю спокойствие"],
+        soft_action="Назови три вещи, которые уже помогают",
+        language="ru",
+        text_memory_context={
+            "avoid_soft_actions": [
+                "назови три вещи, которые уже помогают",
+                "сделай один маленький шаг",
+            ]
+        },
+    )
+
+    assert report["checks"]["soft_action_repeated"] is True
+
+
+def test_review_generated_text_score_decreases_when_warnings_exist():
+    report = review_generated_text(
+        affirmations=["Я открыт новому", "Я выбираю ясность", "Я выбираю покой"],
+        soft_action="Назови три вещи, которые уже помогают",
+        language="ru",
+        gender_hint="для женщины",
+        text_memory_context={"avoid_soft_actions": ["назови три вещи, которые уже помогают"]},
+    )
+
+    assert report["warnings"]
+    assert report["score"] < 1.0
+
+
+def test_review_generated_text_empty_input_is_safe():
+    report = review_generated_text(
+        affirmations=None,
+        soft_action=None,
+        language="ru",
+    )
+
+    assert report["enabled"] is True
+    assert report["checks"]["gender_mismatch"] is False
+    assert report["score"] <= 1.0
