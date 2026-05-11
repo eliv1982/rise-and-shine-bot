@@ -14,7 +14,12 @@ from config import (
     get_text_provider_config,
     get_tts_provider_config,
 )
-from database import can_start_interactive_generation, get_user, record_interactive_generation
+from database import (
+    can_start_interactive_generation,
+    get_user,
+    get_user_profile_preferences,
+    record_interactive_generation,
+)
 from handlers.common_guards import answer_menu_option_guard, answer_menu_style_guard
 from handlers.common_messages import (
     menu_choose_option_text as _menu_choose_option_text,
@@ -86,6 +91,7 @@ from services.scene_planner_shadow import (
 from services.text_planner import build_fallback_text_plan
 from services.text_memory import get_text_memory_context
 from services.text_prompt_builder import (
+    build_profile_text_guidance,
     build_text_generation_guidance,
     is_text_planner_controlled_enabled,
 )
@@ -218,6 +224,86 @@ async def _handle_generation_limit_reached(
     await state.clear()
 
 
+def _profile_theme_from_preferences(preferences: dict | None, language: str) -> str | None:
+    prefs = preferences if isinstance(preferences, dict) else {}
+    current_focus = str(prefs.get("current_focus") or "").strip()
+    if current_focus:
+        return current_focus
+    life_areas = [str(item).strip() for item in (prefs.get("life_areas") or []) if str(item).strip()]
+    if not life_areas:
+        return None
+    joined = ", ".join(life_areas[:3])
+    if language == "en":
+        return f"Important life areas right now: {joined}"
+    return f"Важные жизненные сферы сейчас: {joined}"
+
+
+def _profile_sphere_from_preferences(preferences: dict | None, language: str) -> str:
+    prefs = preferences if isinstance(preferences, dict) else {}
+    haystack_parts = [str(prefs.get("current_focus") or "")]
+    haystack_parts.extend(str(item) for item in (prefs.get("life_areas") or []))
+    haystack = " ".join(haystack_parts).strip().lower()
+    if not haystack:
+        return "inner_peace"
+    mapping = [
+        ("money", ["money", "finance", "budget", "income", "деньг", "финанс", "бюджет", "доход"]),
+        ("career", ["career", "work", "job", "office", "project", "работ", "карьер", "проект", "офис"]),
+        ("relationships", ["relationship", "partner", "family", "friend", "dating", "отношен", "партнер", "семь", "друз", "любов"]),
+        ("health", ["health", "body", "sleep", "energy", "recovery", "здоров", "тело", "сон", "энер", "восстанов"]),
+        ("self_realization", ["creativity", "creative", "purpose", "voice", "art", "твор", "самореал", "голос", "смысл"]),
+        ("self_worth", ["confidence", "dignity", "worth", "boundaries", "самоцен", "достоин", "границ", "уверен"]),
+        ("inner_peace", ["rest", "calm", "peace", "anxiety", "support", "опор", "спокой", "трев", "отдых", "тишин"]),
+    ]
+    for sphere_key, keywords in mapping:
+        if any(keyword in haystack for keyword in keywords):
+            return sphere_key
+    return "inner_peace"
+
+
+def _profile_generation_text(language: str) -> str:
+    if language == "en":
+        return "✨ Creating a daily mood with your saved profile preferences..."
+    return "✨ Собираю настрой дня по твоему профилю..."
+
+
+async def _start_profile_generation(
+    message: Message,
+    state: FSMContext,
+    *,
+    user_id: int,
+    edit_inline: bool = False,
+) -> None:
+    user = await get_user(user_id)
+    language = (user or {}).get("language", "ru")
+    preferences = await get_user_profile_preferences(user_id)
+    profile_theme = _profile_theme_from_preferences(preferences, language)
+    profile_sphere = _profile_sphere_from_preferences(preferences, language)
+
+    await state.clear()
+    await state.update_data(
+        sphere=profile_sphere,
+        subsphere=None,
+        style="auto",
+        visual_mode="illustration",
+        theme_text=profile_theme,
+        generation_request_type="profile_preferences",
+        use_profile_preferences=True,
+    )
+    if edit_inline:
+        try:
+            await message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            logger.debug("Failed to clear profile inline keyboard before profile generation", exc_info=True)
+    await message.answer(_profile_generation_text(language), reply_markup=main_reply_keyboard(language))
+    await _start_generation_after_preflight(
+        message,
+        state,
+        profile_theme,
+        language,
+        user_telegram_id=user_id,
+    )
+
+
 async def _check_generation_limit_and_handle(
     message: Message | None,
     state: FSMContext,
@@ -336,6 +422,17 @@ async def cmd_new(message: Message, state: FSMContext) -> None:
     await message.answer(
         _new_flow_text(language),
         reply_markup=sphere_keyboard(language),
+    )
+
+
+@router.callback_query(F.data == "profile_generate:yes")
+async def cb_generate_from_profile(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await _start_profile_generation(
+        callback.message,
+        state,
+        user_id=callback.from_user.id,
+        edit_inline=True,
     )
 
 
@@ -916,6 +1013,8 @@ async def _run_generation(
     text_provider = get_text_provider_config()
     image_provider = get_image_provider_config()
     tts_provider = get_tts_provider_config()
+    use_profile_preferences = bool(data.get("use_profile_preferences"))
+    profile_preferences = await get_user_profile_preferences(uid) if use_profile_preferences else {}
 
     context = build_generation_context_snapshot(data, theme_text=theme_text)
     sphere = context.sphere
@@ -928,6 +1027,8 @@ async def _run_generation(
     history = list(context.recent_generation_history)
     recent_styles = [item.get("selected_style") for item in history[-3:] if item.get("selected_style")]
     recent_scenes = [item.get("scene_preset") for item in history[-2:] if item.get("scene_preset")]
+    if use_profile_preferences and not theme_text:
+        theme_text = _profile_theme_from_preferences(profile_preferences, language)
 
     if not sphere:
         await message.answer(
@@ -1011,6 +1112,13 @@ async def _run_generation(
         gender_hint=gender_hint,
         text_memory_context=text_memory_context,
     )
+    profile_text_guidance = build_profile_text_guidance(
+        preferences=profile_preferences if use_profile_preferences else None,
+        language=language,
+    )
+    combined_text_guidance = "\n\n".join(
+        part for part in [text_plan_guidance, profile_text_guidance] if part
+    ) or None
     text_prompt_controlled_meta = None
     if text_plan_guidance:
         text_prompt_controlled_meta = {
@@ -1019,6 +1127,19 @@ async def _run_generation(
             "theme_category": (text_plan or {}).get("theme_category"),
             "tone": (text_plan or {}).get("tone"),
             "guidance_used": True,
+        }
+    profile_guidance_meta = None
+    if use_profile_preferences:
+        profile_preferences_count = len([key for key, value in profile_preferences.items() if value])
+        profile_avoid_constraints_count = len(profile_preferences.get("avoid_topics") or []) + len(
+            profile_preferences.get("avoid_words") or []
+        )
+        profile_guidance_meta = {
+            "profile_used": True,
+            "profile_preferences_count": profile_preferences_count,
+            "profile_current_focus_used": bool(str(profile_preferences.get("current_focus") or "").strip()),
+            "profile_avoid_constraints_count": profile_avoid_constraints_count,
+            "guidance_used": bool(profile_text_guidance),
         }
     text_memory_context_meta = None
     if isinstance(text_memory_context, dict) and text_memory_context:
@@ -1041,7 +1162,7 @@ async def _run_generation(
             focus=focus_text,
             micro_theme=micro_step,
             sphere_label=get_sphere_label(sphere, language),
-            text_plan_guidance=text_plan_guidance,
+            text_plan_guidance=combined_text_guidance,
         )
     except Exception as exc:
         logger.exception("Affirmations generation failed: %s", exc)
@@ -1063,6 +1184,7 @@ async def _run_generation(
         gender_hint=gender_hint,
         text_plan=text_plan,
         text_memory_context=text_memory_context,
+        profile_preferences=profile_preferences if use_profile_preferences else None,
         settings=settings,
     )
 
@@ -1287,6 +1409,8 @@ async def _run_generation(
         visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
     if text_prompt_controlled_meta is not None:
         visual_motifs["text_prompt_controlled"] = text_prompt_controlled_meta
+    if profile_guidance_meta is not None:
+        visual_motifs["profile_text_guidance"] = profile_guidance_meta
     if text_memory_context_meta is not None:
         visual_motifs["text_memory_context"] = text_memory_context_meta
     orchestrator_shadow_payload = build_orchestrator_shadow_best_effort(
@@ -1303,6 +1427,7 @@ async def _run_generation(
         text_reviewer_shadow=text_reviewer_shadow_payload,
         scene_plan_shadow=scene_plan_shadow_payload,
         scene_prompt_controlled=scene_prompt_controlled_meta,
+        profile_guidance_meta=profile_guidance_meta,
     )
     visual_motifs = attach_orchestrator_shadow_to_metadata(visual_motifs, orchestrator_shadow_payload)
     await record_generation_history_best_effort(
@@ -1339,6 +1464,7 @@ async def _run_generation(
             "focus_key": focus["key"],
         },
         generation_request_type=None,
+        use_profile_preferences=None,
         recent_generation_history=history[-5:],
     )
 

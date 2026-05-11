@@ -23,6 +23,91 @@ def is_text_planner_controlled_enabled(settings: object | None = None) -> bool:
         return False
 
 
+def _clean_profile_scalar(value) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _clean_profile_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        cleaned = _clean_profile_scalar(item)
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(cleaned)
+    return result
+
+
+def build_profile_text_guidance(
+    *,
+    preferences: dict | None,
+    language: str = "ru",
+) -> str | None:
+    if not isinstance(preferences, dict) or not preferences:
+        return None
+
+    tone = _clean_profile_scalar(preferences.get("tone_preference"))
+    support_style = _clean_profile_scalar(preferences.get("support_style"))
+    text_length = _clean_profile_scalar(preferences.get("text_length_preference"))
+    current_focus = _clean_profile_scalar(preferences.get("current_focus"))
+    life_areas = _clean_profile_list(preferences.get("life_areas"))
+    avoid_topics = _clean_profile_list(preferences.get("avoid_topics"))
+    avoid_words = _clean_profile_list(preferences.get("avoid_words"))
+
+    if not any([tone, support_style, text_length, current_focus, life_areas, avoid_topics, avoid_words]):
+        return None
+
+    output_language = "Russian" if language == "ru" else "English"
+    lines = [
+        "Profile preference guidance:",
+        f"- Output language: {output_language}",
+    ]
+    if language == "ru":
+        lines.extend(
+            [
+                "- Keep all user-facing text strictly in Russian.",
+                "- Do not leave English words in focus, affirmations, soft action or micro-step.",
+                "- Preserve warm informal singular Russian address: use «ты», not «Вы/вы».",
+                "- Soft action should use informal singular imperative.",
+            ]
+        )
+    if tone:
+        lines.append(f"- preferred_tone: {tone}")
+    if support_style:
+        lines.append(f"- preferred_support_style: {support_style}")
+    if text_length:
+        lines.append(f"- preferred_text_length: {text_length}")
+    if current_focus:
+        lines.append(f"- current_focus_context: {current_focus}")
+        lines.append("- Treat current_focus as strong context, but do not quote it verbatim unless it sounds natural.")
+    if life_areas:
+        lines.append(f"- life_areas: {', '.join(life_areas)}")
+        lines.append("- Let these life areas guide the focus naturally when choosing emphasis.")
+    if avoid_topics:
+        lines.append(f"- avoid_topics: {', '.join(avoid_topics)}")
+        lines.append("- Avoid centering the text on these topics unless the user explicitly asked for them.")
+    if avoid_words:
+        lines.append(f"- avoid_words: {', '.join(avoid_words)}")
+        lines.append("- Do not use these words verbatim in user-facing text when a natural alternative exists.")
+    lines.extend(
+        [
+            "- Keep the tone warm, natural and personal, not bureaucratic.",
+            "- Vary affirmation openings and sentence structures.",
+            "- Prefer a concrete, grounded, small real-life action for the soft action when possible.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def build_text_generation_guidance(
     *,
     text_plan: dict | None,

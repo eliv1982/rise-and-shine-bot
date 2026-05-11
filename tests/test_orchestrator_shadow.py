@@ -36,6 +36,12 @@ def test_build_orchestrator_shadow_payload_returns_compact_payload():
         text_reviewer_shadow={"score": 0.85, "warnings": ["repeated_openings"]},
         scene_plan_shadow={"scene_plan": {"scene_type": "forest_path"}},
         scene_prompt_controlled={"used_scene_type": "forest_path"},
+        profile_guidance_meta={
+            "profile_used": True,
+            "profile_preferences_count": 4,
+            "profile_current_focus_used": True,
+            "profile_avoid_constraints_count": 3,
+        },
     )
 
     assert payload["enabled"] is True
@@ -45,10 +51,16 @@ def test_build_orchestrator_shadow_payload_returns_compact_payload():
     assert payload["route"]["text_reviewer"] is True
     assert payload["route"]["scene_planner"] is True
     assert payload["route"]["scene_prompt_controlled"] is True
+    assert payload["route"]["profile_preferences"] is True
     assert payload["quality"]["text_reviewer_score"] == 0.85
     assert payload["quality"]["text_warnings_count"] == 1
     assert payload["quality"]["text_memory_overused_count"] == 3
+    assert payload["quality"]["profile_preferences_count"] == 4
+    assert payload["quality"]["profile_avoid_constraints_count"] == 3
+    assert payload["inputs"]["profile_used"] is True
+    assert payload["inputs"]["profile_current_focus_used"] is True
     assert "text planner guidance used" in payload["decisions"]
+    assert "profile preferences guidance used" in payload["decisions"]
     assert "scene controlled prompt used" in payload["decisions"]
 
 

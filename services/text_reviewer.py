@@ -224,6 +224,25 @@ def _has_abstract_contrast_formula(soft_action: str | None) -> bool:
     return bool(extract_abstract_word_patterns(soft_action))
 
 
+def _avoid_words_used(texts: list[str], profile_preferences: dict | None) -> list[str]:
+    preferences = profile_preferences if isinstance(profile_preferences, dict) else {}
+    avoid_words = preferences.get("avoid_words")
+    if not isinstance(avoid_words, list):
+        return []
+    combined = "\n".join(_normalize_match_text(text) for text in texts if _clean_text(text))
+    hits: list[str] = []
+    for item in avoid_words:
+        normalized = _normalize_match_text(item)
+        stem = normalized[:-2] if len(normalized) >= 6 else ""
+        if normalized and (
+            _contains_exact_phrase(combined, normalized)
+            or (len(normalized) >= 5 and normalized in combined)
+            or (stem and stem in combined)
+        ):
+            hits.append(str(item).strip())
+    return _dedupe_stable(hits)
+
+
 def review_generated_text(
     *,
     affirmations: list[str] | None,
@@ -233,6 +252,7 @@ def review_generated_text(
     gender_hint: str | None = None,
     text_plan: dict | None = None,
     text_memory_context: dict | None = None,
+    profile_preferences: dict | None = None,
 ) -> dict:
     safe_affirmations = [item.strip() for item in (affirmations or []) if isinstance(item, str) and item.strip()]
     safe_soft_action = _clean_text(soft_action)
@@ -263,6 +283,7 @@ def review_generated_text(
     language_mismatch = _language_mismatch(texts, language)
     too_generic = _too_generic(safe_affirmations, language)
     abstract_contrast_formula = _has_abstract_contrast_formula(safe_soft_action)
+    avoid_words_used = _avoid_words_used(texts, profile_preferences)
 
     checks = {
         "gender_mismatch": gender_mismatch,
@@ -276,6 +297,7 @@ def review_generated_text(
         "language_mismatch": language_mismatch,
         "too_generic": too_generic,
         "abstract_contrast_formula": abstract_contrast_formula,
+        "avoid_words_used": avoid_words_used,
     }
 
     warnings: list[str] = []
@@ -301,6 +323,8 @@ def review_generated_text(
         warnings.append("too_generic")
     if abstract_contrast_formula:
         warnings.append("abstract_contrast_formula")
+    if avoid_words_used:
+        warnings.append("avoid_words_used: " + ", ".join(avoid_words_used))
     if not texts:
         warnings.append("empty_generated_text")
 
@@ -315,6 +339,7 @@ def review_generated_text(
     score -= 0.1 if language_mismatch else 0.0
     score -= 0.05 if too_generic else 0.0
     score -= 0.05 if abstract_contrast_formula else 0.0
+    score -= min(0.1, 0.03 * len(avoid_words_used))
     score -= min(0.2, 0.05 * len(generic_patterns))
     if not texts:
         score -= 0.1

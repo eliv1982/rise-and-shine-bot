@@ -47,6 +47,7 @@ def build_orchestrator_shadow_payload(
     text_reviewer_shadow: dict | None = None,
     scene_plan_shadow: dict | None = None,
     scene_prompt_controlled: dict | None = None,
+    profile_guidance_meta: dict | None = None,
 ) -> dict | None:
     route = {
         "text_planner": isinstance(text_plan_shadow, dict),
@@ -54,6 +55,7 @@ def build_orchestrator_shadow_payload(
         "text_reviewer": isinstance(text_reviewer_shadow, dict),
         "scene_planner": isinstance(scene_plan_shadow, dict),
         "scene_prompt_controlled": isinstance(scene_prompt_controlled, dict),
+        "profile_preferences": isinstance(profile_guidance_meta, dict) and bool(profile_guidance_meta),
     }
     if isinstance(text_prompt_controlled, dict):
         route["text_planner"] = True
@@ -65,6 +67,10 @@ def build_orchestrator_shadow_payload(
             len((text_memory_context or {}).get("overused_text_patterns") or [])
             + len((text_memory_context or {}).get("overused_soft_action_patterns") or [])
         ) if isinstance(text_memory_context, dict) else 0,
+        "profile_preferences_count": int((profile_guidance_meta or {}).get("profile_preferences_count") or 0)
+        if isinstance(profile_guidance_meta, dict) else 0,
+        "profile_avoid_constraints_count": int((profile_guidance_meta or {}).get("profile_avoid_constraints_count") or 0)
+        if isinstance(profile_guidance_meta, dict) else 0,
     }
 
     decisions: list[str] = []
@@ -72,6 +78,8 @@ def build_orchestrator_shadow_payload(
         decisions.append("text planner guidance used")
     if route["text_memory"]:
         decisions.append("text memory anti-repeat used")
+    if route["profile_preferences"]:
+        decisions.append("profile preferences guidance used")
     if isinstance(text_reviewer_shadow, dict):
         decisions.append("text reviewer shadow used")
     if isinstance(scene_plan_shadow, dict):
@@ -90,6 +98,8 @@ def build_orchestrator_shadow_payload(
             "focus_title": _clean_text(focus_title),
             "selected_style": _clean_text(selected_style),
             "visual_mode": _clean_text(visual_mode),
+            "profile_used": bool((profile_guidance_meta or {}).get("profile_used")) if isinstance(profile_guidance_meta, dict) else False,
+            "profile_current_focus_used": bool((profile_guidance_meta or {}).get("profile_current_focus_used")) if isinstance(profile_guidance_meta, dict) else False,
         },
         "quality": quality,
         "decisions": decisions,
@@ -111,6 +121,7 @@ def build_orchestrator_shadow_best_effort(
     text_reviewer_shadow: dict | None = None,
     scene_plan_shadow: dict | None = None,
     scene_prompt_controlled: dict | None = None,
+    profile_guidance_meta: dict | None = None,
 ) -> dict | None:
     if not is_orchestrator_shadow_enabled(settings):
         return None
@@ -128,6 +139,7 @@ def build_orchestrator_shadow_best_effort(
             text_reviewer_shadow=text_reviewer_shadow,
             scene_plan_shadow=scene_plan_shadow,
             scene_prompt_controlled=scene_prompt_controlled,
+            profile_guidance_meta=profile_guidance_meta,
         )
     except Exception:
         logger.exception("Orchestrator shadow mode failed for focus=%s", focus_title)

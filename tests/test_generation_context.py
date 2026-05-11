@@ -332,6 +332,74 @@ def test_choose_style_clears_inline_keyboard_and_returns_to_main_menu_when_limit
     assert callback.message.answers[0][1] == "main:ru"
 
 
+def test_start_profile_generation_reads_preferences_and_sets_profile_request_context(monkeypatch):
+    captured = {}
+
+    async def _fake_get_user(_uid):
+        return {"language": "ru", "gender": "female"}
+
+    async def _fake_get_preferences(_uid):
+        return {
+            "current_focus": "спокойно разобраться с деньгами",
+            "life_areas": ["деньги", "работа"],
+            "tone_preference": "calm_no_pathos",
+        }
+
+    async def _fake_preflight(message, state, theme_text, language, *, user_telegram_id=None):
+        captured["theme_text"] = theme_text
+        captured["language"] = language
+        captured["user_telegram_id"] = user_telegram_id
+        captured["state_data"] = await state.get_data()
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "get_user_profile_preferences", _fake_get_preferences)
+    monkeypatch.setattr(generation, "_start_generation_after_preflight", _fake_preflight)
+    monkeypatch.setattr(generation, "main_reply_keyboard", lambda language: f"main:{language}")
+
+    state = _FakeState()
+    message = _FakeMessage(user_id=501)
+
+    asyncio.run(generation._start_profile_generation(message, state, user_id=501))
+
+    assert captured["theme_text"] == "спокойно разобраться с деньгами"
+    assert captured["language"] == "ru"
+    assert captured["user_telegram_id"] == 501
+    assert captured["state_data"]["generation_request_type"] == "profile_preferences"
+    assert captured["state_data"]["use_profile_preferences"] is True
+    assert captured["state_data"]["style"] == "auto"
+    assert captured["state_data"]["visual_mode"] == "illustration"
+    assert captured["state_data"]["sphere"] == "money"
+    assert message.answers[0][1] == "main:ru"
+
+
+def test_start_profile_generation_with_empty_preferences_falls_back_safely(monkeypatch):
+    captured = {}
+
+    async def _fake_get_user(_uid):
+        return {"language": "ru", "gender": "female"}
+
+    async def _fake_get_preferences(_uid):
+        return {}
+
+    async def _fake_preflight(message, state, theme_text, language, *, user_telegram_id=None):
+        captured["theme_text"] = theme_text
+        captured["state_data"] = await state.get_data()
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "get_user_profile_preferences", _fake_get_preferences)
+    monkeypatch.setattr(generation, "_start_generation_after_preflight", _fake_preflight)
+    monkeypatch.setattr(generation, "main_reply_keyboard", lambda language: f"main:{language}")
+
+    state = _FakeState()
+    message = _FakeMessage(user_id=502)
+
+    asyncio.run(generation._start_profile_generation(message, state, user_id=502))
+
+    assert captured["theme_text"] is None
+    assert captured["state_data"]["sphere"] == "inner_peace"
+    assert captured["state_data"]["generation_request_type"] == "profile_preferences"
+
+
 def test_new_request_from_result_clears_inline_keyboard_and_returns_to_main_menu_when_limit_is_reached(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru"}
@@ -599,6 +667,104 @@ def test_run_generation_attaches_compact_text_memory_context_metadata_when_enabl
         "recent_focus_titles_count": 2,
         "avoid_soft_actions_count": 1,
     }
+
+
+def test_run_generation_uses_profile_preferences_guidance_and_attaches_profile_metadata(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru", "gender": "female"}
+
+    async def _fake_get_preferences(_uid):
+        return {
+            "tone_preference": "calm_no_pathos",
+            "support_style": "grounding",
+            "text_length_preference": "short",
+            "current_focus": "спокойно разобраться с деньгами",
+            "life_areas": ["деньги", "работа"],
+            "avoid_topics": ["конфликт"],
+            "avoid_words": ["срочно", "должен"],
+        }
+
+    async def _fake_generate_affirmations(**kwargs):
+        captured["text_kwargs"] = kwargs
+        return ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"]
+
+    async def _fake_build_enriched_image_prompt(**kwargs):
+        return "prompt", "template"
+
+    async def _fake_generate_image(**kwargs):
+        return "fake_image.png"
+
+    async def _fake_history(**kwargs):
+        captured["history_kwargs"] = kwargs
+
+    captured = {}
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(generation, "get_user_profile_preferences", _fake_get_preferences)
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(
+            disable_daily_generation_limit=True,
+            generation_daily_limit=0,
+            llm_image_prompt_enabled=False,
+            show_image_debug=False,
+            image_model="image-model",
+            image_size="1024x1024",
+            text_planner_shadow_enabled=False,
+            text_planner_controlled_enabled=False,
+            text_memory_context_enabled=False,
+            text_reviewer_shadow_enabled=True,
+            orchestrator_shadow_enabled=True,
+            scene_planner_shadow_enabled=False,
+            scene_planner_image_prompt_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
+    monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
+    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
+
+    state = _FakeState(
+        {
+            "sphere": "money",
+            "subsphere": None,
+            "style": "auto",
+            "visual_mode": "illustration",
+            "recent_generation_history": [],
+            "generation_request_type": "profile_preferences",
+            "use_profile_preferences": True,
+        }
+    )
+    message = _FakeMessage(user_id=503)
+
+    asyncio.run(
+        generation._run_generation(
+            message,
+            state,
+            theme_text=None,
+            user_telegram_id=503,
+        )
+    )
+
+    guidance = captured["text_kwargs"]["text_plan_guidance"]
+    visual_motifs = captured["history_kwargs"]["visual_motifs"]
+    assert "Profile preference guidance:" in guidance
+    assert "preferred_tone: calm_no_pathos" in guidance
+    assert "preferred_support_style: grounding" in guidance
+    assert "current_focus_context: спокойно разобраться с деньгами" in guidance
+    assert "life_areas: деньги, работа" in guidance
+    assert "avoid_topics: конфликт" in guidance
+    assert "avoid_words: срочно, должен" in guidance
+    assert visual_motifs["profile_text_guidance"] == {
+        "profile_used": True,
+        "profile_preferences_count": 7,
+        "profile_current_focus_used": True,
+        "profile_avoid_constraints_count": 3,
+        "guidance_used": True,
+    }
+    assert visual_motifs["orchestrator_shadow"]["route"]["profile_preferences"] is True
 
 
 def test_run_generation_does_not_read_text_memory_or_attach_marker_when_disabled(monkeypatch):

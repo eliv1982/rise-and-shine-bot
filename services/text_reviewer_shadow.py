@@ -36,6 +36,7 @@ def build_text_reviewer_shadow_payload(
     gender_hint: str | None = None,
     text_plan: dict | None = None,
     text_memory_context: dict | None = None,
+    profile_preferences: dict | None = None,
 ) -> dict | None:
     report = review_generated_text(
         affirmations=affirmations,
@@ -45,6 +46,7 @@ def build_text_reviewer_shadow_payload(
         gender_hint=gender_hint,
         text_plan=text_plan,
         text_memory_context=text_memory_context,
+        profile_preferences=profile_preferences,
     )
     return {
         "enabled": True,
@@ -64,6 +66,7 @@ def build_text_reviewer_shadow_best_effort(
     gender_hint: str | None = None,
     text_plan: dict | None = None,
     text_memory_context: dict | None = None,
+    profile_preferences: dict | None = None,
     settings: object | None = None,
 ) -> dict | None:
     if not is_text_reviewer_shadow_enabled(settings):
@@ -77,6 +80,7 @@ def build_text_reviewer_shadow_best_effort(
             gender_hint=gender_hint,
             text_plan=text_plan,
             text_memory_context=text_memory_context,
+            profile_preferences=profile_preferences,
         )
     except Exception:
         logger.exception("Text reviewer shadow mode failed for focus=%s", focus_title)

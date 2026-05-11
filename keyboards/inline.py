@@ -226,6 +226,7 @@ def language_keyboard() -> InlineKeyboardMarkup:
 def start_menu_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "🌿 Создать настрой", "🌿 Create focus"), callback_data="cmd:new")
+    b.button(text=_t(language, "✨ По моему профилю", "✨ From my profile"), callback_data="profile_generate:yes")
     b.button(text=_t(language, "⚙️ Подписки", "⚙️ Subscriptions"), callback_data="sub:dash")
     b.button(text=_t(language, "👤 Профиль", "👤 Profile"), callback_data="profile:open")
     b.adjust(1)
@@ -236,13 +237,15 @@ def main_reply_keyboard(language: str) -> ReplyKeyboardMarkup:
     """Persistent нижнее меню для основных действий."""
     if language == "en":
         keyboard = [
-            [KeyboardButton(text="🌿 Create mood")],
-            [KeyboardButton(text="⚙️ Subscriptions"), KeyboardButton(text="👤 Profile")],
+            [KeyboardButton(text="🌿 Create mood"), KeyboardButton(text="✨ From my profile")],
+            [KeyboardButton(text="👤 Profile"), KeyboardButton(text="⚙️ Subscriptions")],
+            [KeyboardButton(text="❓ Help")],
         ]
     else:
         keyboard = [
-            [KeyboardButton(text="🌿 Создать настрой")],
-            [KeyboardButton(text="⚙️ Подписки"), KeyboardButton(text="👤 Профиль")],
+            [KeyboardButton(text="🌿 Создать настрой"), KeyboardButton(text="✨ По моему профилю")],
+            [KeyboardButton(text="👤 Профиль"), KeyboardButton(text="⚙️ Подписки")],
+            [KeyboardButton(text="❓ Помощь")],
         ]
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -328,6 +331,7 @@ def profile_keyboard(language: str, has_subscription: bool) -> InlineKeyboardMar
     b.button(text=_t(language, "🎯 Текущий фокус", "🎯 Current focus"), callback_data="profile_edit:current_focus")
     b.button(text=_t(language, "🚫 Избегать тем", "🚫 Avoid topics"), callback_data="profile_edit:avoid_topics")
     b.button(text=_t(language, "🔕 Избегать слов", "🔕 Avoid words"), callback_data="profile_edit:avoid_words")
+    b.button(text=_t(language, "✨ По моему профилю", "✨ From my profile"), callback_data="profile_generate:yes")
     b.button(text=_t(language, "⚙️ Настроить подписки", "⚙️ Manage subscriptions"), callback_data="sub:dash")
     b.adjust(1)
     return b.as_markup()

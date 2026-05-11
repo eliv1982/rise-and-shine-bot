@@ -213,6 +213,17 @@ def test_review_generated_text_does_not_flag_unrelated_soft_action_structure():
     assert report["checks"]["abstract_contrast_formula"] is False
 
 
+def test_review_generated_text_flags_avoid_words_usage_from_profile_preferences():
+    report = review_generated_text(
+        affirmations=["Я выбираю спокойствие без спешки."],
+        soft_action="Запиши один шаг без срочно и давления.",
+        language="ru",
+        profile_preferences={"avoid_words": ["срочно", "давление"]},
+    )
+
+    assert report["checks"]["avoid_words_used"] == ["срочно", "давление"]
+
+
 def test_review_generated_text_score_decreases_when_warnings_exist():
     report = review_generated_text(
         affirmations=["Я открыт новому", "Я выбираю ясность", "Я выбираю покой"],

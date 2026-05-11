@@ -24,25 +24,29 @@ async def cmd_help(message: Message) -> None:
         text = (
             "Я бот *Rise and Shine Daily*.\n\n"
             "Я помогаю тебе собирать ежедневный ритуал: фокус дня, аффирмации, мягкий шаг и красивый визуал.\n\n"
-            "/start — регистрация или приветствие\n"
-            "/new — новый настрой дня\n"
-            "/subscribe — подписка на ежедневный ритуал\n"
+            "/start — приветствие и главное меню\n"
+            "/new — создать настрой вручную\n"
+            "/subscribe — настроить подписки\n"
             "/unsubscribe — отменить подписку\n"
-            "/profile — профиль\n"
-            "/language — сменить язык (русский / English)\n"
-            "/cancel — выйти из текущего диалога"
+            "/profile — профиль и персональные настройки\n"
+            "/language — сменить язык\n"
+            "/cancel — сбросить текущий диалог\n"
+            "/reset — удалить регистрацию\n"
+            "/help — справка"
         )
     else:
         text = (
             "I'm the *Rise and Shine Daily* bot.\n\n"
             "I help you create a daily ritual: focus of the day, affirmations, a gentle step and a beautiful visual.\n\n"
-            "/start — sign up or greeting\n"
-            "/new — new daily focus\n"
-            "/subscribe — daily ritual subscription\n"
+            "/start — greeting and main menu\n"
+            "/new — create mood manually\n"
+            "/subscribe — manage subscriptions\n"
             "/unsubscribe — cancel subscription\n"
-            "/profile — your profile\n"
-            "/language — change language (Russian / English)\n"
-            "/cancel — exit current dialog"
+            "/profile — profile and personal settings\n"
+            "/language — change language\n"
+            "/cancel — reset current dialog\n"
+            "/reset — delete registration\n"
+            "/help — help"
         )
     await message.answer(text, parse_mode="Markdown")
 

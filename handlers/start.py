@@ -673,24 +673,42 @@ async def profile_process_life_areas(message: Message, state: FSMContext) -> Non
     await _save_profile_text_field(message, state, field="life_areas", allow_clear=True)
 
 
-@router.message(F.text.in_({"👤 Профиль", "👤 Profile"}))
+@router.message(StateFilter(None), F.text.in_({"👤 Профиль", "👤 Profile"}))
 async def main_menu_profile(message: Message, state: FSMContext) -> None:
     await state.clear()
     await cmd_profile(message, state)
 
 
-@router.message(F.text.in_({"🌿 Создать настрой", "🌿 Create mood", "🌿 Create focus"}))
+@router.message(StateFilter(None), F.text.in_({"🌿 Создать настрой", "🌿 Create mood", "🌿 Create focus"}))
 async def main_menu_create(message: Message, state: FSMContext) -> None:
     from handlers.generation import cmd_new
 
     await cmd_new(message, state)
 
 
-@router.message(F.text.in_({"⚙️ Подписки", "⚙️ Subscriptions"}))
+@router.message(StateFilter(None), F.text.in_({"✨ По моему профилю", "✨ From my profile"}))
+async def main_menu_profile_generation(message: Message, state: FSMContext) -> None:
+    from handlers.generation import _start_profile_generation
+
+    await _start_profile_generation(
+        message,
+        state,
+        user_id=message.from_user.id,
+    )
+
+
+@router.message(StateFilter(None), F.text.in_({"⚙️ Подписки", "⚙️ Subscriptions"}))
 async def main_menu_subscriptions(message: Message, state: FSMContext) -> None:
     from handlers.subscribe import cmd_subscribe
 
     await cmd_subscribe(message, state)
+
+
+@router.message(StateFilter(None), F.text.in_({"❓ Помощь", "❓ Help"}))
+async def main_menu_help(message: Message, state: FSMContext) -> None:
+    from handlers.smalltalk import cmd_help
+
+    await cmd_help(message)
 
 
 @router.message(StateFilter(None), F.text, ~F.text.startswith("/"))

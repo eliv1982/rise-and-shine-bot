@@ -1,4 +1,5 @@
 from services.text_prompt_builder import (
+    build_profile_text_guidance,
     build_text_generation_guidance,
     is_text_planner_controlled_enabled,
 )
@@ -252,3 +253,35 @@ def test_build_text_generation_guidance_includes_anti_repeat_block_when_text_mem
     assert "Vary the soft action verb and structure." in guidance
     assert "Output language: Russian" in guidance
     assert '{"recent_focus_titles"' not in guidance
+
+
+def test_build_profile_text_guidance_returns_none_for_empty_preferences():
+    assert build_profile_text_guidance(preferences=None, language="ru") is None
+    assert build_profile_text_guidance(preferences={}, language="ru") is None
+
+
+def test_build_profile_text_guidance_includes_tone_support_focus_life_areas_and_avoid_constraints():
+    guidance = build_profile_text_guidance(
+        preferences={
+            "tone_preference": "calm_no_pathos",
+            "support_style": "grounding",
+            "text_length_preference": "short",
+            "current_focus": "спокойно разобраться с деньгами",
+            "life_areas": ["работа", "деньги"],
+            "avoid_topics": ["болезни", "конфликт"],
+            "avoid_words": ["срочно", "должен"],
+        },
+        language="ru",
+    )
+
+    assert "Profile preference guidance:" in guidance
+    assert "preferred_tone: calm_no_pathos" in guidance
+    assert "preferred_support_style: grounding" in guidance
+    assert "preferred_text_length: short" in guidance
+    assert "current_focus_context: спокойно разобраться с деньгами" in guidance
+    assert "life_areas: работа, деньги" in guidance
+    assert "avoid_topics: болезни, конфликт" in guidance
+    assert "avoid_words: срочно, должен" in guidance
+    assert "strictly in Russian" in guidance
+    assert "use «ты», not «Вы/вы»" in guidance
+    assert '{"tone_preference"' not in guidance
