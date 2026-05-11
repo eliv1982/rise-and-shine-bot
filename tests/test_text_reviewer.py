@@ -68,11 +68,40 @@ def test_review_generated_text_detects_soft_action_repeated_from_memory_context(
             "avoid_soft_actions": [
                 "назови три вещи, которые уже помогают",
                 "сделай один маленький шаг",
-            ]
+            ],
+            "avoid_soft_action_patterns": ["name_three_things"],
         },
     )
 
     assert report["checks"]["soft_action_repeated"] is True
+
+
+def test_review_generated_text_flags_soft_action_repeated_by_family_pattern():
+    report = review_generated_text(
+        affirmations=["Я выбираю спокойствие"],
+        soft_action="Назови три простые вещи, на которые можно опереться сейчас",
+        language="ru",
+        text_memory_context={
+            "avoid_soft_action_patterns": ["name_three_things"],
+            "overused_soft_action_patterns": ["name_three_things"],
+        },
+    )
+
+    assert report["checks"]["soft_action_repeated"] is True
+
+
+def test_review_generated_text_does_not_flag_unrelated_soft_action_family():
+    report = review_generated_text(
+        affirmations=["Я выбираю спокойствие"],
+        soft_action="Запиши одну тихую мысль перед сном",
+        language="ru",
+        text_memory_context={
+            "avoid_soft_action_patterns": ["name_three_things"],
+            "overused_soft_action_patterns": ["name_three_things"],
+        },
+    )
+
+    assert report["checks"]["soft_action_repeated"] is False
 
 
 def test_review_generated_text_score_decreases_when_warnings_exist():

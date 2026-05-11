@@ -211,6 +211,7 @@ def test_build_text_generation_guidance_includes_anti_repeat_block_when_text_mem
             "recent_focus_titles": ["право на отдых", "спокойствие и опора"],
             "overused_text_patterns": ["я позволяю", "спокойствие"],
             "avoid_soft_actions": ["назови три вещи, которые уже помогают"],
+            "avoid_soft_action_patterns": ["name_three_things"],
             "avoid_phrases": ["Я позволяю себе отдых без чувства вины."],
             "style_guidance": ["avoid repeating recent affirmation openings", "vary sentence rhythm"],
         },
@@ -219,5 +220,9 @@ def test_build_text_generation_guidance_includes_anti_repeat_block_when_text_mem
     assert "Text memory / anti-repeat guidance:" in guidance
     assert "overused_text_patterns: я позволяю, спокойствие" in guidance
     assert "avoid_soft_actions: назови три вещи, которые уже помогают" in guidance
+    assert "avoid_soft_action_patterns: name_three_things" in guidance
+    assert "Do not reuse recent soft action structure." in guidance
+    assert "If recent actions asked the user to name three things, choose a different action type." in guidance
+    assert "Vary the soft action verb and structure." in guidance
     assert "Output language: Russian" in guidance
     assert '{"recent_focus_titles"' not in guidance

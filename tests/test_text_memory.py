@@ -59,10 +59,27 @@ def test_build_text_memory_context_includes_recent_soft_actions_and_safe_empty_c
         "назови три вещи, которые уже помогают",
         "сделай один маленький шаг к покою",
     ]
+    assert context["recent_soft_action_patterns"] == ["name_three_things", "take_short_step"]
 
     empty = text_memory.build_text_memory_context(None, limit=10)
     assert empty["recent_focus_titles"] == []
     assert empty["pattern_counts"] == {}
+
+
+def test_build_text_memory_context_detects_repeated_soft_action_families_across_wording_variants():
+    context = text_memory.build_text_memory_context(
+        [
+            {"soft_action": "Назови три вещи, которые уже помогают", "affirmations": []},
+            {"soft_action": "Найди три маленькие опоры рядом с собой", "affirmations": []},
+            {"soft_action": "Заметь три спокойных сигнала в теле", "affirmations": []},
+        ],
+        limit=10,
+    )
+
+    assert "name_three_things" in context["recent_soft_action_patterns"]
+    assert "name_three_things" in context["overused_soft_action_patterns"]
+    assert "name_three_things" in context["avoid_soft_action_patterns"]
+    assert len(context["avoid_soft_action_patterns"]) <= 3
 
 
 def test_get_text_memory_context_swallows_database_errors(monkeypatch):

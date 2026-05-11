@@ -22,6 +22,15 @@ TEXT_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("мягко", ("мягко", "gently")),
 ]
 
+SOFT_ACTION_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+    ("name_three_things", ("назови три", "найди три", "заметь три")),
+    ("choose_one_action", ("выбери одно", "выбери один")),
+    ("take_short_step", ("сделай короткий", "сделай маленький", "сделай один короткий", "сделай один маленький")),
+    ("pause_breathe", ("остановись", "подыши", "сделай вдох")),
+    ("write_note", ("запиши", "напиши")),
+    ("body_movement", ("движение", "потянись", "разомнись")),
+]
+
 
 def _clean_str(value) -> str | None:
     if value is None:
@@ -66,6 +75,18 @@ def extract_text_patterns(text: str | None) -> list[str]:
     return _dedupe_stable(found)
 
 
+def extract_soft_action_patterns(text: str | None) -> list[str]:
+    cleaned = _clean_str(text)
+    if not cleaned:
+        return []
+    lowered = cleaned.lower()
+    found: list[str] = []
+    for label, markers in SOFT_ACTION_PATTERNS:
+        if any(marker in lowered for marker in markers):
+            found.append(label)
+    return _dedupe_stable(found)
+
+
 def build_text_memory_context(
     recent_generations: list[dict] | None,
     limit: int = 10,
@@ -83,6 +104,8 @@ def build_text_memory_context(
         for item in recent_items
         if isinstance(item, dict)
     ])
+    recent_soft_action_patterns: list[str] = []
+    soft_action_pattern_counter: Counter[str] = Counter()
 
     pattern_counter: Counter[str] = Counter()
     recent_affirmation_patterns: list[str] = []
@@ -91,6 +114,9 @@ def build_text_memory_context(
     for item in recent_items:
         if not isinstance(item, dict):
             continue
+        soft_action_patterns = extract_soft_action_patterns(item.get("soft_action"))
+        recent_soft_action_patterns.extend(soft_action_patterns)
+        soft_action_pattern_counter.update(soft_action_patterns)
         affirmations = _safe_affirmations(item.get("affirmations"))
         item_patterns: list[str] = []
         for affirmation in affirmations:
@@ -103,28 +129,39 @@ def build_text_memory_context(
         pattern_counter.update(deduped_item_patterns)
 
     recent_affirmation_patterns = _dedupe_stable(recent_affirmation_patterns)
+    recent_soft_action_patterns = _dedupe_stable(recent_soft_action_patterns)
     pattern_counts = {key: pattern_counter[key] for key in recent_affirmation_patterns}
     overused_text_patterns = [key for key in recent_affirmation_patterns if pattern_counter[key] >= 2]
+    overused_soft_action_patterns = [
+        key for key in recent_soft_action_patterns if soft_action_pattern_counter[key] >= 2
+    ]
     avoid_phrases = _dedupe_stable(recent_short_phrases)[:5]
     avoid_soft_actions = recent_soft_actions[:3]
+    avoid_soft_action_patterns = recent_soft_action_patterns[:3]
 
     style_guidance = [
         "avoid repeating recent affirmation openings",
         "vary sentence rhythm",
         "do not reuse recent soft action verbatim",
+        "do not reuse recent soft action structure",
         "keep wording natural and specific",
     ]
     if overused_text_patterns:
         style_guidance.append("reduce repeated generic reassurance patterns")
+    if overused_soft_action_patterns:
+        style_guidance.append("switch to a different soft action family when recent patterns repeat")
 
     return {
         "limit": limit,
         "recent_focus_titles": recent_focus_titles,
         "recent_soft_actions": recent_soft_actions,
+        "recent_soft_action_patterns": recent_soft_action_patterns,
         "recent_affirmation_patterns": recent_affirmation_patterns,
         "overused_text_patterns": overused_text_patterns,
+        "overused_soft_action_patterns": overused_soft_action_patterns,
         "avoid_phrases": avoid_phrases,
         "avoid_soft_actions": avoid_soft_actions,
+        "avoid_soft_action_patterns": avoid_soft_action_patterns,
         "style_guidance": _dedupe_stable(style_guidance),
         "pattern_counts": pattern_counts,
     }

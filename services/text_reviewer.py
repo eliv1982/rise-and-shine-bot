@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from services.text_memory import extract_soft_action_patterns
 from utils import infer_gender_from_hint, normalize_gender
 
 _FEMALE_MISMATCH_PATTERNS = [
@@ -111,6 +112,17 @@ def _is_soft_action_repeated(soft_action: str | None, text_memory_context: dict 
     if not action:
         return False
     memory = text_memory_context if isinstance(text_memory_context, dict) else {}
+    current_patterns = set(extract_soft_action_patterns(soft_action))
+    avoid_pattern_keys = {
+        _clean_text(item) for item in (memory.get("avoid_soft_action_patterns") or []) if _clean_text(item)
+    }
+    overused_pattern_keys = {
+        _clean_text(item) for item in (memory.get("overused_soft_action_patterns") or []) if _clean_text(item)
+    }
+    if current_patterns & avoid_pattern_keys:
+        return True
+    if current_patterns & overused_pattern_keys:
+        return True
     for candidate in memory.get("avoid_soft_actions") or []:
         normalized_candidate = _normalize_match_text(candidate)
         if not normalized_candidate:

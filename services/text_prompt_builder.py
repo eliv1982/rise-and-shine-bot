@@ -64,6 +64,7 @@ def build_text_generation_guidance(
         recent_focus_titles = ", ".join(memory.get("recent_focus_titles") or []) or "—"
         overused_text_patterns = ", ".join(memory.get("overused_text_patterns") or []) or "—"
         avoid_soft_actions = ", ".join(memory.get("avoid_soft_actions") or []) or "—"
+        avoid_soft_action_patterns = ", ".join(memory.get("avoid_soft_action_patterns") or []) or "—"
         avoid_phrases = ", ".join(memory.get("avoid_phrases") or []) or "—"
         style_guidance = "; ".join(memory.get("style_guidance") or []) or "—"
         memory_lines = [
@@ -71,10 +72,14 @@ def build_text_generation_guidance(
             f"- recent_focus_titles: {recent_focus_titles}",
             f"- overused_text_patterns: {overused_text_patterns}",
             f"- avoid_soft_actions: {avoid_soft_actions}",
+            f"- avoid_soft_action_patterns: {avoid_soft_action_patterns}",
             f"- avoid_phrases: {avoid_phrases}",
             f"- style_guidance: {style_guidance}",
             "- Avoid repeating recent affirmation openings and vary wording.",
             "- Do not reuse recent soft action verbatim.",
+            "- Do not reuse recent soft action structure.",
+            "- If recent actions asked the user to name three things, choose a different action type.",
+            "- Vary the soft action verb and structure.",
         ]
 
     return "\n".join(
