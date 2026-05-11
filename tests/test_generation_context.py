@@ -520,6 +520,15 @@ def test_run_generation_attaches_compact_text_memory_context_metadata_when_enabl
     async def _fake_history(**kwargs):
         captured["history_kwargs"] = kwargs
 
+    async def _fake_text_memory_context(*_args, **_kwargs):
+        return {
+            "limit": 10,
+            "overused_text_patterns": ["я выбираю"],
+            "overused_soft_action_patterns": ["name_three_things"],
+            "recent_focus_titles": ["мягкая опора"],
+            "avoid_soft_actions": ["назови три вещи, которые уже помогают"],
+        }
+
     async def _fake_text_memory_context(_uid, limit=10):
         captured["text_memory_limit"] = limit
         return {
@@ -679,6 +688,15 @@ def test_run_generation_attaches_text_reviewer_shadow_metadata_when_enabled(monk
     async def _fake_history(**kwargs):
         captured["history_kwargs"] = kwargs
 
+    async def _fake_text_memory_context(*_args, **_kwargs):
+        return {
+            "limit": 10,
+            "overused_text_patterns": ["я выбираю"],
+            "overused_soft_action_patterns": ["name_three_things"],
+            "recent_focus_titles": ["мягкая опора"],
+            "avoid_soft_actions": ["назови три вещи, которые уже помогают"],
+        }
+
     captured = {}
     monkeypatch.setattr(generation, "get_user", _fake_get_user)
     monkeypatch.setattr(
@@ -796,6 +814,155 @@ def test_run_generation_does_not_attach_text_reviewer_shadow_when_disabled(monke
     )
 
     assert "text_reviewer_shadow" not in captured["history_kwargs"]["visual_motifs"]
+
+
+def test_run_generation_attaches_orchestrator_shadow_when_enabled(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru", "gender": "female"}
+
+    async def _fake_generate_affirmations(**kwargs):
+        return ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"]
+
+    async def _fake_build_enriched_image_prompt(**kwargs):
+        return "prompt", "template"
+
+    async def _fake_generate_image(**kwargs):
+        return "fake_image.png"
+
+    async def _fake_history(**kwargs):
+        captured["history_kwargs"] = kwargs
+
+    async def _fake_text_memory_context(*_args, **_kwargs):
+        return {
+            "limit": 10,
+            "overused_text_patterns": ["я выбираю"],
+            "overused_soft_action_patterns": ["name_three_things"],
+            "recent_focus_titles": ["мягкая опора"],
+            "avoid_soft_actions": ["назови три вещи, которые уже помогают"],
+        }
+
+    captured = {}
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(
+            disable_daily_generation_limit=True,
+            generation_daily_limit=0,
+            llm_image_prompt_enabled=False,
+            show_image_debug=False,
+            image_model="image-model",
+            image_size="1024x1024",
+            text_planner_shadow_enabled=True,
+            text_planner_controlled_enabled=True,
+            text_memory_context_enabled=True,
+            text_reviewer_shadow_enabled=True,
+            orchestrator_shadow_enabled=True,
+            scene_planner_shadow_enabled=True,
+            scene_planner_image_prompt_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
+    monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
+    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
+    monkeypatch.setattr(generation, "get_text_memory_context", _fake_text_memory_context)
+
+    state = _FakeState(
+        {
+            "sphere": "inner_peace",
+            "subsphere": None,
+            "style": "auto",
+            "visual_mode": "illustration",
+            "recent_generation_history": [],
+        }
+    )
+    message = _FakeMessage(user_id=96)
+
+    asyncio.run(
+        generation._run_generation(
+            message,
+            state,
+            theme_text="мягкая опора",
+            user_telegram_id=96,
+        )
+    )
+
+    orchestrator_meta = captured["history_kwargs"]["visual_motifs"]["orchestrator_shadow"]
+    assert orchestrator_meta["enabled"] is True
+    assert orchestrator_meta["route"]["text_planner"] is True
+    assert orchestrator_meta["route"]["text_memory"] is True
+    assert orchestrator_meta["route"]["text_reviewer"] is True
+    assert orchestrator_meta["route"]["scene_planner"] is True
+
+
+def test_run_generation_does_not_attach_orchestrator_shadow_when_disabled(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru", "gender": "female"}
+
+    async def _fake_generate_affirmations(**kwargs):
+        return ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"]
+
+    async def _fake_build_enriched_image_prompt(**kwargs):
+        return "prompt", "template"
+
+    async def _fake_generate_image(**kwargs):
+        return "fake_image.png"
+
+    async def _fake_history(**kwargs):
+        captured["history_kwargs"] = kwargs
+
+    captured = {}
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(
+            disable_daily_generation_limit=True,
+            generation_daily_limit=0,
+            llm_image_prompt_enabled=False,
+            show_image_debug=False,
+            image_model="image-model",
+            image_size="1024x1024",
+            text_planner_shadow_enabled=False,
+            text_planner_controlled_enabled=False,
+            text_memory_context_enabled=False,
+            text_reviewer_shadow_enabled=False,
+            orchestrator_shadow_enabled=False,
+            scene_planner_shadow_enabled=False,
+            scene_planner_image_prompt_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
+    monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
+    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
+
+    state = _FakeState(
+        {
+            "sphere": "inner_peace",
+            "subsphere": None,
+            "style": "auto",
+            "visual_mode": "illustration",
+            "recent_generation_history": [],
+        }
+    )
+    message = _FakeMessage(user_id=97)
+
+    asyncio.run(
+        generation._run_generation(
+            message,
+            state,
+            theme_text="мягкая опора",
+            user_telegram_id=97,
+        )
+    )
+
+    assert "orchestrator_shadow" not in captured["history_kwargs"]["visual_motifs"]
 
 
 def test_again_affirmation_restores_context_and_passes_theme_text(monkeypatch):

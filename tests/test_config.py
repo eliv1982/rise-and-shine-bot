@@ -164,6 +164,24 @@ def test_text_reviewer_shadow_enabled_env(monkeypatch):
     assert settings.text_reviewer_shadow_enabled is True
 
 
+def test_orchestrator_shadow_disabled_by_default(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("ORCHESTRATOR_SHADOW_ENABLED", raising=False)
+
+    settings = get_settings()
+
+    assert settings.orchestrator_shadow_enabled is False
+
+
+def test_orchestrator_shadow_enabled_env(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("ORCHESTRATOR_SHADOW_ENABLED", "true")
+
+    settings = get_settings()
+
+    assert settings.orchestrator_shadow_enabled is True
+
+
 def test_scene_planner_image_prompt_enabled_env(monkeypatch):
     _set_required_env(monkeypatch)
     monkeypatch.setenv("SCENE_PLANNER_IMAGE_PROMPT_ENABLED", "true")

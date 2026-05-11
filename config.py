@@ -53,6 +53,7 @@ class Settings:
     text_planner_controlled_enabled: bool
     text_memory_context_enabled: bool
     text_reviewer_shadow_enabled: bool
+    orchestrator_shadow_enabled: bool
     yandex_completion_model: str
     text_provider: str
     image_provider: str
@@ -314,6 +315,7 @@ def get_settings() -> Settings:
         text_planner_controlled_enabled=_get_env_bool("TEXT_PLANNER_CONTROLLED_ENABLED", False),
         text_memory_context_enabled=_get_env_bool("TEXT_MEMORY_CONTEXT_ENABLED", False),
         text_reviewer_shadow_enabled=_get_env_bool("TEXT_REVIEWER_SHADOW_ENABLED", False),
+        orchestrator_shadow_enabled=_get_env_bool("ORCHESTRATOR_SHADOW_ENABLED", False),
         yandex_completion_model=text_cfg.model if text_cfg.provider == "yandex" else (_get_env_var("YANDEX_COMPLETION_MODEL", required=False, default="yandexgpt-lite/latest") or "yandexgpt-lite/latest"),
         text_provider=text_cfg.provider,
         image_provider=image_cfg.provider,

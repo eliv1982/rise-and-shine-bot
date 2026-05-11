@@ -62,6 +62,10 @@ from services.generation_history import (
     record_generation_history_best_effort,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.orchestrator_shadow import (
+    attach_orchestrator_shadow_to_metadata,
+    build_orchestrator_shadow_best_effort,
+)
 from services.scene_planner import (
     build_fallback_scene_plan,
     normalize_scene_family,
@@ -1285,6 +1289,22 @@ async def _run_generation(
         visual_motifs["text_prompt_controlled"] = text_prompt_controlled_meta
     if text_memory_context_meta is not None:
         visual_motifs["text_memory_context"] = text_memory_context_meta
+    orchestrator_shadow_payload = build_orchestrator_shadow_best_effort(
+        settings=settings,
+        language=language,
+        sphere=sphere,
+        subsphere=subsphere,
+        focus_title=focus_text,
+        selected_style=resolved_style,
+        visual_mode=effective_visual_mode,
+        text_plan_shadow=text_plan_shadow_payload,
+        text_prompt_controlled=text_prompt_controlled_meta,
+        text_memory_context=text_memory_context,
+        text_reviewer_shadow=text_reviewer_shadow_payload,
+        scene_plan_shadow=scene_plan_shadow_payload,
+        scene_prompt_controlled=scene_prompt_controlled_meta,
+    )
+    visual_motifs = attach_orchestrator_shadow_to_metadata(visual_motifs, orchestrator_shadow_payload)
     await record_generation_history_best_effort(
         telegram_user_id=uid,
         request_type=request_type,
