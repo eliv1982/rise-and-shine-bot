@@ -293,28 +293,55 @@ SCENE_PRESETS = {
         "mood": "calm order and emotional spaciousness",
     },
     "calm_cafe_corner": {
-        "setting": "calm cafe corner with open space, quiet atmosphere and soft morning activity",
-        "main_subject": "small cafe seating area and light-filled surroundings rather than a close-up table object",
-        "visual_motifs": ["cafe", "quiet_corner", "morning_light"],
-        "composition": "wide cafe environment with breathing space, not mug-centered and not tabletop close-up",
+        "setting": "calm lived-in cafe corner with terrace-adjacent light, menu card, one or two coffee cups and a few quiet guests in the background",
+        "main_subject": "small cafe seating area, warm room atmosphere and distant calm guests rather than a close-up table object or a single cup",
+        "visual_motifs": ["cafe", "quiet_corner", "morning_light", "menu_card", "background_guests"],
+        "composition": "wide cafe environment with breathing space, small tables as supporting details, not mug-centered and not tabletop close-up",
         "lighting": "soft morning window light across the room",
         "mood": "calm readiness, collected focus and grounded ease",
+        "avoid": [
+            "empty abandoned cafe",
+            "post-apocalyptic street",
+            "deserted showroom",
+            "sterile dining room",
+            "empty classroom",
+            "no people anywhere",
+            "crowded noisy scene",
+        ],
     },
     "quiet_cafe_window": {
-        "setting": "quiet cafe by a broad window with soft city light and open calm atmosphere",
-        "main_subject": "cafe interior volume, chair silhouettes and soft exterior light rather than drink props",
-        "visual_motifs": ["cafe", "window_light", "urban_morning"],
-        "composition": "room-focused composition with depth and no object close-up",
+        "setting": "quiet cafe by a broad window with terrace seating, city street view, a menu card and a few calm guests at distant tables",
+        "main_subject": "cafe interior volume, soft exterior light, small tables and distant seated guests rather than drink props",
+        "visual_motifs": ["cafe", "window_light", "urban_morning", "terrace", "background_guests"],
+        "composition": "room-focused composition with depth, city-facing openness and no object close-up",
         "lighting": "gentle side light from a large window",
         "mood": "clear thinking and quiet professional steadiness",
+        "avoid": [
+            "empty abandoned cafe",
+            "post-apocalyptic street",
+            "deserted showroom",
+            "sterile dining room",
+            "empty classroom",
+            "no people anywhere",
+            "crowded noisy scene",
+        ],
     },
     "bookstore_cafe": {
-        "setting": "peaceful bookstore cafe with shelves, warm order and quiet morning energy",
-        "main_subject": "bookshelves, seating and calm spatial rhythm rather than table details",
-        "visual_motifs": ["books", "cafe", "shelves"],
-        "composition": "layered interior with shelves and open walkway",
+        "setting": "peaceful bookstore cafe with shelves, warm order, a menu card, one or two coffee cups and a few calm guests in the background",
+        "main_subject": "bookshelves, seating and a lived-in reading-cafe atmosphere rather than table details or a laptop hero shot",
+        "visual_motifs": ["books", "cafe", "shelves", "menu_card", "background_guests"],
+        "composition": "layered interior with shelves, open walkway and calm background presence",
         "lighting": "warm diffused daylight with soft ambient glow",
         "mood": "thoughtful confidence and gentle concentration",
+        "avoid": [
+            "empty abandoned cafe",
+            "post-apocalyptic street",
+            "deserted showroom",
+            "sterile dining room",
+            "empty classroom",
+            "no people anywhere",
+            "crowded noisy scene",
+        ],
     },
     "city_park_before_work": {
         "setting": "city park in the early morning before work with open paths and composed air",
@@ -373,36 +400,72 @@ SCENE_PRESETS = {
         "mood": "professional calm and thoughtful momentum",
     },
     "street_cafe_terrace": {
-        "setting": "street cafe terrace with awning shade, planters and a calm city morning atmosphere",
-        "main_subject": "terrace seating and facade details as part of an open urban environment rather than a cup close-up",
-        "visual_motifs": ["cafe", "terrace", "city_morning"],
-        "composition": "wide terrace scene with small tables as supporting details, not tabletop hero framing",
+        "setting": "street cafe terrace with awning shade, planters, menu card, one or two coffee cups and a few calm guests at distant tables",
+        "main_subject": "terrace seating, facade details and quiet city street life rather than a cup close-up or empty dining hall",
+        "visual_motifs": ["cafe", "terrace", "city_morning", "planters", "background_guests"],
+        "composition": "wide terrace scene with small tables as supporting details, city street view and no tabletop hero framing",
         "lighting": "soft morning daylight with gentle facade reflections",
         "mood": "social ease, composure and light urban openness",
+        "avoid": [
+            "empty abandoned cafe",
+            "post-apocalyptic street",
+            "deserted showroom",
+            "sterile dining room",
+            "empty classroom",
+            "no people anywhere",
+            "crowded noisy scene",
+        ],
     },
     "city_veranda_morning": {
-        "setting": "quiet city veranda in the morning with chairs, plants and soft open-air light",
-        "main_subject": "veranda atmosphere and calm street-facing depth rather than object details",
-        "visual_motifs": ["veranda", "city", "morning_light"],
-        "composition": "balanced semi-outdoor composition with depth and breathing room",
+        "setting": "quiet city veranda in the morning with terrace seating, planters, awning detail and a few calm guests in the background",
+        "main_subject": "veranda atmosphere, soft street-facing depth and lived-in cafe detail rather than object close-ups",
+        "visual_motifs": ["veranda", "city", "morning_light", "terrace", "background_guests"],
+        "composition": "balanced semi-outdoor composition with depth, breathing room and calm background presence",
         "lighting": "fresh morning daylight",
         "mood": "calm anticipation and gentle urban optimism",
+        "avoid": [
+            "empty abandoned cafe",
+            "post-apocalyptic street",
+            "deserted showroom",
+            "sterile dining room",
+            "empty classroom",
+            "no people anywhere",
+            "crowded noisy scene",
+        ],
     },
     "courtyard_cafe": {
-        "setting": "courtyard cafe with greenery, calm facades and open morning space",
-        "main_subject": "courtyard seating area and planted edges rather than food or drink close-ups",
-        "visual_motifs": ["courtyard", "cafe", "greenery"],
-        "composition": "open courtyard composition with layered space and soft architecture",
+        "setting": "courtyard cafe with greenery, terrace seating, menu card and a few calm guests under soft morning light",
+        "main_subject": "courtyard seating area, planted edges and warm cafe atmosphere rather than food or drink close-ups",
+        "visual_motifs": ["courtyard", "cafe", "greenery", "terrace", "background_guests"],
+        "composition": "open courtyard composition with layered space, soft architecture and calm background life",
         "lighting": "soft reflected daylight",
         "mood": "settled confidence and quiet sociability",
+        "avoid": [
+            "empty abandoned cafe",
+            "post-apocalyptic street",
+            "deserted showroom",
+            "sterile dining room",
+            "empty classroom",
+            "no people anywhere",
+            "crowded noisy scene",
+        ],
     },
     "sidewalk_cafe_after_rain": {
-        "setting": "sidewalk cafe after rain with reflective pavement and a soft city hush",
-        "main_subject": "terrace edge, awning and street reflections rather than tabletop objects",
-        "visual_motifs": ["cafe", "rain_reflection", "street"],
-        "composition": "street-facing cafe scene with reflective foreground and open depth",
+        "setting": "sidewalk cafe after rain with reflective pavement, terrace seating, awning detail and a few calm guests under shelter",
+        "main_subject": "terrace edge, menu card, street reflections and quiet lived-in cafe detail rather than tabletop objects",
+        "visual_motifs": ["cafe", "rain_reflection", "street", "awning", "background_guests"],
+        "composition": "street-facing cafe scene with reflective foreground, open depth and calm background presence",
         "lighting": "muted post-rain daylight with gentle glow",
         "mood": "reset, thoughtfulness and calm urban rhythm",
+        "avoid": [
+            "empty abandoned cafe",
+            "post-apocalyptic street",
+            "deserted showroom",
+            "sterile dining room",
+            "empty classroom",
+            "no people anywhere",
+            "crowded noisy scene",
+        ],
     },
     "village_veranda": {
         "setting": "village veranda with morning air, wood textures and simple lived-in calm",
@@ -949,6 +1012,7 @@ def normalize_scene_plan(
     )
     avoid = _dedupe_stable(
         _safe_list(safe_plan.get("avoid"))
+        + _safe_list(preset.get("avoid"))
         + _safe_list(memory.get("hard_avoid_today"))
         + DEFAULT_CLICHE_AVOID
     )
@@ -1032,16 +1096,19 @@ def build_fallback_scene_plan(
     if focus:
         mood = f"calm, grounded atmosphere for: {focus}"
 
+    scene_family = normalize_scene_family(scene_type)
+    human_presence = "distant_figure" if scene_family in {"cafe_terrace", "cafe_quiet"} else "none"
+
     raw_plan = {
         "scene_type": scene_type,
         "setting": preset.get("setting"),
-        "human_presence": "none",
+        "human_presence": human_presence,
         "main_subject": preset.get("main_subject"),
         "visual_motifs": preset.get("visual_motifs"),
         "composition": preset.get("composition"),
         "lighting": preset.get("lighting"),
         "mood": mood,
-        "avoid": _safe_list(memory.get("hard_avoid_today")) + DEFAULT_CLICHE_AVOID,
+        "avoid": _safe_list(memory.get("hard_avoid_today")) + _safe_list(preset.get("avoid")) + DEFAULT_CLICHE_AVOID,
     }
     return normalize_scene_plan(raw_plan, visual_memory_context=memory)
 

@@ -27,11 +27,14 @@ class _FakeState:
 
 
 class _FakeMessage:
-    def __init__(self, user_id=123):
+    def __init__(self, user_id=123, *, fail_edit_text=False, fail_edit_reply_markup=False):
         self.from_user = SimpleNamespace(id=user_id)
         self.answers = []
         self.photos = []
         self.edits = []
+        self.reply_markup_clears = []
+        self.fail_edit_text = fail_edit_text
+        self.fail_edit_reply_markup = fail_edit_reply_markup
 
     async def answer(self, text, reply_markup=None):
         self.answers.append((text, reply_markup))
@@ -40,13 +43,24 @@ class _FakeMessage:
         self.photos.append((photo, caption, reply_markup))
 
     async def edit_text(self, text, reply_markup=None):
+        if self.fail_edit_text:
+            raise RuntimeError("edit_text failed")
         self.edits.append((text, reply_markup))
+
+    async def edit_reply_markup(self, reply_markup=None):
+        if self.fail_edit_reply_markup:
+            raise RuntimeError("edit_reply_markup failed")
+        self.reply_markup_clears.append(reply_markup)
 
 
 class _FakeCallback:
-    def __init__(self, user_id=123):
+    def __init__(self, user_id=123, *, fail_edit_text=False, fail_edit_reply_markup=False):
         self.from_user = SimpleNamespace(id=user_id)
-        self.message = _FakeMessage(user_id=user_id)
+        self.message = _FakeMessage(
+            user_id=user_id,
+            fail_edit_text=fail_edit_text,
+            fail_edit_reply_markup=fail_edit_reply_markup,
+        )
         self.answered = False
 
     async def answer(self):
@@ -127,6 +141,11 @@ def test_choose_style_clears_custom_style_description_without_overwriting_theme(
     assert captured["data"]["style"] == "sea_coast_photo"
     assert captured["data"]["custom_style_description"] is None
     assert captured["data"]["theme_text"] == "Dignity and self-trust"
+    assert callback.message.edits[0] == (
+        f"✅ Style selected: {generation._style_confirmation_label('sea_coast_photo', 'en')}",
+        None,
+    )
+    assert callback.message.answers[0][0] == "🌿 Creating your daily focus..."
 
 
 def test_cancel_custom_style_clears_style_notes_and_preserves_generation_context(monkeypatch):
@@ -177,6 +196,76 @@ def test_cancel_custom_style_clears_style_notes_and_preserves_generation_context
     assert captured["data"]["style"] == "sea_coast_photo"
     assert captured["data"]["custom_style_description"] is None
     assert captured["data"]["visual_mode"] == "photo"
+
+
+def test_safe_confirm_callback_choice_edits_message_and_clears_markup():
+    callback = _FakeCallback()
+
+    asyncio.run(generation.safe_confirm_callback_choice(callback, "✅ Selected"))
+
+    assert callback.message.edits == [("✅ Selected", None)]
+    assert callback.message.reply_markup_clears == []
+    assert callback.message.answers == []
+
+
+def test_safe_confirm_callback_choice_falls_back_to_reply_markup_clear():
+    callback = _FakeCallback(fail_edit_text=True)
+
+    asyncio.run(generation.safe_confirm_callback_choice(callback, "✅ Selected"))
+
+    assert callback.message.edits == []
+    assert callback.message.reply_markup_clears == [None]
+    assert callback.message.answers == [("✅ Selected", None)]
+
+
+def test_safe_confirm_callback_choice_falls_back_to_answer_when_edit_fails():
+    callback = _FakeCallback(fail_edit_text=True, fail_edit_reply_markup=True)
+
+    asyncio.run(generation.safe_confirm_callback_choice(callback, "✅ Selected"))
+
+    assert callback.message.edits == []
+    assert callback.message.reply_markup_clears == []
+    assert callback.message.answers == [("✅ Selected", None)]
+
+
+def test_choose_sphere_confirms_selection_and_shows_visual_menu(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+
+    state = _FakeState()
+    callback = _FakeCallback(user_id=55)
+    callback.data = "sphere:home_support"
+
+    asyncio.run(generation.choose_sphere(callback, state))
+
+    assert state.data["sphere"] == "home_support"
+    assert state.state == generation.GenerationState.choosing_visual_mode
+    assert callback.message.edits[0] == ("✅ Сфера выбрана: 🏡 Дом и опора", None)
+    assert callback.message.answers
+    assert "визуал" in callback.message.answers[0][0].lower()
+    assert callback.answered is True
+
+
+def test_choose_visual_mode_confirms_selection_and_shows_style_menu(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "ru"}
+
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+
+    state = _FakeState({"sphere": "inner_peace"})
+    callback = _FakeCallback(user_id=66)
+    callback.data = "visual:photo"
+
+    asyncio.run(generation.choose_visual_mode(callback, state))
+
+    assert state.data["visual_mode"] == "photo"
+    assert state.state == generation.GenerationState.choosing_style
+    assert callback.message.edits[0] == ("✅ Визуал выбран: 📷 Фото-стиль", None)
+    assert callback.message.answers
+    assert "стиль изображения" in callback.message.answers[0][0].lower()
+    assert callback.answered is True
 
 
 def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last_generation(monkeypatch):

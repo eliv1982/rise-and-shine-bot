@@ -1,7 +1,7 @@
 import logging
 
 from config import get_settings
-from services.scene_planner import build_scene_image_prompt, normalize_scene_plan
+from services.scene_planner import build_scene_image_prompt, normalize_scene_family, normalize_scene_plan
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +179,28 @@ def build_living_nature_constraints() -> list[str]:
     ]
 
 
+def build_cafe_scene_constraints() -> list[str]:
+    return [
+        "a few calm guests seated at distant tables",
+        "one or two coffee cups on tables as small supporting details",
+        "small dessert or pastry hint",
+        "menu card",
+        "warm lived-in cafe atmosphere",
+        "terrace seating",
+        "city street view",
+        "planters, awning and facade details",
+        "people stay in background and are not the main subject",
+        "limit human presence to one to three calm people",
+        "avoid empty abandoned cafe",
+        "avoid post-apocalyptic street",
+        "avoid deserted showroom",
+        "avoid sterile dining room",
+        "avoid empty classroom feeling",
+        "avoid no people anywhere",
+        "avoid crowded noisy scene",
+    ]
+
+
 def build_controlled_scene_prompt(
     *,
     scene_plan: dict,
@@ -226,6 +248,12 @@ def build_controlled_scene_prompt(
         )
         extras.append(
             "Living nature constraints: " + ", ".join(nature_constraints) + "."
+        )
+
+    if normalize_scene_family(normalized.get("scene_type")) in {"cafe_terrace", "cafe_quiet"}:
+        cafe_constraints = build_cafe_scene_constraints()
+        extras.append(
+            "Cafe scene direction: " + ", ".join(cafe_constraints) + "."
         )
 
     return " ".join([prompt] + extras).strip()

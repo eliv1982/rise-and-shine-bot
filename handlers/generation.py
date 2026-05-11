@@ -86,8 +86,11 @@ from services.text_planner_shadow import (
 from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
+    get_style_label,
+    get_visual_mode_label,
     has_coastal_intent,
     is_tts_available,
+    normalize_style_key,
     normalize_visual_mode,
     resolve_style,
     visual_mode_for_style,
@@ -103,9 +106,66 @@ from utils import gender_display, is_gibberish_text, is_input_language_compatibl
 router = Router()
 logger = logging.getLogger(__name__)
 
+_RELATIONSHIP_SUBSPHERE_LABELS = {
+    "partner": {"ru": "❤️ С партнёром", "en": "❤️ With partner"},
+    "colleagues": {"ru": "💼 С коллегами", "en": "💼 With colleagues"},
+    "friends": {"ru": "🫶 С друзьями", "en": "🫶 With friends"},
+}
+
+_STYLE_CONFIRM_ICONS = {
+    "auto": "🎨",
+    "sunny_morning_photo": "☀️",
+    "living_nature_photo": "🌿",
+    "urban_city_photo": "🏙",
+    "cafe_terrace_photo": "☕",
+    "rural_calm_photo": "🌾",
+    "sea_coast_photo": "🌊",
+    "cozy_home_photo": "🏡",
+    "book_nook_photo": "📚",
+    "calm_lifestyle_photo": "📷",
+    "custom": "✍️",
+}
+
 
 def _is_usable_flow_text(text: Optional[str]) -> bool:
     return not is_gibberish_text(text)
+
+
+def _style_confirmation_label(style: str, language: str) -> str:
+    if style == "custom":
+        return "✍️ Свой стиль" if language == "ru" else "✍️ Custom style"
+    normalized = normalize_style_key(style)
+    label = get_style_label(normalized, language)
+    if label and label[0] in "☀🌿🏙☕🌾🌊🏡📚📷🎨✍️":
+        return label
+    icon = _STYLE_CONFIRM_ICONS.get(normalized)
+    return f"{icon} {label}" if icon else label
+
+
+def _relationship_subsphere_label(subsphere: str, language: str) -> str:
+    labels = _RELATIONSHIP_SUBSPHERE_LABELS.get(subsphere)
+    if not labels:
+        return subsphere
+    return labels["en"] if language == "en" else labels["ru"]
+
+
+async def safe_confirm_callback_choice(callback: CallbackQuery, text: str) -> None:
+    message = getattr(callback, "message", None)
+    if message is None:
+        return
+    try:
+        await message.edit_text(text, reply_markup=None)
+        return
+    except Exception:
+        pass
+    try:
+        await message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    try:
+        await message.answer(text)
+    except Exception:
+        logger.debug("Failed to send callback confirmation text", exc_info=True)
 
 
 async def _process_generation_voice_input(
@@ -265,16 +325,24 @@ async def choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
     sphere = callback.data.split(":", maxsplit=1)[1]
 
     await state.update_data(sphere=sphere)
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Сфера выбрана: {get_sphere_label(sphere, language)}"
+            if language == "ru"
+            else f"✅ Area selected: {get_sphere_label(sphere, language)}"
+        ),
+    )
 
     if sphere == "relationships":
         await state.set_state(GenerationState.choosing_relationship_subsphere)
-        await callback.message.edit_text(
+        await callback.message.answer(
             "Уточни, пожалуйста:" if language == "ru" else "Please specify:",
             reply_markup=relationships_subsphere_keyboard(language),
         )
     else:
         await state.set_state(GenerationState.choosing_visual_mode)
-        await callback.message.edit_text(
+        await callback.message.answer(
             _visual_mode_text(language),
             reply_markup=visual_mode_keyboard(language),
         )
@@ -289,7 +357,15 @@ async def choose_relationship_subsphere(callback: CallbackQuery, state: FSMConte
 
     await state.update_data(subsphere=subsphere)
     await state.set_state(GenerationState.choosing_visual_mode)
-    await callback.message.edit_text(
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Выбрано: {_relationship_subsphere_label(subsphere, language)}"
+            if language == "ru"
+            else f"✅ Selected: {_relationship_subsphere_label(subsphere, language)}"
+        ),
+    )
+    await callback.message.answer(
         _visual_mode_text(language),
         reply_markup=visual_mode_keyboard(language),
     )
@@ -303,7 +379,15 @@ async def choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None
     visual_mode = normalize_visual_mode(callback.data.split(":", maxsplit=1)[1])
     await state.update_data(visual_mode=visual_mode)
     await state.set_state(GenerationState.choosing_style)
-    await callback.message.edit_text(
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Визуал выбран: {get_visual_mode_label(visual_mode, language)}"
+            if language == "ru"
+            else f"✅ Visual selected: {get_visual_mode_label(visual_mode, language)}"
+        ),
+    )
+    await callback.message.answer(
         _style_choice_text(language),
         reply_markup=style_keyboard(language, visual_mode=visual_mode),
     )
@@ -316,7 +400,15 @@ async def choose_custom_style(callback: CallbackQuery, state: FSMContext) -> Non
     language = (user or {}).get("language", "ru")
     await state.update_data(style="custom")
     await state.set_state(GenerationState.waiting_for_custom_style)
-    await callback.message.edit_text(
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Стиль выбран: {_style_confirmation_label('custom', language)}"
+            if language == "ru"
+            else f"✅ Style selected: {_style_confirmation_label('custom', language)}"
+        ),
+    )
+    await callback.message.answer(
         (
             "Опиши желаемый стиль изображения текстом или отправь голосовое сообщение."
             if language == "ru"
@@ -341,7 +433,15 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         await _answer_generation_preflight_error(callback.message, state, error_text, language)
         return
-    await callback.message.edit_text(_creating_text(language))
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Стиль выбран: {_style_confirmation_label(style, language)}"
+            if language == "ru"
+            else f"✅ Style selected: {_style_confirmation_label(style, language)}"
+        ),
+    )
+    await callback.message.answer(_creating_text(language))
     await callback.answer()
     await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
 

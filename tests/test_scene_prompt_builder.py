@@ -1,5 +1,6 @@
 from services.scene_prompt_builder import (
     build_controlled_scene_prompt,
+    build_cafe_scene_constraints,
     build_living_nature_constraints,
     is_living_nature_style,
     select_photo_scene_preset_override,
@@ -50,6 +51,20 @@ def test_build_living_nature_constraints_include_hard_outdoor_rules():
     assert "no window" in constraints
     assert "no furniture" in constraints
     assert "outdoor nature scene only" in constraints
+
+
+def test_build_cafe_scene_constraints_include_lived_in_cafe_and_avoid_guardrails():
+    constraints = [item.lower() for item in build_cafe_scene_constraints()]
+    assert "a few calm guests seated at distant tables" in constraints
+    assert "one or two coffee cups on tables as small supporting details" in constraints
+    assert "small dessert or pastry hint" in constraints
+    assert "menu card" in constraints
+    assert "avoid empty abandoned cafe" in constraints
+    assert "avoid post-apocalyptic street" in constraints
+    assert "avoid deserted showroom" in constraints
+    assert "avoid sterile dining room" in constraints
+    assert "avoid empty classroom feeling" in constraints
+    assert "avoid crowded noisy scene" in constraints
 
 
 def test_is_living_nature_style_detects_runtime_values():
@@ -217,3 +232,32 @@ def test_new_photo_style_candidate_pools_are_specialized():
     assert "street_cafe_terrace" in cafe_candidates
     assert "village_veranda" in rural_candidates
     assert "warm_living_room" in home_candidates
+
+
+def test_build_controlled_scene_prompt_for_cafe_scene_includes_cafe_markers_and_limited_people():
+    prompt = build_controlled_scene_prompt(
+        scene_plan={
+            "scene_type": "street_cafe_terrace",
+            "setting": "street cafe terrace with awning shade, planters, menu card, one or two coffee cups and a few calm guests at distant tables",
+            "human_presence": "distant_figure",
+            "main_subject": "terrace seating, facade details and quiet city street life rather than a cup close-up or empty dining hall",
+            "visual_motifs": ["cafe", "terrace", "city_morning", "planters", "background_guests"],
+            "composition": "wide terrace scene with small tables as supporting details, city street view and no tabletop hero framing",
+            "lighting": "soft morning daylight with gentle facade reflections",
+            "mood": "social ease, composure and light urban openness",
+            "avoid": ["empty abandoned cafe", "post-apocalyptic street", "crowded noisy scene"],
+        },
+        selected_style="cafe_terrace_photo",
+        resolved_style="cafe_terrace_photo",
+        visual_mode="photo",
+        language="ru",
+    ).lower()
+
+    assert "terrace" in prompt
+    assert "coffee cups" in prompt
+    assert "menu card" in prompt
+    assert "background" in prompt
+    assert "one to three calm people" in prompt
+    assert "avoid empty abandoned cafe" in prompt
+    assert "avoid post-apocalyptic street" in prompt
+    assert "avoid crowded noisy scene" in prompt
