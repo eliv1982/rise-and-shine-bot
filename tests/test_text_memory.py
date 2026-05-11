@@ -110,6 +110,29 @@ def test_build_text_memory_context_tracks_affirmation_openings_and_variation_gui
     assert len(context["avoid_affirmation_openings"]) <= 4
 
 
+def test_build_text_memory_context_tracks_repeated_soft_action_structures_and_abstract_words():
+    context = text_memory.build_text_memory_context(
+        [
+            {
+                "soft_action": "Прими одно денежное решение из ясности, а не из страха.",
+                "affirmations": ["Я выбираю спокойствие и ясность."],
+            },
+            {
+                "soft_action": "Выбери одно действие из любопытства, а не из обязанности.",
+                "affirmations": ["Я принимаю устойчивость и достаточность."],
+            },
+        ],
+        limit=10,
+    )
+
+    assert "contrast_from_not_from" in context["recent_soft_action_structures"]
+    assert "contrast_from_not_from" in context["overused_soft_action_structures"]
+    assert "contrast_from_not_from" in context["avoid_soft_action_structures"]
+    assert "ясность" in context["overused_abstract_words"]
+    assert "avoid repeating the same soft action structure" in context["variation_guidance"]
+    assert "avoid repeating the 'из X, а не из Y' contrast formula" in context["variation_guidance"]
+
+
 def test_get_text_memory_context_swallows_database_errors(monkeypatch):
     async def _boom(*_args, **_kwargs):
         raise RuntimeError("db unavailable")

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import re
 
-from services.text_memory import extract_affirmation_opening, extract_soft_action_patterns
+from services.text_memory import (
+    extract_abstract_word_patterns,
+    extract_affirmation_opening,
+    extract_soft_action_patterns,
+    extract_soft_action_structures,
+)
 from utils import infer_gender_from_hint, normalize_gender
 
 _FEMALE_MISMATCH_PATTERNS = [
@@ -66,6 +71,8 @@ _TOO_GENERIC_WORDS = [
     "устойчивость",
     "достаточность",
     "гармония",
+    "стабильность",
+    "страх",
 ]
 
 
@@ -159,7 +166,8 @@ def _too_generic(safe_affirmations: list[str], language: str) -> bool:
         return False
     combined = "\n".join(_normalize_match_text(text) for text in safe_affirmations)
     generic_hits = sum(1 for word in _TOO_GENERIC_WORDS if word in combined)
-    return generic_hits >= 3
+    abstract_pattern_hits = len(set().union(*(set(extract_abstract_word_patterns(text)) for text in safe_affirmations)))
+    return generic_hits >= 3 or abstract_pattern_hits >= 3
 
 
 def _is_soft_action_repeated(soft_action: str | None, text_memory_context: dict | None) -> bool:
@@ -191,6 +199,27 @@ def _is_soft_action_repeated(soft_action: str | None, text_memory_context: dict 
             if overlap >= 0.7:
                 return True
     return False
+
+
+def _is_soft_action_structure_repeated(soft_action: str | None, text_memory_context: dict | None) -> bool:
+    structures = set(extract_soft_action_structures(soft_action))
+    if not structures:
+        return False
+    memory = text_memory_context if isinstance(text_memory_context, dict) else {}
+    avoid_structures = {
+        _clean_text(item) for item in (memory.get("avoid_soft_action_structures") or []) if _clean_text(item)
+    }
+    overused_structures = {
+        _clean_text(item) for item in (memory.get("overused_soft_action_structures") or []) if _clean_text(item)
+    }
+    return bool(structures & avoid_structures) or bool(structures & overused_structures)
+
+
+def _has_abstract_contrast_formula(soft_action: str | None) -> bool:
+    normalized = _normalize_match_text(soft_action)
+    if not normalized or "а не из" not in normalized:
+        return False
+    return bool(extract_abstract_word_patterns(soft_action))
 
 
 def review_generated_text(
@@ -226,10 +255,12 @@ def review_generated_text(
     overused_affirmation_openings = _overused_affirmation_openings(safe_affirmations, text_memory_context)
     generic_patterns = _pattern_hits(texts, _GENERIC_PATTERNS, repeated_only=True)
     soft_action_repeated = _is_soft_action_repeated(safe_soft_action, text_memory_context)
+    repeated_soft_action_structure = _is_soft_action_structure_repeated(safe_soft_action, text_memory_context)
     pressure_language = bool(_pattern_hits(texts, _PRESSURE_PATTERNS))
     too_productivity_framed = bool(_pattern_hits(texts, _PRODUCTIVITY_PATTERNS))
     language_mismatch = _language_mismatch(texts, language)
     too_generic = _too_generic(safe_affirmations, language)
+    abstract_contrast_formula = _has_abstract_contrast_formula(safe_soft_action)
 
     checks = {
         "gender_mismatch": gender_mismatch,
@@ -237,10 +268,12 @@ def review_generated_text(
         "overused_affirmation_openings": overused_affirmation_openings,
         "generic_patterns": generic_patterns,
         "soft_action_repeated": soft_action_repeated,
+        "repeated_soft_action_structure": repeated_soft_action_structure,
         "pressure_language": pressure_language,
         "too_productivity_framed": too_productivity_framed,
         "language_mismatch": language_mismatch,
         "too_generic": too_generic,
+        "abstract_contrast_formula": abstract_contrast_formula,
     }
 
     warnings: list[str] = []
@@ -254,6 +287,8 @@ def review_generated_text(
         warnings.append("generic_patterns: " + ", ".join(generic_patterns))
     if soft_action_repeated:
         warnings.append("soft_action_repeated")
+    if repeated_soft_action_structure:
+        warnings.append("repeated_soft_action_structure")
     if pressure_language:
         warnings.append("pressure_language")
     if too_productivity_framed:
@@ -262,6 +297,8 @@ def review_generated_text(
         warnings.append("language_mismatch")
     if too_generic:
         warnings.append("too_generic")
+    if abstract_contrast_formula:
+        warnings.append("abstract_contrast_formula")
     if not texts:
         warnings.append("empty_generated_text")
 
@@ -270,10 +307,12 @@ def review_generated_text(
     score -= 0.15 if repeated_openings else 0.0
     score -= 0.1 if overused_affirmation_openings else 0.0
     score -= 0.1 if soft_action_repeated else 0.0
+    score -= 0.1 if repeated_soft_action_structure else 0.0
     score -= 0.1 if pressure_language else 0.0
     score -= 0.1 if too_productivity_framed else 0.0
     score -= 0.1 if language_mismatch else 0.0
     score -= 0.05 if too_generic else 0.0
+    score -= 0.05 if abstract_contrast_formula else 0.0
     score -= min(0.2, 0.05 * len(generic_patterns))
     if not texts:
         score -= 0.1

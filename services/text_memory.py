@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import re
 
 from database import get_recent_generation_history
 
@@ -43,6 +44,24 @@ SOFT_ACTION_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("pause_breathe", ("остановись", "подыши", "сделай вдох")),
     ("write_note", ("запиши", "напиши")),
     ("body_movement", ("движение", "потянись", "разомнись")),
+]
+
+SOFT_ACTION_STRUCTURE_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+    ("contrast_from_not_from", ("а не из страха", "а не из обязанности", "а не из тревоги")),
+    ("accept_one_decision", ("прими одно", "прими один")),
+    ("choose_one_action", ("выбери одно", "выбери один")),
+    ("take_one_step", ("сделай один шаг", "сделай один маленький шаг", "сделай один короткий шаг")),
+    ("allow_yourself", ("позволь себе",)),
+]
+
+ABSTRACT_WORD_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+    ("ясность", ("ясност",)),
+    ("спокойствие", ("спокойств",)),
+    ("устойчивость", ("устойчивост",)),
+    ("достаточность", ("достаточност",)),
+    ("гармония", ("гармони",)),
+    ("стабильность", ("стабильност",)),
+    ("страх", ("страх",)),
 ]
 
 
@@ -101,6 +120,32 @@ def extract_soft_action_patterns(text: str | None) -> list[str]:
     return _dedupe_stable(found)
 
 
+def extract_soft_action_structures(text: str | None) -> list[str]:
+    cleaned = _clean_str(text)
+    if not cleaned:
+        return []
+    lowered = cleaned.lower()
+    found: list[str] = []
+    if re.search(r"\b(прими|выбери|сделай)\b.{0,70}\bиз\b.{0,50}\bа не из\b", lowered):
+        found.append("contrast_from_not_from")
+    for label, markers in SOFT_ACTION_STRUCTURE_PATTERNS:
+        if any(marker in lowered for marker in markers):
+            found.append(label)
+    return _dedupe_stable(found)
+
+
+def extract_abstract_word_patterns(text: str | None) -> list[str]:
+    cleaned = _clean_str(text)
+    if not cleaned:
+        return []
+    lowered = cleaned.lower()
+    found: list[str] = []
+    for label, markers in ABSTRACT_WORD_PATTERNS:
+        if any(marker in lowered for marker in markers):
+            found.append(label)
+    return _dedupe_stable(found)
+
+
 def extract_affirmation_opening(text: str | None) -> str | None:
     cleaned = _clean_str(text)
     if not cleaned:
@@ -131,11 +176,14 @@ def build_text_memory_context(
     ])
     recent_soft_action_patterns: list[str] = []
     soft_action_pattern_counter: Counter[str] = Counter()
+    recent_soft_action_structures: list[str] = []
+    soft_action_structure_counter: Counter[str] = Counter()
 
     pattern_counter: Counter[str] = Counter()
     recent_affirmation_patterns: list[str] = []
     recent_affirmation_openings: list[str] = []
     affirmation_opening_counter: Counter[str] = Counter()
+    abstract_word_counter: Counter[str] = Counter()
     recent_short_phrases: list[str] = []
 
     for item in recent_items:
@@ -144,10 +192,15 @@ def build_text_memory_context(
         soft_action_patterns = extract_soft_action_patterns(item.get("soft_action"))
         recent_soft_action_patterns.extend(soft_action_patterns)
         soft_action_pattern_counter.update(soft_action_patterns)
+        soft_action_structures = extract_soft_action_structures(item.get("soft_action"))
+        recent_soft_action_structures.extend(soft_action_structures)
+        soft_action_structure_counter.update(soft_action_structures)
+        abstract_word_counter.update(extract_abstract_word_patterns(item.get("soft_action")))
         affirmations = _safe_affirmations(item.get("affirmations"))
         item_patterns: list[str] = []
         for affirmation in affirmations:
             item_patterns.extend(extract_text_patterns(affirmation))
+            abstract_word_counter.update(extract_abstract_word_patterns(affirmation))
             opening = extract_affirmation_opening(affirmation)
             if opening:
                 recent_affirmation_openings.append(opening)
@@ -162,6 +215,7 @@ def build_text_memory_context(
     recent_affirmation_patterns = _dedupe_stable(recent_affirmation_patterns)
     recent_affirmation_openings = _dedupe_stable(recent_affirmation_openings)
     recent_soft_action_patterns = _dedupe_stable(recent_soft_action_patterns)
+    recent_soft_action_structures = _dedupe_stable(recent_soft_action_structures)
     pattern_counts = {key: pattern_counter[key] for key in recent_affirmation_patterns}
     overused_text_patterns = [key for key in recent_affirmation_patterns if pattern_counter[key] >= 2]
     overused_affirmation_openings = [
@@ -170,10 +224,15 @@ def build_text_memory_context(
     overused_soft_action_patterns = [
         key for key in recent_soft_action_patterns if soft_action_pattern_counter[key] >= 2
     ]
+    overused_soft_action_structures = [
+        key for key in recent_soft_action_structures if soft_action_structure_counter[key] >= 2
+    ]
+    overused_abstract_words = [key for key, count in abstract_word_counter.items() if count >= 2]
     avoid_phrases = _dedupe_stable(recent_short_phrases)[:5]
     avoid_soft_actions = recent_soft_actions[:3]
     avoid_affirmation_openings = recent_affirmation_openings[:4]
     avoid_soft_action_patterns = recent_soft_action_patterns[:3]
+    avoid_soft_action_structures = recent_soft_action_structures[:4]
 
     style_guidance = [
         "avoid repeating recent affirmation openings",
@@ -188,6 +247,10 @@ def build_text_memory_context(
         style_guidance.append("do not start multiple affirmations with the same opening")
     if overused_soft_action_patterns:
         style_guidance.append("switch to a different soft action family when recent patterns repeat")
+    if overused_soft_action_structures:
+        style_guidance.append("switch to a different soft action structure when recent patterns repeat")
+    if overused_abstract_words:
+        style_guidance.append("ground abstract wording in a small observable action or concrete context")
     variation_guidance = [
         "vary affirmation openings",
         "avoid repeating the same first-person verb structure",
@@ -195,21 +258,31 @@ def build_text_memory_context(
     ]
     if overused_affirmation_openings:
         variation_guidance.append("switch away from overused recent affirmation openings")
+    if overused_soft_action_structures:
+        variation_guidance.append("avoid repeating the same soft action structure")
+    if "contrast_from_not_from" in overused_soft_action_structures:
+        variation_guidance.append("avoid repeating the 'из X, а не из Y' contrast formula")
+    if overused_abstract_words:
+        variation_guidance.append("prefer grounded wording over stacked abstract nouns")
 
     return {
         "limit": limit,
         "recent_focus_titles": recent_focus_titles,
         "recent_soft_actions": recent_soft_actions,
         "recent_soft_action_patterns": recent_soft_action_patterns,
+        "recent_soft_action_structures": recent_soft_action_structures,
         "recent_affirmation_patterns": recent_affirmation_patterns,
         "recent_affirmation_openings": recent_affirmation_openings,
         "overused_text_patterns": overused_text_patterns,
         "overused_affirmation_openings": overused_affirmation_openings,
         "overused_soft_action_patterns": overused_soft_action_patterns,
+        "overused_soft_action_structures": overused_soft_action_structures,
+        "overused_abstract_words": overused_abstract_words,
         "avoid_phrases": avoid_phrases,
         "avoid_affirmation_openings": avoid_affirmation_openings,
         "avoid_soft_actions": avoid_soft_actions,
         "avoid_soft_action_patterns": avoid_soft_action_patterns,
+        "avoid_soft_action_structures": avoid_soft_action_structures,
         "style_guidance": _dedupe_stable(style_guidance),
         "variation_guidance": _dedupe_stable(variation_guidance),
         "pattern_counts": pattern_counts,

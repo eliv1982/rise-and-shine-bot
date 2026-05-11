@@ -217,9 +217,16 @@ def test_build_text_generation_guidance_includes_anti_repeat_block_when_text_mem
             "avoid_affirmation_openings": ["я позволяю", "сегодня я"],
             "avoid_soft_actions": ["назови три вещи, которые уже помогают"],
             "avoid_soft_action_patterns": ["name_three_things"],
+            "avoid_soft_action_structures": ["contrast_from_not_from"],
+            "overused_soft_action_structures": ["contrast_from_not_from"],
+            "overused_abstract_words": ["ясность", "спокойствие"],
             "avoid_phrases": ["Я позволяю себе отдых без чувства вины."],
             "style_guidance": ["avoid repeating recent affirmation openings", "vary sentence rhythm"],
-            "variation_guidance": ["vary affirmation openings", "avoid repeating the same first-person verb structure"],
+            "variation_guidance": [
+                "vary affirmation openings",
+                "avoid repeating the same first-person verb structure",
+                "avoid repeating the same soft action structure",
+            ],
         },
     )
 
@@ -230,9 +237,14 @@ def test_build_text_generation_guidance_includes_anti_repeat_block_when_text_mem
     assert "avoid_affirmation_openings: я позволяю, сегодня я" in guidance
     assert "avoid_soft_actions: назови три вещи, которые уже помогают" in guidance
     assert "avoid_soft_action_patterns: name_three_things" in guidance
-    assert "variation_guidance: vary affirmation openings; avoid repeating the same first-person verb structure" in guidance
+    assert "avoid_soft_action_structures: contrast_from_not_from" in guidance
+    assert "overused_soft_action_structures: contrast_from_not_from" in guidance
+    assert "overused_abstract_words: ясность, спокойствие" in guidance
+    assert "variation_guidance: vary affirmation openings; avoid repeating the same first-person verb structure; avoid repeating the same soft action structure" in guidance
     assert "Do not reuse recent soft action structure." in guidance
     assert "Do not make every affirmation start with the same 'I + verb' pattern." in guidance
+    assert "Avoid overusing the 'из X, а не из Y' contrast formula." in guidance
+    assert "Prefer a concrete, grounded, small real-life action" in guidance
     assert "If recent actions asked the user to name three things, choose a different action type." in guidance
     assert "Vary the soft action verb and structure." in guidance
     assert "Output language: Russian" in guidance

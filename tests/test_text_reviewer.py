@@ -63,6 +63,30 @@ def test_review_generated_text_detects_language_mismatch_for_russian_output():
     assert report["checks"]["language_mismatch"] is True
 
 
+def test_review_generated_text_detects_repeated_soft_action_structure_from_memory():
+    report = review_generated_text(
+        affirmations=["Я замечаю, что мне можно действовать мягче."],
+        soft_action="Прими одно денежное решение из ясности, а не из страха.",
+        language="ru",
+        text_memory_context={
+            "avoid_soft_action_structures": ["contrast_from_not_from"],
+            "overused_soft_action_structures": ["contrast_from_not_from"],
+        },
+    )
+
+    assert report["checks"]["repeated_soft_action_structure"] is True
+
+
+def test_review_generated_text_detects_abstract_contrast_formula():
+    report = review_generated_text(
+        affirmations=["Я выбираю более живой ритм дня."],
+        soft_action="Выбери одно действие из любопытства, а не из страха.",
+        language="ru",
+    )
+
+    assert report["checks"]["abstract_contrast_formula"] is True
+
+
 def test_review_generated_text_softly_flags_too_generic_text():
     report = review_generated_text(
         affirmations=[
@@ -152,6 +176,21 @@ def test_review_generated_text_does_not_flag_unrelated_openings_or_language():
 
     assert report["checks"]["overused_affirmation_openings"] is False
     assert report["checks"]["language_mismatch"] is False
+
+
+def test_review_generated_text_does_not_flag_unrelated_soft_action_structure():
+    report = review_generated_text(
+        affirmations=["Я замечаю живое тепло утра."],
+        soft_action="Запиши одну мысль, которую хочется проверить на практике.",
+        language="ru",
+        text_memory_context={
+            "avoid_soft_action_structures": ["contrast_from_not_from"],
+            "overused_soft_action_structures": ["contrast_from_not_from"],
+        },
+    )
+
+    assert report["checks"]["repeated_soft_action_structure"] is False
+    assert report["checks"]["abstract_contrast_formula"] is False
 
 
 def test_review_generated_text_score_decreases_when_warnings_exist():

@@ -75,6 +75,9 @@ def build_text_generation_guidance(
         avoid_affirmation_openings = ", ".join(memory.get("avoid_affirmation_openings") or []) or "—"
         avoid_soft_actions = ", ".join(memory.get("avoid_soft_actions") or []) or "—"
         avoid_soft_action_patterns = ", ".join(memory.get("avoid_soft_action_patterns") or []) or "—"
+        avoid_soft_action_structures = ", ".join(memory.get("avoid_soft_action_structures") or []) or "—"
+        overused_soft_action_structures = ", ".join(memory.get("overused_soft_action_structures") or []) or "—"
+        overused_abstract_words = ", ".join(memory.get("overused_abstract_words") or []) or "—"
         avoid_phrases = ", ".join(memory.get("avoid_phrases") or []) or "—"
         style_guidance = "; ".join(memory.get("style_guidance") or []) or "—"
         variation_guidance = "; ".join(memory.get("variation_guidance") or []) or "—"
@@ -87,6 +90,9 @@ def build_text_generation_guidance(
             f"- avoid_affirmation_openings: {avoid_affirmation_openings}",
             f"- avoid_soft_actions: {avoid_soft_actions}",
             f"- avoid_soft_action_patterns: {avoid_soft_action_patterns}",
+            f"- avoid_soft_action_structures: {avoid_soft_action_structures}",
+            f"- overused_soft_action_structures: {overused_soft_action_structures}",
+            f"- overused_abstract_words: {overused_abstract_words}",
             f"- avoid_phrases: {avoid_phrases}",
             f"- style_guidance: {style_guidance}",
             f"- variation_guidance: {variation_guidance}",
@@ -95,8 +101,12 @@ def build_text_generation_guidance(
             "- Do not make every affirmation start with the same 'I + verb' pattern.",
             "- Do not reuse recent soft action verbatim.",
             "- Do not reuse recent soft action structure.",
+            "- Avoid repeating recent soft action structures like 'Прими одно ... из ..., а не из ...'.",
+            "- Avoid overusing the 'из X, а не из Y' contrast formula.",
             "- If recent actions asked the user to name three things, choose a different action type.",
             "- Vary the soft action verb and structure.",
+            "- Prefer a concrete, grounded, small real-life action over stacked abstract nouns.",
+            "- Mention an observable action or a practical context when possible.",
         ]
 
     return "\n".join(
@@ -117,6 +127,7 @@ def build_text_generation_guidance(
         "- Keep the final text gentle, grounded and emotionally precise.\n"
         "- Avoid toxic positivity, pressure, moralizing and repetitive generic affirmations.\n"
         "- Use varied affirmation openings and keep wording warm, natural and personal.\n"
+        "- Keep soft actions warm and personal, not dry, bureaucratic or overly instructional.\n"
         ]
         + gender_lines
         + voice_lines
