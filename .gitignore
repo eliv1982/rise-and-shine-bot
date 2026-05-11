@@ -12,12 +12,18 @@ __pycache__/
 .eggs/
 dist/
 build/
+.pytest_cache/
 
 # Логи и данные бота
 bot.log
 bot.log.*
 outputs/
 *.db
+*.sqlite
+*.sqlite3
+bot.db
+data/*.db
+data/outputs/
 
 # IDE и ОС
 .idea/
@@ -35,3 +41,4 @@ agent-transcripts/
 outputs/
 docker_outputs/
 .pytest_tmp*/
+.pytest_tmp_*

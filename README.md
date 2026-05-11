@@ -88,6 +88,8 @@ docker compose up -d --build
 
 Опционально: `FFMPEG_PATH` — путь к ffmpeg, если не в PATH.
 
+Для рекомендуемого production-профиля и planner flags см. [docs/production_env.md](docs/production_env.md).
+
 ## Деплой на сервер
 
 - **[DEPLOY.md](DEPLOY.md)** — общий деплой (Docker, скрипты, cron).
