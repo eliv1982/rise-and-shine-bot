@@ -79,6 +79,11 @@ from services.scene_planner_shadow import (
     attach_scene_plan_shadow_to_visual_motifs,
     build_scene_plan_shadow_best_effort,
 )
+from services.text_planner import build_fallback_text_plan
+from services.text_prompt_builder import (
+    build_text_generation_guidance,
+    is_text_planner_controlled_enabled,
+)
 from services.text_planner_shadow import (
     attach_text_plan_shadow_to_metadata,
     build_text_plan_shadow_best_effort,
@@ -808,6 +813,43 @@ async def _run_generation(
     if normalize_visual_mode(visual_mode) == "photo" and style == "auto" and has_coastal_intent(theme_text):
         resolved_style = "sea_coast_photo"
     effective_visual_mode = visual_mode_for_style(visual_mode, resolved_style)
+    text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
+        sphere=sphere,
+        subsphere=subsphere,
+        focus_title=focus_text,
+        user_custom_topic=theme_text,
+        language=language,
+        recent_text_context=None,
+        settings=settings,
+    )
+    text_plan = None
+    if is_text_planner_controlled_enabled(settings):
+        if isinstance(text_plan_shadow_payload, dict):
+            candidate_text_plan = text_plan_shadow_payload.get("text_plan")
+            if isinstance(candidate_text_plan, dict):
+                text_plan = candidate_text_plan
+        if text_plan is None:
+            text_plan = build_fallback_text_plan(
+                sphere=sphere,
+                subsphere=subsphere,
+                focus_title=focus_text,
+                user_custom_topic=theme_text,
+                language=language,
+                recent_text_context=None,
+            )
+    text_plan_guidance = build_text_generation_guidance(
+        text_plan=text_plan,
+        language=language,
+    )
+    text_prompt_controlled_meta = None
+    if text_plan_guidance:
+        text_prompt_controlled_meta = {
+            "enabled": True,
+            "source": "text_plan_local_fallback",
+            "theme_category": (text_plan or {}).get("theme_category"),
+            "tone": (text_plan or {}).get("tone"),
+            "guidance_used": True,
+        }
 
     try:
         affirmations = await generate_affirmations(
@@ -820,6 +862,7 @@ async def _run_generation(
             focus=focus_text,
             micro_theme=micro_step,
             sphere_label=get_sphere_label(sphere, language),
+            text_plan_guidance=text_plan_guidance,
         )
     except Exception as exc:
         logger.exception("Affirmations generation failed: %s", exc)
@@ -847,16 +890,6 @@ async def _run_generation(
         sphere=sphere,
         subsphere=subsphere,
     )
-    text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
-        sphere=sphere,
-        subsphere=subsphere,
-        focus_title=focus_text,
-        user_custom_topic=theme_text,
-        language=language,
-        recent_text_context=None,
-        settings=settings,
-    )
-
     color_mood = random.choice(_COLOR_MOODS)
     composition_hint = random.choice(_COMPOSITION_HINTS)
     photo_scene_preset_override = None
@@ -1058,6 +1091,8 @@ async def _run_generation(
     )
     if scene_prompt_controlled_meta is not None:
         visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
+    if text_prompt_controlled_meta is not None:
+        visual_motifs["text_prompt_controlled"] = text_prompt_controlled_meta
     await record_generation_history_best_effort(
         telegram_user_id=uid,
         request_type=request_type,

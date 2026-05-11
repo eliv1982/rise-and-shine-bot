@@ -296,6 +296,10 @@ def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last
             show_image_debug=False,
             image_model="image-model",
             image_size="1024x1024",
+            text_planner_shadow_enabled=False,
+            text_planner_controlled_enabled=False,
+            scene_planner_shadow_enabled=False,
+            scene_planner_image_prompt_enabled=False,
         ),
     )
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
@@ -337,6 +341,70 @@ def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last
     assert state.data["last_generation"]["sphere"] == "relationships"
     assert state.data["last_generation"]["subsphere"] == "partner"
     assert state.data["recent_generation_history"]
+
+
+def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en", "gender": "female"}
+
+    async def _fake_generate_affirmations(**kwargs):
+        captured["text_kwargs"] = kwargs
+        return ["I trust myself", "I move gently", "I stay present", "I choose clarity"]
+
+    async def _fake_build_enriched_image_prompt(**kwargs):
+        return "prompt", "template"
+
+    async def _fake_generate_image(**kwargs):
+        return "fake_image.png"
+
+    captured = {}
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(
+            disable_daily_generation_limit=True,
+            generation_daily_limit=0,
+            llm_image_prompt_enabled=False,
+            show_image_debug=False,
+            image_model="image-model",
+            image_size="1024x1024",
+            text_planner_shadow_enabled=False,
+            text_planner_controlled_enabled=True,
+            scene_planner_shadow_enabled=False,
+            scene_planner_image_prompt_enabled=False,
+        ),
+    )
+    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
+    monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
+    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
+
+    state = _FakeState(
+        {
+            "sphere": "money",
+            "subsphere": None,
+            "style": "auto",
+            "visual_mode": "illustration",
+            "recent_generation_history": [],
+        }
+    )
+    message = _FakeMessage(user_id=91)
+
+    asyncio.run(
+        generation._run_generation(
+            message,
+            state,
+            theme_text="calm stability",
+            user_telegram_id=91,
+        )
+    )
+
+    guidance = captured["text_kwargs"]["text_plan_guidance"]
+    assert guidance is not None
+    assert "theme_category: money_stability" in guidance
+    assert "avoid: toxic positivity, pressure, productivity framing" in guidance
 
 
 def test_again_affirmation_restores_context_and_passes_theme_text(monkeypatch):

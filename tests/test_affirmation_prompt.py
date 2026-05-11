@@ -93,3 +93,39 @@ def test_theme_style_separation_rule_present_for_dignity_theme():
     )
     assert "The user theme is the main meaning of the card" in prompt
     assert "Do not replace or reinterpret the theme because of the style" in prompt
+
+
+def test_affirmation_prompt_keeps_old_path_without_text_plan_guidance():
+    prompt = _build_prompt(
+        sphere="inner_peace",
+        subsphere=None,
+        language="ru",
+        user_text="мягкая ясность",
+        focus="мягкая ясность",
+        micro_theme="один спокойный шаг",
+        text_plan_guidance=None,
+    )
+
+    assert "Text planner guidance:" not in prompt
+
+
+def test_affirmation_prompt_includes_text_plan_guidance_when_provided():
+    prompt = _build_prompt(
+        sphere="money",
+        subsphere=None,
+        language="ru",
+        user_text="спокойная устойчивость",
+        focus="спокойная устойчивость",
+        micro_theme="один небольшой шаг",
+        text_plan_guidance=(
+            "Text planner guidance:\n"
+            "- theme_category: money_stability\n"
+            "- tone: gentle_practical\n"
+            "- avoid: toxic positivity, pressure, productivity framing\n"
+        ),
+    )
+
+    assert "Text planner guidance:" in prompt
+    assert "theme_category: money_stability" in prompt
+    assert "tone: gentle_practical" in prompt
+    assert "avoid: toxic positivity, pressure, productivity framing" in prompt

@@ -265,6 +265,7 @@ def _build_prompt(
     focus: Optional[str] = None,
     micro_theme: Optional[str] = None,
     sphere_label: Optional[str] = None,
+    text_plan_guidance: Optional[str] = None,
 ) -> str:
     """
     Формирует промпт к YandexGPT с инструкцией вернуть JSON-массив аффирмаций.
@@ -284,6 +285,9 @@ def _build_prompt(
     focus_line_ru = f"- Фокус дня: {focus}.\n" if focus else ""
     micro_line_en = f"- Micro theme / gentle daily step context: {micro_theme}.\n" if micro_theme else ""
     micro_line_ru = f"- Микротема / контекст мягкого шага дня: {micro_theme}.\n" if micro_theme else ""
+    guidance = _clip_user_text(text_plan_guidance, 1500)
+    guidance_line_en = f"{guidance}\n" if guidance else ""
+    guidance_line_ru = f"{guidance}\n" if guidance else ""
 
     gender_part_en = ""
     gender_part_ru = ""
@@ -306,6 +310,7 @@ def _build_prompt(
             "- The image style affects only the visual scene. Do not replace or reinterpret the theme because of the style.\n"
             f"{focus_line_en}"
             f"{micro_line_en}"
+            f"{guidance_line_en}"
             f"- Direction for this sphere: {sphere_direction}.\n"
             f"{money_rules}"
             "- Each phrase should be about 8–16 words.\n"
@@ -380,6 +385,7 @@ def _build_prompt(
         "- Стиль изображения влияет только на визуальную сцену. Не переосмысляй и не подменяй тему из-за стиля.\n"
         f"{focus_line_ru}"
         f"{micro_line_ru}"
+        f"{guidance_line_ru}"
         f"- Направление для этой сферы: {sphere_direction}.\n"
         f"{money_rules}"
         "- Каждая фраза примерно 8–16 слов.\n"
@@ -412,6 +418,7 @@ async def generate_affirmations(
     focus: Optional[str] = None,
     micro_theme: Optional[str] = None,
     sphere_label: Optional[str] = None,
+    text_plan_guidance: Optional[str] = None,
 ) -> List[str]:
     """
     Асинхронно вызывает YandexGPT и возвращает список аффирмаций.
@@ -429,6 +436,7 @@ async def generate_affirmations(
         focus=focus,
         micro_theme=micro_theme,
         sphere_label=sphere_label,
+        text_plan_guidance=text_plan_guidance,
     )
 
     url, headers, payload = _build_text_provider_request(
