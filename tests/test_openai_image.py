@@ -87,6 +87,59 @@ def test_new_style_keys_return_non_empty_phrases():
         assert _style_to_phrase(style)
 
 
+def test_symbolic_luxe_style_prompt_stays_grounded_and_safe():
+    # "symbolic_luxe" is a grounded symbolic / subtle luminous illustration style:
+    # subtle metaphor, grounded luminous atmosphere, never high fantasy or dark fantasy.
+    prompt = _build_image_prompt(
+        style="symbolic_luxe",
+        sphere="spirituality",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        color_mood="soft gold and warm grey",
+        composition_hint="balanced calm composition",
+    )
+    low = prompt.lower()
+
+    # Stays grounded / gentle magical realism, not mysterious or exaggerated.
+    assert "grounded luminous scene" in low
+    assert "subtle metaphor" in low
+    assert "emotionally uplifting rather than mysterious" in low
+    assert "avoid exaggerated mysticism" in low
+
+    # No high/dark fantasy or fantasy-character imagery.
+    forbidden_terms = [
+        "dark fantasy",
+        "high fantasy",
+        "cosplay",
+        "fantasy character",
+        "fantasy creature",
+        "elf",
+        "elves",
+        "warrior",
+        "dragon",
+        "castle",
+        "armor",
+        "armour",
+        "magical portal",
+        "sorcery",
+        "sorcerer",
+        "wizard",
+        "witch",
+    ]
+    for term in forbidden_terms:
+        assert term not in low, f"unexpected fantasy term in prompt: {term!r}"
+
+    # No creepy surrealism, and no dominant human character.
+    assert "creepy" not in low
+    assert "surreal" not in low
+    assert "not a dominant portrait" in low
+
+    # Standard no-text/logo/watermark guard is present.
+    assert "no logos" in low
+    assert "no watermarks" in low
+
+
 def test_bright_ocean_coast_style_uses_legacy_alias_label():
     assert STYLE_LABELS["bright_ocean_coast_photo"]["ru"] == "Побережье моря / океана"
     assert STYLE_LABELS["bright_ocean_coast_photo"]["en"] == "Sea & ocean coast"

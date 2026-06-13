@@ -94,6 +94,14 @@ def test_auto_illustration_uses_illustration_styles():
     assert style not in PHOTO_STYLE_KEYS
 
 
+def test_symbolic_luxe_style_exists_and_resolves_directly():
+    # "symbolic_luxe" is the project's grounded symbolic / subtle luminous
+    # illustration style: subtle metaphor, luminous but grounded, not mysterious.
+    assert "symbolic_luxe" in ILLUSTRATION_STYLE_KEYS
+    assert "symbolic_luxe" in STYLE_DESCRIPTIONS
+    assert resolve_style("symbolic_luxe", "spirituality") == "symbolic_luxe"
+
+
 def test_mixed_mode_selects_a_supported_branch():
     day = dt.date(2030, 1, 1)
     styles = get_recommended_styles("money", visual_mode="mixed", user_id=42, day=day)

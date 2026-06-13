@@ -64,6 +64,7 @@ SAMPLES: list[tuple[str, str | None, str, str, str | None]] = [
     ("spirituality", None, "sea_coast_photo", "photo", "тихий ритуал по утрам"),
     ("home_support", None, "quiet_interior", "illustration", None),
     ("home_support", None, "rural_calm_photo", "photo", "уют и забота о доме"),
+    ("spirituality", None, "symbolic_luxe", "illustration", "тихий внутренний свет"),
 ]
 
 
