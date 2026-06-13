@@ -33,15 +33,15 @@ _COLOR_MOODS = [
     "pale turquoise, sand, warm white",
     "fresh meadow green, daisy white, sunlight yellow",
     "soft peach dawn, warm cloud grey, light gold",
-    "morning blue, silver light, white mist",
+    "morning blue, silver light, clear glow",
     "blossom pink, pale green, warm ivory",
-    "dawn pearl, misty blue, pale gold",
+    "dawn pearl, soft blue, pale gold",
     "clear aqua, sunlit cream, tender green",
     "fresh mint, white linen, warm daylight",
     "soft lavender, pearl white, pale gold",
     "bright sage, cream, apricot light",
     "warm walnut, parchment, soft sage",
-    "sea glass, fog, linen white",
+    "sea glass, clear air, linen white",
     "soft lilac dawn, cream, pale blue",
     "warm apricot light, cool slate blue, white",
     "golden wheat, sky blue, soft white",
@@ -141,7 +141,11 @@ def _build_photo_image_theme(sphere: str, subsphere: Optional[str]) -> str:
     subsphere_key = (subsphere or "").lower()
 
     if sphere_key == "career":
-        return "realistic editorial photo of a bright workspace, open window, real desk, notebook without readable text, cup, plant, morning daylight, clean perspective and calm professional order"
+        return (
+            "realistic editorial photo of a bright workspace, open window, real desk, notebook without readable text, "
+            "cup, plant, morning daylight, clean perspective and calm professional order, lived-in but tidy details "
+            "with varied natural materials and textured surfaces, avoiding beige showroom or catalog-furniture staging"
+        )
     if sphere_key == "self_worth":
         return "real-life photo of a sunlit room corner, real flowers or botanical branch, linen, ceramic cup, window light, quiet dignity and enough space around the subject"
     if sphere_key == "self_realization":
@@ -161,7 +165,8 @@ def _build_photo_image_theme(sphere: str, subsphere: Optional[str]) -> str:
     if sphere_key == "money":
         return (
             "realistic interior still life photo of calm order and stability, bright organized desk without financial props, "
-            "sunlight on a clean table, notebook without readable text, ceramic cup, plant, open window, real wood, linen and glass"
+            "sunlight on a clean table, notebook without readable text, ceramic cup, plant, open window, real wood, linen and glass, "
+            "lived-in but tidy editorial details with varied natural materials and textured surfaces, avoiding beige showroom or catalog-furniture staging"
         )
     if sphere_key == "spirituality":
         return "realistic still life photo of a quiet grounded ritual corner, candle, ceramic bowl, linen, plant, natural window light, physically real objects and believable shadows"

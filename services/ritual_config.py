@@ -36,7 +36,7 @@ FOCUSES = {
             "en": "inner stillness",
             "micro_step_ru": "Сделай одну короткую паузу на дыхание перед важным делом.",
             "micro_step_en": "Take one short breathing pause before an important task.",
-            "image_hint_en": "quiet lake, mist, soft morning light, breathing space",
+            "image_hint_en": "quiet lake, clear morning light, breathing space",
         },
         {
             "key": "gentle_clarity",
@@ -533,20 +533,20 @@ STYLE_LABELS = {
 
 STYLE_DESCRIPTIONS = {
     "sunny_morning_photo": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
-    "living_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
+    "living_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, crisp clear air, fresh daylight and readable natural detail, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail, avoid visible fog, mist, murky haze or smeared pastel haze unless explicitly requested",
     "urban_city_photo": "calm realistic city photography, quiet street, courtyard, park or bridge walkway, soft natural light, believable urban atmosphere, editorial lifestyle realism, no crowd as focal point, no harsh corporate stock feeling",
     "cafe_terrace_photo": "realistic cafe terrace or city veranda photography, calm urban atmosphere, awning, planters, facade details and small seating groups, coffee or pastry hints allowed but never as mug close-up hero object, editorial cafe environment realism",
     "rural_calm_photo": "realistic rural morning photography, cottage garden, orchard, wooden porch, country road or village veranda, soft daylight, grounded countryside atmosphere, calm lived-in details, no generic wild forest default",
     "sea_coast_photo": "real coastal photograph, sea or ocean coastline photography, realistic natural light, realistic sky and cloud formations, believable wave and water behavior, natural atmospheric perspective, camera realism, editorial landscape photography feel, calm restorative airy mood",
     "cozy_home_photo": "realistic cozy home photography, lived-in calm home atmosphere, chair, lamp, shelf, blanket or fireplace glow, believable textures and daylight, emotionally supportive without sterile showroom feeling",
     "book_nook_photo": "realistic library or reading nook photography, bookshelves, reading chair, lamp or bookstore atmosphere, calm reflective mood, no office feeling, no laptop-centered productivity stock look",
-    "calm_lifestyle_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
+    "calm_lifestyle_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look, lived-in but tidy details with natural materials, textured surfaces and daylight shadows, avoid generic corporate stock-photo look and showroom or catalog-furniture staging, avoid repeating the same laptop-cup-plant-notebook combination unless the scene specifically needs it",
     "bright_photo_card": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
     "sunny_photo_scene": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
-    "sunny_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
+    "sunny_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, crisp clear air, fresh daylight and readable natural detail, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail, avoid visible fog, mist, murky haze or smeared pastel haze unless explicitly requested",
     "light_interior_photo": "realistic cozy home photography, lived-in calm home atmosphere, chair, lamp, shelf, blanket or fireplace glow, believable textures and daylight, emotionally supportive without sterile showroom feeling",
     "bright_ocean_coast_photo": "real coastal photograph, sea or ocean coastline photography, realistic natural light, realistic sky and cloud formations, believable wave and water behavior, natural atmospheric perspective, camera realism, editorial landscape photography feel, calm restorative airy mood",
-    "cinematic_real_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
+    "cinematic_real_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look, lived-in but tidy details with natural materials, textured surfaces and daylight shadows, avoid generic corporate stock-photo look and showroom or catalog-furniture staging, avoid repeating the same laptop-cup-plant-notebook combination unless the scene specifically needs it",
     "bright_nature_card": "bright uplifting daily card, warm natural light, beautiful nature or light airy scene, fresh atmosphere, photorealistic or soft semi-realistic quality, optimistic and emotionally supportive mood, clear composition",
     "dreamy_painterly": "light dreamy painterly artwork, airy watercolor and gouache texture, luminous pastel atmosphere, soft but clear forms, warm and hopeful mood, delicate artistic charm",
     "quiet_interior": "light-filled quiet interior, natural window light, elegant still life, notebooks, cup, fabrics, plants, soft morning or late-afternoon glow, calm and welcoming atmosphere, no dominant portrait",
@@ -590,9 +590,11 @@ PHOTO_SCENE_PRESETS = {
         "believable materials, perspective and shadows."
     ),
     "calm_workspace": (
-        "Photo scene preset: calm_workspace. Realistic clean workspace with desk, notebook without readable text, "
-        "pen, laptop or book, cup, daylight from a window, calm lifestyle/editorial photography, "
-        "real textures and realistic composition."
+        "Photo scene preset: calm_workspace. Realistic lived-in workspace with desk and daylight from a window, "
+        "varying the props (e.g. notebook, pen, books, lamp, mug, plant) rather than always combining laptop, cup, "
+        "plant and notebook together, with natural materials and textured surfaces, calm lifestyle/editorial photography, "
+        "avoid generic corporate stock-photo look and showroom or catalog-furniture staging, "
+        "real textures, daylight shadows and tasteful realistic composition."
     ),
     "botanical_corner": (
         "Photo scene preset: botanical_corner. Real plant or branches in a vase on a windowsill or table, "

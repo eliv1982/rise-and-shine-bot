@@ -5,8 +5,8 @@ import os
 
 import services.openai_image as openai_image
 from handlers.generation import _build_image_debug_block
-from services.openai_image import _build_image_prompt, _ensure_no_text_clause, _style_to_phrase, generate_image
-from services.ritual_config import STYLE_LABELS
+from services.openai_image import _COLOR_MOODS, _build_image_prompt, _ensure_no_text_clause, _style_to_phrase, generate_image
+from services.ritual_config import STYLE_LABELS, get_focuses
 
 
 def test_ensure_no_text_clause_adds_suffix():
@@ -140,6 +140,65 @@ def test_symbolic_luxe_style_prompt_stays_grounded_and_safe():
     assert "no watermarks" in low
 
 
+def test_living_nature_prompt_prefers_clear_air_and_avoids_default_fog():
+    prompt = _build_image_prompt(
+        style="living_nature_photo",
+        sphere="health",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        color_mood="pearl daylight, ivory, pale sage",
+        composition_hint="bright nature scene with foreground detail and visible depth",
+        visual_mode="photo",
+    ).lower()
+
+    assert "crisp clear air" in prompt
+    assert "avoid visible fog, mist, murky haze" in prompt
+
+    # The general color/composition pools must not positively request fog/mist,
+    # since that would contradict the living-nature clear-air guard.
+    for mood in _COLOR_MOODS:
+        assert "fog" not in mood.lower()
+        assert "mist" not in mood.lower()
+
+
+def test_inner_peace_focus_hint_does_not_contradict_clear_air_guard():
+    focus_hint = get_focuses("inner_peace")[0]["image_hint_en"]
+    assert "mist" not in focus_hint.lower()
+
+    prompt = _build_image_prompt(
+        style="living_nature_photo",
+        sphere="inner_peace",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        color_mood="pearl daylight, ivory, pale sage",
+        composition_hint="bright nature scene with foreground detail and visible depth",
+        image_hint=focus_hint,
+        visual_mode="photo",
+    ).lower()
+
+    assert "focus visual hint: quiet lake, mist" not in prompt
+    assert "avoid visible fog, mist, murky haze" in prompt
+
+
+def test_interior_office_prompts_guard_against_generic_stock_and_showroom_look():
+    career_prompt = _build_image_prompt(
+        style="urban_city_photo",
+        sphere="career",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        color_mood="golden wheat, sky blue, soft white",
+        composition_hint="rule-of-thirds framing with a single clear focal element",
+        visual_mode="photo",
+    ).lower()
+
+    assert "showroom or catalog-furniture staging" in career_prompt
+    assert "corporate stock-photo look" in career_prompt
+    assert "combining laptop, cup, plant and notebook together" in career_prompt
+
+
 def test_bright_ocean_coast_style_uses_legacy_alias_label():
     assert STYLE_LABELS["bright_ocean_coast_photo"]["ru"] == "Побережье моря / океана"
     assert STYLE_LABELS["bright_ocean_coast_photo"]["en"] == "Sea & ocean coast"
@@ -261,7 +320,7 @@ def test_money_photo_auto_uses_workspace_or_interior_scene_preset():
     ).lower()
     assert "photo scene preset:" in prompt
     assert "calm_workspace" in prompt or "window_still_life" in prompt or "botanical_corner" in prompt
-    assert "realistic clean workspace" in prompt or "realistic still life by a window" in prompt or "real plant or branches" in prompt
+    assert "realistic lived-in workspace" in prompt or "realistic still life by a window" in prompt or "real plant or branches" in prompt
     assert "meadow edge" not in prompt
 
 
