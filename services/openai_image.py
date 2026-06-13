@@ -13,6 +13,7 @@ from config import get_image_provider_config, get_outputs_dir
 from services.ritual_config import (
     PHOTO_SCENE_PRESETS,
     STYLE_DESCRIPTIONS,
+    get_visual_archetype,
     has_coastal_intent,
     normalize_style_key,
     normalize_visual_mode,
@@ -451,6 +452,7 @@ async def generate_image(
     color_mood: Optional[str] = None,
     composition_hint: Optional[str] = None,
     recent_scene_presets: Optional[list[str]] = None,
+    recent_archetypes: Optional[list[str]] = None,
     photo_scene_preset_override: Optional[str] = None,
 ) -> str:
     """
@@ -467,6 +469,7 @@ async def generate_image(
             resolved_style,
             focus_key=focus_key,
             recent_scene_presets=recent_scene_presets,
+            recent_archetypes=recent_archetypes,
         )
     if output_dir is None:
         output_dir = get_outputs_dir()
@@ -495,6 +498,7 @@ async def generate_image(
                     coastal_scene_style,
                     focus_key=focus_key,
                     recent_scene_presets=recent_scene_presets,
+                    recent_archetypes=recent_archetypes,
                 )
             scene_text = PHOTO_SCENE_PRESETS.get(photo_scene_preset or "", PHOTO_SCENE_PRESETS["window_still_life"])
             prompt = _augment_photo_override_prompt(
@@ -585,6 +589,7 @@ async def generate_image(
         "prompt_source": trace,
         "requested_style": style,
         "selected_style": resolved_style,
+        "visual_archetype": get_visual_archetype(style=resolved_style, scene_preset=photo_scene_preset),
         "visual_mode": effective_visual_mode,
         "style": style,
         "resolved_style": resolved_style,

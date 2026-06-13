@@ -107,6 +107,7 @@ from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
     get_style_label,
+    get_visual_archetype,
     get_visual_mode_label,
     has_coastal_intent,
     is_tts_available,
@@ -1027,6 +1028,12 @@ async def _run_generation(
     history = list(context.recent_generation_history)
     recent_styles = [item.get("selected_style") for item in history[-7:] if item.get("selected_style")]
     recent_scenes = [item.get("scene_preset") for item in history[-5:] if item.get("scene_preset")]
+    recent_archetypes = [
+        item.get("visual_archetype")
+        or get_visual_archetype(style=item.get("selected_style"), scene_preset=item.get("scene_preset"))
+        for item in history[-5:]
+        if item.get("selected_style") or item.get("scene_preset")
+    ]
     if use_profile_preferences and not theme_text:
         theme_text = _profile_theme_from_preferences(profile_preferences, language)
 
@@ -1075,6 +1082,7 @@ async def _run_generation(
         focus_key=focus["key"],
         visual_mode=visual_mode,
         recent_styles=recent_styles,
+        recent_archetypes=recent_archetypes,
     )
     if normalize_visual_mode(visual_mode) == "photo" and style == "auto" and has_coastal_intent(theme_text):
         resolved_style = "sea_coast_photo"
@@ -1322,6 +1330,7 @@ async def _run_generation(
             color_mood=color_mood,
             composition_hint=composition_hint,
             recent_scene_presets=recent_scenes,
+            recent_archetypes=recent_archetypes,
             photo_scene_preset_override=photo_scene_preset_override,
         )
     except Exception as exc:
@@ -1448,6 +1457,7 @@ async def _run_generation(
         {
             "selected_style": resolved_style,
             "scene_preset": image_meta.get("scene_preset") or image_meta.get("photo_scene_preset"),
+            "visual_archetype": image_meta.get("visual_archetype"),
         }
     )
     await state.clear()

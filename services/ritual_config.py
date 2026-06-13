@@ -689,6 +689,103 @@ PHOTO_SCENE_PRESETS = {
     ),
 }
 
+# Visual Diversity v1.1: lightweight visual archetype layer.
+# Maps illustration/photo styles and photo scene presets to a small set of
+# broad visual archetypes, used to avoid repeating the same "look" across
+# recent generations (e.g. meadow/flowers, cozy reading corner, cafe table).
+VISUAL_ARCHETYPES = [
+    "meadow_or_flowers",
+    "forest_path",
+    "cozy_reading_corner",
+    "cafe_table",
+    "workspace_desk",
+    "city_morning",
+    "botanical_detail",
+    "water_horizon",
+    "architecture_detail",
+    "abstract_light",
+    "minimal_object",
+    "open_sky",
+]
+
+STYLE_ARCHETYPES = {
+    # illustration styles
+    "bright_nature_card": "meadow_or_flowers",
+    "dreamy_painterly": "abstract_light",
+    "quiet_interior": "cozy_reading_corner",
+    "minimal_botanical": "botanical_detail",
+    "cinematic_light": "abstract_light",
+    "ethereal_landscape": "water_horizon",
+    "symbolic_luxe": "minimal_object",
+    "textured_collage": "botanical_detail",
+    # photo styles
+    "sunny_morning_photo": "open_sky",
+    "living_nature_photo": "forest_path",
+    "urban_city_photo": "city_morning",
+    "cafe_terrace_photo": "cafe_table",
+    "rural_calm_photo": "architecture_detail",
+    "sea_coast_photo": "water_horizon",
+    "cozy_home_photo": "cozy_reading_corner",
+    "book_nook_photo": "cozy_reading_corner",
+    "calm_lifestyle_photo": "workspace_desk",
+    "bright_photo_card": "open_sky",
+    "sunny_photo_scene": "open_sky",
+    "sunny_nature_photo": "forest_path",
+    "light_interior_photo": "cozy_reading_corner",
+    "bright_ocean_coast_photo": "water_horizon",
+    "cinematic_real_photo": "workspace_desk",
+}
+
+SCENE_PRESET_ARCHETYPES = {
+    "window_still_life": "minimal_object",
+    "calm_workspace": "workspace_desk",
+    "botanical_corner": "botanical_detail",
+    "outdoor_path": "forest_path",
+    "restful_daily_scene": "cozy_reading_corner",
+    "street_cafe_terrace": "cafe_table",
+    "city_veranda_morning": "city_morning",
+    "courtyard_cafe": "cafe_table",
+    "village_veranda": "architecture_detail",
+    "cottage_garden": "meadow_or_flowers",
+    "warm_living_room": "cozy_reading_corner",
+    "bookshop_aisle": "architecture_detail",
+    "relationship_table_scene": "cafe_table",
+    "ocean_sunrise": "water_horizon",
+    "seaside_sunset": "water_horizon",
+    "quiet_beach_morning": "open_sky",
+    "rocky_coast": "water_horizon",
+    "dunes_and_seabirds": "open_sky",
+    "coastal_path": "water_horizon",
+    "bright_ocean_sunrise": "water_horizon",
+    "vivid_seaside_sunset": "water_horizon",
+    "sunny_beach_morning": "open_sky",
+    "turquoise_shoreline": "water_horizon",
+    "rocky_ocean_coast": "water_horizon",
+    "seabirds_over_waves": "open_sky",
+}
+
+
+def get_visual_archetype(style: Optional[str] = None, scene_preset: Optional[str] = None) -> str:
+    """Return a broad visual archetype label for a style/scene combination.
+
+    Scene preset (more specific, photo mode) takes priority over style.
+    Falls back to "abstract_light" for unmapped/unknown styles.
+    """
+    if scene_preset and scene_preset in SCENE_PRESET_ARCHETYPES:
+        return SCENE_PRESET_ARCHETYPES[scene_preset]
+    style_key = normalize_style_key(style)
+    return STYLE_ARCHETYPES.get(style_key, "abstract_light")
+
+
+def _filter_by_recent_archetypes(candidates: List[str], archetype_for, recent_archetypes: Optional[List[str]]) -> List[str]:
+    """Drop candidates whose archetype was used recently; fall back to the original list if that empties it."""
+    if not recent_archetypes:
+        return candidates
+    recent_set = set(recent_archetypes)
+    filtered = [candidate for candidate in candidates if archetype_for(candidate) not in recent_set]
+    return filtered or candidates
+
+
 PHOTO_SCENE_ROUTING = {
     "inner_peace": ["window_still_life", "botanical_corner", "ocean_sunrise", "coastal_path", "outdoor_path", "restful_daily_scene"],
     "self_worth": ["botanical_corner", "window_still_life", "calm_workspace", "quiet_beach_morning", "restful_daily_scene"],
@@ -855,12 +952,18 @@ def resolve_photo_scene_preset(
     day: Optional[dt.date] = None,
     focus_key: Optional[str] = None,
     recent_scene_presets: Optional[List[str]] = None,
+    recent_archetypes: Optional[List[str]] = None,
 ) -> str:
     presets = get_photo_scene_presets(sphere, style)
     if recent_scene_presets:
         filtered = [p for p in presets if p not in set(recent_scene_presets)]
         if filtered:
             presets = filtered
+    presets = _filter_by_recent_archetypes(
+        presets,
+        lambda candidate: get_visual_archetype(style=style, scene_preset=candidate),
+        recent_archetypes,
+    )
     if len(presets) == 1:
         return presets[0]
     if user_id is not None and day is not None:
@@ -908,6 +1011,7 @@ def resolve_style(
     focus_key: Optional[str] = None,
     visual_mode: Optional[str] = None,
     recent_styles: Optional[List[str]] = None,
+    recent_archetypes: Optional[List[str]] = None,
 ) -> str:
     style = normalize_style_key(style)
     if style == "random":
@@ -920,6 +1024,16 @@ def resolve_style(
             filtered_recommended = [candidate for candidate in recommended if candidate not in recent_set]
             if filtered_recommended:
                 recommended = filtered_recommended
+        # Money/career photo-auto has a dedicated grounding rule (_resolve_photo_auto_style)
+        # that keeps coast occasional; archetype anti-repeat must not remove those
+        # grounded candidates and cause drift to sea_coast_photo/sunny_morning_photo.
+        skip_archetype_filter_for_grounding = style == "auto" and mode == "photo" and sphere in ("money", "career")
+        if not skip_archetype_filter_for_grounding:
+            recommended = _filter_by_recent_archetypes(
+                recommended,
+                lambda candidate: get_visual_archetype(style=candidate),
+                recent_archetypes,
+            )
         if user_id is not None and day is not None:
             iso_year, iso_week, weekday = day.isocalendar()
             salt = "auto-style" if style == "auto" else "suitable-style"

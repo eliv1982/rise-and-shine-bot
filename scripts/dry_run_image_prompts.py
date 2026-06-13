@@ -41,7 +41,7 @@ from services.openai_image import (  # noqa: E402
     _COMPOSITION_HINTS,
     _build_image_prompt,
 )
-from services.ritual_config import resolve_photo_scene_preset, resolve_style  # noqa: E402
+from services.ritual_config import get_visual_archetype, resolve_photo_scene_preset, resolve_style  # noqa: E402
 from services.visual_memory import extract_visual_motifs_from_prompt  # noqa: E402
 
 # Набор сэмплов: (sphere, subsphere, style, visual_mode, user_text)
@@ -91,6 +91,7 @@ def build_prompts(seed: int) -> list[dict]:
         )
 
         motifs = extract_visual_motifs_from_prompt(prompt)
+        visual_archetype = get_visual_archetype(style=resolved_style, scene_preset=photo_scene_preset)
 
         results.append(
             {
@@ -100,6 +101,7 @@ def build_prompts(seed: int) -> list[dict]:
                 "resolved_style": resolved_style,
                 "visual_mode": visual_mode,
                 "photo_scene_preset": photo_scene_preset,
+                "visual_archetype": visual_archetype,
                 "color_mood": color_mood,
                 "composition_hint": composition_hint,
                 "user_text": user_text,
@@ -132,6 +134,7 @@ def main() -> None:
             f"[{item['sphere']}/{item['subsphere'] or '-'}] "
             f"style={item['resolved_style']} mode={item['visual_mode']} "
             f"scene={item['photo_scene_preset'] or '-'} "
+            f"archetype={item['visual_archetype']} "
             f"len={item['prompt_length']} motifs={item['motifs']}"
         )
         print(f"    color: {item['color_mood']}")
@@ -147,6 +150,36 @@ def main() -> None:
         print(f"Motifs present in >= half of prompts (possible repetition): {repeated_motifs}")
     else:
         print("No motif present in >= half of prompts.")
+
+    archetype_totals: dict[str, int] = {}
+    for item in results:
+        archetype_totals[item["visual_archetype"]] = archetype_totals.get(item["visual_archetype"], 0) + 1
+    print(f"\nVisual archetype frequency across {len(results)} samples: {archetype_totals}")
+
+    consecutive_repeats = [
+        (i, results[i - 1]["visual_archetype"])
+        for i in range(1, len(results))
+        if results[i]["visual_archetype"] == results[i - 1]["visual_archetype"]
+    ]
+    if consecutive_repeats:
+        print(f"Consecutive archetype repeats (sample index, archetype): {consecutive_repeats}")
+    else:
+        print("No consecutive archetype repeats in this sample sequence.")
+
+    overused_archetypes = {arch: count for arch, count in archetype_totals.items() if count >= len(results) // 2}
+    if overused_archetypes:
+        print(f"Archetypes present in >= half of samples (possible repetition): {overused_archetypes}")
+    else:
+        print("No archetype present in >= half of samples.")
+
+    print("\n--- Anti-repeat demo (auto style, illustration, sphere=inner_peace) ---")
+    history_window: list[str] = []
+    for step in range(6):
+        recent = history_window[-5:]
+        step_style = resolve_style("auto", "inner_peace", visual_mode="illustration", recent_archetypes=recent)
+        step_archetype = get_visual_archetype(style=step_style)
+        print(f"step {step + 1}: recent_archetypes={recent} -> style={step_style} archetype={step_archetype}")
+        history_window.append(step_archetype)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:
