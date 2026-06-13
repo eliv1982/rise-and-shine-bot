@@ -1025,8 +1025,8 @@ async def _run_generation(
     custom_style_description = context.custom_style_description
     last_stt_meta = context.last_stt_meta or {}
     history = list(context.recent_generation_history)
-    recent_styles = [item.get("selected_style") for item in history[-3:] if item.get("selected_style")]
-    recent_scenes = [item.get("scene_preset") for item in history[-2:] if item.get("scene_preset")]
+    recent_styles = [item.get("selected_style") for item in history[-7:] if item.get("selected_style")]
+    recent_scenes = [item.get("scene_preset") for item in history[-5:] if item.get("scene_preset")]
     if use_profile_preferences and not theme_text:
         theme_text = _profile_theme_from_preferences(profile_preferences, language)
 
@@ -1465,7 +1465,7 @@ async def _run_generation(
         },
         generation_request_type=None,
         use_profile_preferences=None,
-        recent_generation_history=history[-5:],
+        recent_generation_history=history[-7:],
     )
 
 

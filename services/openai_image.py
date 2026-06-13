@@ -41,6 +41,18 @@ _COLOR_MOODS = [
     "bright sage, cream, apricot light",
     "warm walnut, parchment, soft sage",
     "sea glass, fog, linen white",
+    "soft lilac dawn, cream, pale blue",
+    "warm apricot light, cool slate blue, white",
+    "golden wheat, sky blue, soft white",
+    "cool eucalyptus green, warm sand, ivory",
+    "rose quartz pink, warm grey, soft gold",
+    "clear citrus yellow, sky blue, white linen",
+    "muted coral, warm cream, soft denim blue",
+    "fresh birch green, morning silver, warm white",
+    "amber glow, cool stone grey, pale yellow",
+    "soft periwinkle, warm sand, cream",
+    "clear morning teal, warm beige, soft gold",
+    "blush peach, sage green, warm ivory",
 ]
 
 # Варианты композиции
@@ -56,7 +68,32 @@ _COMPOSITION_HINTS = [
     "intimate still life with symbolic objects, no text",
     "quiet interior scene with natural window light",
     "soft landscape with readable focal point and bright exposure",
+    "wide horizon view with low foreground and generous open sky",
+    "layered scene with near, middle and far elements for depth",
+    "diagonal path or shoreline leading the eye through the frame",
+    "framed view through an open window or doorway",
+    "close but not tight still life with soft negative space around the subject",
+    "elevated viewpoint overlooking a bright open scene",
+    "rule-of-thirds framing with a single clear focal element",
+    "symmetrical calm composition with balanced light on both sides",
+    "scene framed by natural elements like branches or leaves at the edges",
+    "wide-angle interior with daylight pouring in from one side",
+    "minimal composition with one main subject and soft uncluttered background",
 ]
+
+# Компактный позитивный якорь анатомии: снижает риск искажённых лиц/рук без огромного негативного промпта
+_ANATOMY_ANCHOR = (
+    "If a person appears, give them natural human proportions, anatomically correct hands and face, "
+    "no extra or missing fingers, no distorted limbs."
+)
+
+# Компактное ограничение против туманной/мистической дымки.
+# Не запрещает лёгкий/утренний туман, упомянутый в самих темах (light mist, luminous mist),
+# чтобы не создавать противоречие "light mist" + "avoid misty atmosphere".
+_HAZE_GUARD = (
+    "Avoid heavy fog, murky haze, smeared pastel haze or mystical fog as the dominant atmosphere; "
+    "gentle natural mist or soft morning haze is fine only if it fits the scene."
+)
 
 
 def _build_default_image_theme(sphere: str, subsphere: Optional[str]) -> str:
@@ -256,6 +293,7 @@ def _build_photo_prompt(
         "If an interior appears, it must be a realistic interior photo with real ceramics, wood, linen, glass, paper or plants. "
         "If the scene is symbolic still life, it must look physically photographed, with real objects and believable shadows. "
         "Do not create a greeting card image, decorative art print, drawn scene or stylized AI illustration. "
+        f"{_ANATOMY_ANCHOR} "
         f"{coastal_clause}"
         f"Photo style direction: {style_phrase}.{color_part}{comp_part} "
         f"{avoid_clause}"
@@ -379,9 +417,11 @@ def _build_image_prompt(
         "Use a high-quality soft semi-realistic or gentle illustration look. "
         "Prefer nature scenes, lake, sea, sky, soft landscape, flowering branches, trees in sunlight, meadow, garden, morning light, bright still life with window light, light workspace without visible text, two cups or warm table for relationships, and gentle symbolic nature metaphors. "
         "If a person appears, keep them small, from behind or side view, not a dominant portrait, with no direct eye contact. "
+        f"{_ANATOMY_ANCHOR} "
         f"Atmosphere: bright daily card, elegant, simple, warm and hopeful, suitable for affirmation practice about {sphere}. "
         f"Visual style: {style_phrase}.{color_part}{comp_part} "
         "No text, no words, no letters, no numbers, no typography, no logos, no watermarks. "
+        f"{_HAZE_GUARD} "
         f"{avoid_clause}"
     )
 
