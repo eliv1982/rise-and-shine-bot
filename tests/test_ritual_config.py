@@ -1,15 +1,18 @@
 import datetime as dt
 
-from keyboards.inline import sphere_keyboard, style_keyboard
+from keyboards.inline import sphere_keyboard, style_keyboard, visual_mode_keyboard
 from services.ritual_config import (
+    ILLUSTRATION_RECOMMENDED_STYLES,
     ILLUSTRATION_STYLE_KEYS,
     MAIN_SPHERES,
     PHOTO_RECOMMENDED_STYLES,
     PHOTO_SCENE_PRESETS,
     PHOTO_SCENE_ROUTING,
     PHOTO_STYLE_KEYS,
+    PHOTO_STYLE_SCENE_HINTS,
     RECOMMENDED_STYLES,
     STYLE_DESCRIPTIONS,
+    SYMBOLIC_STYLE_KEYS,
     VALID_VISUAL_MODES,
     get_sphere_label,
     get_style_label,
@@ -64,9 +67,10 @@ def test_auto_style_uses_recommended_styles():
 
 
 def test_visual_mode_values_and_default():
-    assert set(VALID_VISUAL_MODES) == {"photo", "illustration", "mixed"}
+    assert set(VALID_VISUAL_MODES) == {"photo", "illustration", "mixed", "symbolic"}
     assert normalize_visual_mode(None) == "illustration"
     assert normalize_visual_mode("unknown") == "illustration"
+    assert normalize_visual_mode("symbolic") == "symbolic"
 
 
 def test_auto_photo_uses_only_photo_styles():
@@ -94,12 +98,63 @@ def test_auto_illustration_uses_illustration_styles():
     assert style not in PHOTO_STYLE_KEYS
 
 
-def test_symbolic_luxe_style_exists_and_resolves_directly():
-    # "symbolic_luxe" is the project's grounded symbolic / subtle luminous
-    # illustration style: subtle metaphor, luminous but grounded, not mysterious.
-    assert "symbolic_luxe" in ILLUSTRATION_STYLE_KEYS
-    assert "symbolic_luxe" in STYLE_DESCRIPTIONS
-    assert resolve_style("symbolic_luxe", "spirituality") == "symbolic_luxe"
+def test_symbolic_styles_exist_and_are_not_illustration_styles():
+    # The symbolic visual mode (🪷 Мандалы и символы) has its own small
+    # taxonomy of styles, each with its own prompt contract. None of them are
+    # part of the regular illustration menu.
+    for key in SYMBOLIC_STYLE_KEYS:
+        assert key in STYLE_DESCRIPTIONS
+        assert key not in ILLUSTRATION_STYLE_KEYS
+        assert resolve_style(key, "inner_peace", visual_mode="symbolic") == key
+
+    # symbolic_luxe is kept as a backward-compatible alias for old subscriptions.
+    assert normalize_style_key("symbolic_luxe") == "mandala_harmony"
+    assert "symbolic_luxe" not in ILLUSTRATION_STYLE_KEYS
+
+
+def test_symbolic_auto_selection_can_choose_any_symbolic_style():
+    # "Автоподбор" inside visual_mode="symbolic" must be able to pick any of
+    # the symbolic styles (not always mandala_harmony), while never picking
+    # a photo/illustration style.
+    chosen = set()
+    for user_id in range(20):
+        for day_offset in range(7):
+            day = dt.date(2030, 1, 1) + dt.timedelta(days=day_offset)
+            style = resolve_style("auto", "inner_peace", user_id=user_id, day=day, visual_mode="symbolic")
+            assert style in SYMBOLIC_STYLE_KEYS
+            chosen.add(style)
+    assert chosen == set(SYMBOLIC_STYLE_KEYS)
+
+
+def test_symbolic_styles_are_not_recommended_for_illustration():
+    for sphere in MAIN_SPHERES:
+        recommended = get_recommended_styles(sphere, visual_mode="illustration")
+        for key in SYMBOLIC_STYLE_KEYS:
+            assert key not in recommended
+            assert key not in ILLUSTRATION_RECOMMENDED_STYLES.get(sphere, [])
+
+
+def test_cozy_home_and_book_nook_photo_scene_hints_reduce_overlap():
+    cozy_home_scenes = set(PHOTO_STYLE_SCENE_HINTS["cozy_home_photo"])
+    book_nook_scenes = set(PHOTO_STYLE_SCENE_HINTS["book_nook_photo"])
+
+    assert len(cozy_home_scenes) >= 2
+    assert len(book_nook_scenes) >= 2
+    assert "warm_living_room" in cozy_home_scenes
+    assert "bookshop_aisle" in book_nook_scenes
+    assert "warm_living_room" not in book_nook_scenes
+    assert "window_still_life" not in cozy_home_scenes
+
+
+def test_calm_lifestyle_photo_scene_hints_differ_from_cozy_and_book_nook():
+    cozy_home_scenes = set(PHOTO_STYLE_SCENE_HINTS["cozy_home_photo"])
+    book_nook_scenes = set(PHOTO_STYLE_SCENE_HINTS["book_nook_photo"])
+    calm_lifestyle_scenes = set(PHOTO_STYLE_SCENE_HINTS["calm_lifestyle_photo"])
+
+    assert len(calm_lifestyle_scenes) >= 2
+    assert not (calm_lifestyle_scenes & cozy_home_scenes)
+    assert not (calm_lifestyle_scenes & book_nook_scenes)
+    assert "window_still_life" not in calm_lifestyle_scenes
 
 
 def test_mixed_mode_selects_a_supported_branch():
@@ -276,3 +331,81 @@ def test_photo_style_keyboard_shows_new_styles_and_hides_bright_ocean_duplicate(
     assert "🏡 Уютный дом" in texts
     assert "📚 Книжный уголок" in texts
     assert not any("Яркое океанское побережье" in text for text in texts)
+
+
+def test_mandala_harmony_is_not_in_illustration_and_mixed_style_menus():
+    # Mandalas and symbolic ornaments are a separate visual mode, not ordinary
+    # illustration styles, so "Мандальная гармония" must not appear in the
+    # regular illustration or mixed style menus.
+    for visual_mode in ("illustration", "mixed", "photo"):
+        keyboard = style_keyboard("ru", visual_mode=visual_mode)
+        entries = [(button.text, button.callback_data) for row in keyboard.inline_keyboard for button in row]
+        assert ("🪷 Мандальная гармония", "style:mandala_harmony") not in entries
+        assert ("🪷 Мандальная гармония", "style:symbolic_luxe") not in entries
+        callbacks = [callback for _, callback in entries]
+        assert "style:symbolic_luxe" not in callbacks
+        for key in SYMBOLIC_STYLE_KEYS:
+            assert f"style:{key}" not in callbacks
+
+
+def test_visual_mode_keyboard_includes_symbolic_mode():
+    keyboard = visual_mode_keyboard("ru")
+    entries = [(button.text, button.callback_data) for row in keyboard.inline_keyboard for button in row]
+    assert ("🪷 Мандалы и символы", "visual:symbolic") in entries
+
+    # Existing visual modes remain unchanged.
+    assert ("📷 Фото-стиль", "visual:photo") in entries
+    assert ("🖌 Мягкая иллюстрация", "visual:illustration") in entries
+    assert ("🔀 Смешанный стиль", "visual:mixed") in entries
+
+
+def test_sphere_keyboard_has_main_menu_escape():
+    keyboard = sphere_keyboard("ru")
+    entries = [(button.text, button.callback_data) for row in keyboard.inline_keyboard for button in row]
+    assert ("🏠 Главное меню", "nav:main_menu") in entries
+
+
+def test_visual_mode_keyboard_has_back_and_main_menu_navigation():
+    keyboard = visual_mode_keyboard("ru")
+    entries = [(button.text, button.callback_data) for row in keyboard.inline_keyboard for button in row]
+    assert ("⬅️ Назад", "nav:back_to_sphere") in entries
+    assert ("🏠 Главное меню", "nav:main_menu") in entries
+
+    # The shared subscription keyboard must keep its existing layout untouched.
+    sub_keyboard = visual_mode_keyboard("ru", for_subscription=True)
+    sub_callbacks = [button.callback_data for row in sub_keyboard.inline_keyboard for button in row]
+    assert "nav:back_to_sphere" not in sub_callbacks
+    assert "nav:main_menu" not in sub_callbacks
+
+
+def test_style_keyboard_has_back_and_main_menu_navigation_for_all_visual_modes():
+    for visual_mode in ("photo", "illustration", "mixed", "symbolic"):
+        keyboard = style_keyboard("ru", visual_mode=visual_mode)
+        entries = [(button.text, button.callback_data) for row in keyboard.inline_keyboard for button in row]
+        assert ("⬅️ Назад", "nav:back_to_visual") in entries
+        assert ("🏠 Главное меню", "nav:main_menu") in entries
+
+
+def test_symbolic_visual_mode_style_keyboard_shows_only_symbolic_styles():
+    keyboard = style_keyboard("ru", visual_mode="symbolic")
+    entries = [(button.text, button.callback_data) for row in keyboard.inline_keyboard for button in row]
+    assert ("🪷 Мандальная гармония", "style:mandala_harmony") in entries
+    assert ("🔷 Светлая геометрия", "style:sacred_geometry_light") in entries
+    assert ("🌿 Ботаническая мандала", "style:botanical_mandala") in entries
+    assert ("✨ Символ дня", "style:daily_symbol") in entries
+
+    # Only symbolic styles are offered in this mode (plus auto/custom).
+    style_callbacks = {
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data.startswith("style:") and button.callback_data not in ("style:auto", "style:custom")
+    }
+    assert style_callbacks == {f"style:{key}" for key in SYMBOLIC_STYLE_KEYS}
+
+
+def test_symbolic_visual_mode_auto_resolves_to_symbolic_style():
+    assert resolve_style("auto", "inner_peace", visual_mode="symbolic") in SYMBOLIC_STYLE_KEYS
+    for key in SYMBOLIC_STYLE_KEYS:
+        assert resolve_style(key, "inner_peace", visual_mode="symbolic") == key
+    assert resolve_style("symbolic_luxe", "inner_peace", visual_mode="symbolic") == "mandala_harmony"

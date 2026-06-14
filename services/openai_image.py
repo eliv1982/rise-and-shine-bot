@@ -188,9 +188,12 @@ def _style_to_phrase(style: str) -> str:
         "abstract": "abstract art, flowing shapes, harmonious colors",
         "sunny_photo_scene": STYLE_DESCRIPTIONS["sunny_photo_scene"],
         "living_nature_photo": STYLE_DESCRIPTIONS["living_nature_photo"],
+        "urban_city_photo": STYLE_DESCRIPTIONS["urban_city_photo"],
         "sea_coast_photo": STYLE_DESCRIPTIONS["sea_coast_photo"],
         "bright_ocean_coast_photo": STYLE_DESCRIPTIONS["bright_ocean_coast_photo"],
         "light_interior_photo": STYLE_DESCRIPTIONS["light_interior_photo"],
+        "cozy_home_photo": STYLE_DESCRIPTIONS["cozy_home_photo"],
+        "book_nook_photo": STYLE_DESCRIPTIONS["book_nook_photo"],
         "calm_lifestyle_photo": STYLE_DESCRIPTIONS["calm_lifestyle_photo"],
         "bright_nature_card": STYLE_DESCRIPTIONS["bright_nature_card"],
         "quiet_interior": STYLE_DESCRIPTIONS["quiet_interior"],
@@ -203,9 +206,154 @@ def _style_to_phrase(style: str) -> str:
         "minimal_botanical": STYLE_DESCRIPTIONS["minimal_botanical"],
         "cinematic_light": STYLE_DESCRIPTIONS["cinematic_light"],
         "ethereal_landscape": STYLE_DESCRIPTIONS["ethereal_landscape"],
-        "symbolic_luxe": STYLE_DESCRIPTIONS["symbolic_luxe"],
+        "mandala_harmony": STYLE_DESCRIPTIONS["mandala_harmony"],
+        "sacred_geometry_light": STYLE_DESCRIPTIONS["sacred_geometry_light"],
+        "botanical_mandala": STYLE_DESCRIPTIONS["botanical_mandala"],
+        "daily_symbol": STYLE_DESCRIPTIONS["daily_symbol"],
     }
     return mapping.get(style, "soft, inspiring, visually harmonious style")
+
+
+_SYMBOLIC_MEANING_HINTS = {
+    "money": "stability, abundance and calm order",
+    "career": "clarity, purpose and steady growth",
+    "self_worth": "self-acceptance, inner light and quiet confidence",
+    "health": "vitality, balance and renewal",
+    "relationships": "harmony, connection and warmth",
+    "self_realization": "creativity, expression and inner blossoming",
+    "home_support": "comfort, grounding and care",
+    "inner_peace": "calm, balance and quiet harmony",
+    "spirituality": "inner light, harmony and quiet reflection",
+}
+
+
+def _symbolic_meaning_hint(sphere: str) -> str:
+    return _SYMBOLIC_MEANING_HINTS.get(sphere.lower(), "calm balance and quiet harmony")
+
+
+# Short style accents for the symbolic visual mode. Deliberately shorter and
+# narrower than STYLE_DESCRIPTIONS: the full illustration-oriented descriptions
+# carry their own "not a landscape / not wallpaper / not a photo" negations,
+# which would otherwise leak those words back into the symbolic prompt contract.
+_SYMBOLIC_STYLE_ACCENTS = {
+    "mandala_harmony": "luminous gold, warm pastel and pearl tones, fine delicate linework, elegant refined ornament",
+    "sacred_geometry_light": "soft luminous pastel tones, clean fine linework, airy light geometric palette",
+    "botanical_mandala": "soft botanical greens, warm cream and floral pastel tones, delicate organic linework",
+    "daily_symbol": "luminous warm pastel tones, soft gentle glow, clean minimal linework",
+}
+
+
+# Per-style main-subject contracts for the symbolic visual mode. Each entry
+# reinforces the visual anchor for that style, deliberately without any
+# sphere/focus scene content (lake, hands, room, office, cafe, etc.).
+_SYMBOLIC_STYLE_SUBJECTS = {
+    "mandala_harmony": (
+        "Mandala details: one centered visible mandala as the main subject; the mandala occupies roughly "
+        "65-80% of the image, with clear radial symmetry, a circular geometric rosette, fine ornamental "
+        "linework, balanced symmetrical layers, a calm luminous palette and a clean decorative card composition."
+    ),
+    "sacred_geometry_light": (
+        "Mandala details: one centered visible mandala-like ornamental rosette as the main subject; "
+        "it occupies roughly 65-80% of the image, with clear radial symmetry, interlocking circles, "
+        "soft polygons, a circular geometric rosette, fine luminous linework, balanced symmetrical "
+        "layers and a clean decorative card composition."
+    ),
+    "botanical_mandala": (
+        "Mandala details: one centered visible botanical mandala as the main subject; it occupies roughly "
+        "65-80% of the image, with clear radial symmetry, petals, leaves and branches arranged into a "
+        "circular rosette, fine ornamental linework, balanced symmetrical layers and a clean decorative "
+        "card composition."
+    ),
+    "daily_symbol": (
+        "Main subject details: one centered visible abstract emblem as the main subject, occupying roughly "
+        "35-55% of the image, with crisp edges, balanced negative space, calm luminous color and a clean "
+        "decorative card composition. Use only universal abstract shapes such as a circle, sun, leaf, "
+        "wave, path or star-like light; this is not a mandala, not a rune, not a sigil and not an "
+        "alphabet-like glyph."
+    ),
+}
+
+
+# Shared safety negations for the symbolic visual mode, regardless of style.
+_SYMBOLIC_GLOBAL_SAFETY = (
+    "No readable text, no words, no letters, no numbers, no typography, no logos, no watermarks. "
+    "No plain abstract texture, no wallpaper, no soft blurry background, no vague glowing background. "
+    "No water surface, no ocean reflection, no landscape, no realistic photo, no room or interior, no furniture, "
+    "no human figure, no face, no hands, no body parts. "
+    "No religious icons, no occult sigils, no pentagrams, no runes, no dark mysticism, no fantasy creatures. "
+    "Keep a clean background with no extra clutter: no corner twig, no corner ornament, no side frame, "
+    "no border lines, no card frame, no extra decorative branches or leaves added outside the main subject, "
+    "no secondary small symbols around the edges unless required by the chosen style, and no wallpaper-like "
+    "filler details. "
+    "Keep the mood calm, luminous, harmonious and emotionally uplifting."
+)
+
+
+def _symbolic_style_accent(style: str) -> str:
+    return _SYMBOLIC_STYLE_ACCENTS.get(
+        normalize_style_key(style), "luminous refined colors and a calm harmonious palette"
+    )
+
+
+def _build_symbolic_image_prompt(
+    *,
+    sphere: str,
+    user_text: Optional[str],
+    style: str,
+    custom_style_description: Optional[str],
+    color_mood: Optional[str],
+    composition_hint: Optional[str],
+) -> str:
+    """
+    Dedicated prompt contract for the "symbolic" visual mode (🪷 Мандалы и символы).
+
+    Unlike the regular illustration/mixed flow, this mode does not use the
+    sphere/focus scene theme (lake, hands, room, office, cafe, etc.) at all.
+    The sphere/focus may only influence mood, color palette and symbolic meaning,
+    via _symbolic_meaning_hint, never the visual subject itself.
+    """
+    normalized_style = normalize_style_key(style)
+
+    if normalized_style == "custom" and custom_style_description:
+        style_phrase = f"in the style: {custom_style_description}"
+    else:
+        style_phrase = _symbolic_style_accent(normalized_style)
+        if custom_style_description:
+            style_phrase = (
+                f"{style_phrase}. Optional nuance: {custom_style_description}. "
+                "Keep it only as ornamental color or linework nuance, never as scene content."
+            )
+
+    color_part = f" Color palette only: {color_mood}." if color_mood else ""
+
+    meaning_part = (
+        f" Symbolic meaning to evoke through pattern, rhythm and color only: {_symbolic_meaning_hint(sphere)}."
+    )
+
+    extra = ""
+    if user_text:
+        extra = (
+            " If a custom theme exists, use it only as abstract emotional meaning; "
+            "do not depict literal objects, places or scenes from it."
+        )
+
+    subject = _SYMBOLIC_STYLE_SUBJECTS.get(
+        normalized_style, _SYMBOLIC_STYLE_SUBJECTS["mandala_harmony"]
+    )
+    opening = (
+        "Create a decorative symbolic card. The image must contain one centered visible symbol as the main subject, clearly isolated in the center of the image. "
+        if normalized_style == "daily_symbol"
+        else "Create a decorative symbolic card. The image must contain one centered visible mandala as the main subject, occupying most of the image. "
+    )
+
+    return (
+        f"{opening}"
+        f"{subject}"
+        f"{meaning_part}{extra} "
+        "Decorative symbolic branch only. Keep the subject centered, clear and dominant on a phone screen. "
+        f"Visual style: {style_phrase}.{color_part} "
+        f"{_SYMBOLIC_GLOBAL_SAFETY}"
+    )
 
 
 def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration") -> str:
@@ -363,6 +511,17 @@ def _build_image_prompt(
         style = "bright_ocean_coast_photo"
     coastal_force = style in {"sea_coast_photo", "bright_ocean_coast_photo"} or coastal_intent
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), style)
+
+    if effective_visual_mode == "symbolic":
+        return _build_symbolic_image_prompt(
+            sphere=sphere,
+            user_text=user_text,
+            style=style,
+            custom_style_description=custom_style_description,
+            color_mood=color_mood,
+            composition_hint=composition_hint,
+        )
+
     base_theme = (
         _build_photo_image_theme(sphere, subsphere)
         if effective_visual_mode == "photo"
@@ -485,6 +644,10 @@ async def generate_image(
 
     color_mood = color_mood or random.choice(_COLOR_MOODS)
     composition_hint = composition_hint or random.choice(_COMPOSITION_HINTS)
+    if effective_visual_mode == "symbolic":
+        prompt_override = None
+        image_prompt_trace = "symbolic_prompt_builder"
+
     if prompt_override:
         if effective_visual_mode == "photo":
             coastal_override = (

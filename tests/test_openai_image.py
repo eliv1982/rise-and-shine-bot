@@ -6,7 +6,7 @@ import os
 import services.openai_image as openai_image
 from handlers.generation import _build_image_debug_block
 from services.openai_image import _COLOR_MOODS, _build_image_prompt, _ensure_no_text_clause, _style_to_phrase, generate_image
-from services.ritual_config import STYLE_LABELS, get_focuses
+from services.ritual_config import STYLE_LABELS, SYMBOLIC_STYLE_KEYS, get_focuses
 
 
 def test_ensure_no_text_clause_adds_suffix():
@@ -81,63 +81,176 @@ def test_new_style_keys_return_non_empty_phrases():
         "minimal_botanical",
         "cinematic_light",
         "ethereal_landscape",
-        "symbolic_luxe",
         "textured_collage",
+        "mandala_harmony",
+        "sacred_geometry_light",
+        "botanical_mandala",
+        "daily_symbol",
     ):
         assert _style_to_phrase(style)
 
 
-def test_symbolic_luxe_style_prompt_stays_grounded_and_safe():
-    # "symbolic_luxe" is a grounded symbolic / subtle luminous illustration style:
-    # subtle metaphor, grounded luminous atmosphere, never high fantasy or dark fantasy.
+_SYMBOLIC_STYLE_ANCHORS = {
+    "mandala_harmony": [
+        "create a decorative symbolic card",
+        "centered visible mandala",
+        "occupying most of the image",
+        "65-80% of the image",
+        "radial symmetry",
+        "circular geometric rosette",
+        "ornamental linework",
+        "balanced symmetrical layers",
+        "clean decorative card composition",
+        "no wallpaper",
+        "no plain abstract texture",
+    ],
+    "sacred_geometry_light": [
+        "centered visible mandala",
+        "65-80% of the image",
+        "interlocking circles",
+        "soft polygons",
+        "circular geometric rosette",
+        "balanced symmetrical layers",
+    ],
+    "botanical_mandala": [
+        "centered visible mandala",
+        "65-80% of the image",
+        "petals, leaves and branches",
+        "branches",
+        "circular rosette",
+        "balanced symmetrical layers",
+    ],
+    "daily_symbol": [
+        "centered visible symbol",
+        "clearly isolated in the center of the image",
+        "35-55% of the image",
+        "circle, sun, leaf, wave, path or star-like light",
+        "not a mandala",
+        "not a rune",
+        "not a sigil",
+        "not an alphabet-like glyph",
+    ],
+}
+
+
+def test_symbolic_styles_prompts_contain_required_visual_anchors():
+    for style, anchors in _SYMBOLIC_STYLE_ANCHORS.items():
+        prompt = _build_image_prompt(
+            style=style,
+            sphere="inner_peace",
+            subsphere=None,
+            user_text=None,
+            custom_style_description=None,
+            color_mood="soft gold and warm grey",
+            composition_hint="balanced calm composition",
+            visual_mode="symbolic",
+        )
+        low = prompt.lower()
+        for anchor in anchors:
+            assert anchor in low, f"{style}: missing anchor {anchor!r} in prompt: {low}"
+
+        # No-text/logo/watermark guard is present.
+        assert "no logos" in low
+        assert "no watermarks" in low
+        assert "no readable text" in low
+
+
+def test_symbolic_prompts_exclude_clutter_and_extra_ornaments():
+    for style in SYMBOLIC_STYLE_KEYS:
+        prompt = _build_image_prompt(
+            style=style,
+            sphere="inner_peace",
+            subsphere=None,
+            user_text=None,
+            custom_style_description=None,
+            color_mood="soft gold and warm grey",
+            composition_hint="balanced calm composition",
+            visual_mode="symbolic",
+        ).lower()
+
+        # Clean, centered composition: no side frame/border, no corner
+        # twig/ornament, no extra secondary decorative motifs by default.
+        assert "clean background" in prompt
+        assert "no corner twig" in prompt
+        assert "no corner ornament" in prompt
+        assert "no side frame" in prompt
+        assert "no border lines" in prompt
+        assert "no card frame" in prompt
+        assert "no extra decorative branches or leaves" in prompt
+        assert "no secondary small symbols around the edges" in prompt
+        assert "wallpaper-like filler" in prompt
+
+
+def test_symbolic_mandala_prompt_starts_with_hard_contract_and_keeps_mandala_dominant():
     prompt = _build_image_prompt(
-        style="symbolic_luxe",
+        style="mandala_harmony",
         sphere="spirituality",
+        subsphere=None,
+        user_text="quiet lake by the window",
+        custom_style_description=None,
+        color_mood="soft gold and warm grey",
+        composition_hint="wide-angle interior with daylight pouring in from one side",
+        visual_mode="symbolic",
+        image_hint="quiet lake, open window, calm room",
+    ).lower()
+
+    assert prompt.startswith(
+        "create a decorative symbolic card. the image must contain one centered visible mandala as the main subject, occupying most of the image."
+    )
+    assert "65-80% of the image" in prompt
+    assert "circular geometric rosette" in prompt
+    assert "balanced symmetrical layers" in prompt
+    assert "clean decorative card composition" in prompt
+    assert "quiet lake" not in prompt
+    assert "window" not in prompt
+    assert "wide-angle interior" not in prompt
+
+
+def test_symbolic_prompts_do_not_leak_regular_scene_hints():
+    for style in SYMBOLIC_STYLE_KEYS:
+        prompt = _build_image_prompt(
+            style=style,
+            sphere="career",
+            subsphere=None,
+            user_text=None,
+            custom_style_description=None,
+            color_mood="soft gold and warm grey",
+            composition_hint="balanced calm composition",
+            visual_mode="symbolic",
+            image_hint="light workspace, open window, desk with notebook",
+        ).lower()
+
+        # The regular illustration/photo scene theme (lake, hands, room,
+        # office, cafe, workspace, etc.) must not leak into the symbolic
+        # prompt, even when an image_hint is supplied.
+        assert "lake at dawn" not in prompt
+        assert "gentle river" not in prompt
+        assert "realistic photo of" not in prompt
+        assert "workspace" not in prompt
+        assert "desk" not in prompt
+        assert "cafe" not in prompt
+        assert "office" not in prompt
+        assert "open window" not in prompt
+        assert "focus visual hint" not in prompt
+
+
+def test_symbolic_visual_mode_auto_resolves_to_a_symbolic_style():
+    prompt = _build_image_prompt(
+        style="auto",
+        sphere="self_worth",
         subsphere=None,
         user_text=None,
         custom_style_description=None,
         color_mood="soft gold and warm grey",
         composition_hint="balanced calm composition",
+        visual_mode="symbolic",
     )
     low = prompt.lower()
-
-    # Stays grounded / gentle magical realism, not mysterious or exaggerated.
-    assert "grounded luminous scene" in low
-    assert "subtle metaphor" in low
-    assert "emotionally uplifting rather than mysterious" in low
-    assert "avoid exaggerated mysticism" in low
-
-    # No high/dark fantasy or fantasy-character imagery.
-    forbidden_terms = [
-        "dark fantasy",
-        "high fantasy",
-        "cosplay",
-        "fantasy character",
-        "fantasy creature",
-        "elf",
-        "elves",
-        "warrior",
-        "dragon",
-        "castle",
-        "armor",
-        "armour",
-        "magical portal",
-        "sorcery",
-        "sorcerer",
-        "wizard",
-        "witch",
-    ]
-    for term in forbidden_terms:
-        assert term not in low, f"unexpected fantasy term in prompt: {term!r}"
-
-    # No creepy surrealism, and no dominant human character.
-    assert "creepy" not in low
-    assert "surreal" not in low
-    assert "not a dominant portrait" in low
-
-    # Standard no-text/logo/watermark guard is present.
-    assert "no logos" in low
-    assert "no watermarks" in low
+    assert low.startswith(
+        "create a decorative symbolic card. the image must contain one centered visible mandala as the main subject, occupying most of the image."
+    )
+    assert "65-80% of the image" in low
+    assert "no readable text" in low
 
 
 def test_living_nature_prompt_prefers_clear_air_and_avoids_default_fog():
@@ -197,6 +310,50 @@ def test_interior_office_prompts_guard_against_generic_stock_and_showroom_look()
     assert "showroom or catalog-furniture staging" in career_prompt
     assert "corporate stock-photo look" in career_prompt
     assert "combining laptop, cup, plant and notebook together" in career_prompt
+
+
+def test_urban_city_photo_allows_subtle_life_without_crowds():
+    prompt = _build_image_prompt(
+        style="urban_city_photo",
+        sphere="career",
+        subsphere=None,
+        user_text=None,
+        custom_style_description=None,
+        color_mood="golden wheat, sky blue, soft white",
+        composition_hint="rule-of-thirds framing with a single clear focal element",
+        visual_mode="photo",
+    ).lower()
+
+    assert "distant pedestrian, cyclist, dog walker, parked car or an open cafe" in prompt
+    assert "no crowd as focal point" in prompt
+
+
+def test_cozy_home_and_book_nook_photo_are_differentiated():
+    cozy_home = _style_to_phrase("cozy_home_photo").lower()
+    book_nook = _style_to_phrase("book_nook_photo").lower()
+
+    assert "kitchen corner" in cozy_home
+    assert "textiles" in cozy_home
+    assert "houseplants" in cozy_home
+
+    assert "bookshelves" in book_nook
+    assert "reading nook" in book_nook or "library corner" in book_nook
+    assert "bookshop aisle" in book_nook
+
+    assert cozy_home != book_nook
+
+
+def test_calm_lifestyle_photo_is_not_a_reading_corner_clone():
+    calm_lifestyle = _style_to_phrase("calm_lifestyle_photo").lower()
+    cozy_home = _style_to_phrase("cozy_home_photo").lower()
+    book_nook = _style_to_phrase("book_nook_photo").lower()
+
+    assert "balcony" in calm_lifestyle
+    assert "calm walk" in calm_lifestyle or "cafe corner" in calm_lifestyle
+    assert "not centered on bookshelves, armchair or reading-lamp imagery" in calm_lifestyle
+
+    assert calm_lifestyle != cozy_home
+    assert calm_lifestyle != book_nook
 
 
 def test_bright_ocean_coast_style_uses_legacy_alias_label():
@@ -533,6 +690,79 @@ def _cleanup_generated_image(image_path):
     output_dir = os.path.dirname(image_path)
     if output_dir and os.path.isdir(output_dir) and not os.listdir(output_dir):
         os.rmdir(output_dir)
+
+
+def test_generate_image_symbolic_ignores_prompt_override_and_keeps_template_contract(monkeypatch):
+    monkeypatch.setenv("YANDEX_API_KEY", "test")
+    monkeypatch.setenv("YANDEX_FOLDER_ID", "test")
+    monkeypatch.setenv("PROXI_API_KEY", "test")
+    monkeypatch.setenv("BOT_TOKEN", "test")
+    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
+
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {"data": [{"b64_json": base64.b64encode(b"png").decode("ascii")}]}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def post(self, *args, **kwargs):
+            captured["payload"] = kwargs["json"]
+            return FakeResponse()
+
+    monkeypatch.setattr(openai_image.aiohttp, "ClientSession", FakeSession)
+
+    image_path = None
+    try:
+        image_path = asyncio.run(
+            generate_image(
+                style="mandala_harmony",
+                sphere="inner_peace",
+                output_dir="test_outputs_phase42",
+                file_basename="symbolic_template_contract",
+                prompt_override="Abstract soft wallpaper background. No text.",
+                image_prompt_trace="scene_planner_local",
+                resolved_style_override="mandala_harmony",
+                visual_mode="symbolic",
+                focus_key="calm_breath",
+                color_mood="soft gold and warm grey",
+                composition_hint="wide-angle interior with daylight pouring in from one side",
+            )
+        )
+
+        final_prompt = captured["payload"]["prompt"].lower()
+        assert final_prompt.startswith(
+            "create a decorative symbolic card. the image must contain one centered visible mandala as the main subject, occupying most of the image."
+        )
+        assert "65-80% of the image" in captured["payload"]["prompt"]
+        assert "abstract soft wallpaper background" not in final_prompt
+        assert "window" not in final_prompt
+        assert "wide-angle interior" not in final_prompt
+
+        with open(image_path.replace(".png", "_meta.json"), "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        assert meta["prompt_branch"] == "symbolic"
+        assert meta["prompt_source"] == "symbolic_prompt_builder"
+        assert meta["visual_mode"] == "symbolic"
+        assert meta["selected_style"] == "mandala_harmony"
+    finally:
+        if image_path:
+            _cleanup_generated_image(image_path)
 
 
 def test_generate_image_coastal_override_path_uses_scene_and_generic_photo_safety(monkeypatch):

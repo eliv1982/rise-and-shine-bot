@@ -5,6 +5,7 @@ from services.ritual_config import (
     ILLUSTRATION_STYLE_KEYS,
     MAIN_SPHERES,
     PHOTO_STYLE_KEYS,
+    SYMBOLIC_STYLE_KEYS,
     get_sphere_label,
     get_style_label,
     is_tts_available,
@@ -14,6 +15,14 @@ from services.ritual_config import (
 
 def _t(language: str, ru: str, en: str) -> str:
     return ru if language == "ru" else en
+
+
+def _add_back_button(b: InlineKeyboardBuilder, language: str, callback_data: str) -> None:
+    b.button(text=_t(language, "⬅️ Назад", "⬅️ Back"), callback_data=callback_data)
+
+
+def _add_main_menu_button(b: InlineKeyboardBuilder, language: str) -> None:
+    b.button(text=_t(language, "🏠 Главное меню", "🏠 Main menu"), callback_data="nav:main_menu")
 
 
 def _sphere_buttons(b: InlineKeyboardBuilder, language: str, include_custom_theme: bool = True) -> None:
@@ -27,6 +36,8 @@ def _sphere_buttons(b: InlineKeyboardBuilder, language: str, include_custom_them
 def sphere_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     _sphere_buttons(b, language, include_custom_theme=True)
+    _add_main_menu_button(b, language)
+    b.adjust(1)
     return b.as_markup()
 
 
@@ -52,6 +63,10 @@ def visual_mode_keyboard(language: str, *, for_subscription: bool = False) -> In
     b.button(text=_t(language, "📷 Фото-стиль", "📷 Photo style"), callback_data="visual:photo")
     b.button(text=_t(language, "🖌 Мягкая иллюстрация", "🖌 Soft illustration"), callback_data="visual:illustration")
     b.button(text=_t(language, "🔀 Смешанный стиль", "🔀 Mixed style"), callback_data="visual:mixed")
+    b.button(text=_t(language, "🪷 Мандалы и символы", "🪷 Mandalas & symbols"), callback_data="visual:symbolic")
+    if not for_subscription:
+        _add_back_button(b, language, "nav:back_to_sphere")
+        _add_main_menu_button(b, language)
     b.adjust(1)
     return b.as_markup()
 
@@ -71,6 +86,8 @@ def _style_keys_for_visual_mode(visual_mode: str) -> list[str]:
         return PHOTO_STYLE_KEYS
     if mode == "mixed":
         return PHOTO_STYLE_KEYS + ILLUSTRATION_STYLE_KEYS
+    if mode == "symbolic":
+        return SYMBOLIC_STYLE_KEYS
     return ILLUSTRATION_STYLE_KEYS
 
 
@@ -97,8 +114,11 @@ def _style_button_label(style: str, language: str) -> str:
         "minimal_botanical": "🌱",
         "cinematic_light": "🎬",
         "ethereal_landscape": "🌫",
-        "symbolic_luxe": "✨",
         "textured_collage": "🧩",
+        "mandala_harmony": "🪷",
+        "sacred_geometry_light": "🔷",
+        "botanical_mandala": "🌿",
+        "daily_symbol": "✨",
     }
     label = get_style_label(style, language)
     if label and label[0] in "🌊☀️🌿📸🪟🌸🖌🌱🎬🌫✨🧩":
@@ -113,6 +133,8 @@ def style_keyboard(language: str, visual_mode: str = "illustration") -> InlineKe
     for style in _style_keys_for_visual_mode(visual_mode):
         b.button(text=_style_button_label(style, language), callback_data=f"style:{style}")
     b.button(text=_t(language, "✍️ Свой стиль", "✍️ Custom style"), callback_data="style:custom")
+    _add_back_button(b, language, "nav:back_to_visual")
+    _add_main_menu_button(b, language)
     b.adjust(1)
     return b.as_markup()
 

@@ -127,6 +127,13 @@ from utils import gender_display, is_gibberish_text, is_input_language_compatibl
 router = Router()
 logger = logging.getLogger(__name__)
 
+_CREATE_MOOD_BUTTON_TEXTS = {"🌿 Создать настрой", "🌿 Create mood", "🌿 Create focus"}
+
+
+def _is_create_mood_button(text: Optional[str]) -> bool:
+    return (text or "").strip() in _CREATE_MOOD_BUTTON_TEXTS
+
+
 _RELATIONSHIP_SUBSPHERE_LABELS = {
     "partner": {"ru": "❤️ С партнёром", "en": "❤️ With partner"},
     "colleagues": {"ru": "💼 С коллегами", "en": "💼 With colleagues"},
@@ -637,6 +644,47 @@ async def choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None
     await callback.answer()
 
 
+@router.callback_query(GenerationState.choosing_visual_mode, F.data == "nav:back_to_sphere")
+@router.callback_query(GenerationState.choosing_relationship_subsphere, F.data == "nav:back_to_sphere")
+async def nav_back_to_sphere(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await state.set_state(GenerationState.choosing_sphere)
+    await callback.message.edit_text(
+        _new_flow_text(language),
+        reply_markup=sphere_keyboard(language),
+    )
+    await callback.answer()
+
+
+@router.callback_query(GenerationState.choosing_style, F.data == "nav:back_to_visual")
+async def nav_back_to_visual(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await state.set_state(GenerationState.choosing_visual_mode)
+    await callback.message.edit_text(
+        _visual_mode_text(language),
+        reply_markup=visual_mode_keyboard(language),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "nav:main_menu")
+async def nav_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await state.clear()
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer(
+        "🏠 Главное меню снова внизу." if language == "ru" else "🏠 The main menu is available below.",
+        reply_markup=main_reply_keyboard(language),
+    )
+
+
 @router.callback_query(GenerationState.choosing_style, F.data == "style:custom")
 async def choose_custom_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
@@ -960,6 +1008,9 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
     ~F.text.startswith("/"),
 )
 async def generation_button_menu_text_guard(message: Message, state: FSMContext) -> None:
+    if _is_create_mood_button(message.text):
+        await cmd_new(message, state)
+        return
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
     await answer_menu_option_guard(message, language)
@@ -979,6 +1030,9 @@ async def generation_button_menu_voice_guard(message: Message, state: FSMContext
 
 @router.message(GenerationState.choosing_style, F.text, ~F.text.startswith("/"))
 async def generation_style_menu_text_guard(message: Message, state: FSMContext) -> None:
+    if _is_create_mood_button(message.text):
+        await cmd_new(message, state)
+        return
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
     await answer_menu_style_guard(message, language)
@@ -1217,7 +1271,7 @@ async def _run_generation(
     prompt_trace = "template"
     prompt_final = None
 
-    if is_scene_planner_image_prompt_enabled(settings):
+    if effective_visual_mode != "symbolic" and is_scene_planner_image_prompt_enabled(settings):
         try:
             scene_plan = None
             if isinstance(scene_plan_shadow_payload, dict):
@@ -1294,7 +1348,10 @@ async def _run_generation(
             prompt_final = None
 
     try:
-        if not prompt_final:
+        if effective_visual_mode == "symbolic":
+            prompt_final = None
+            prompt_trace = "template"
+        elif not prompt_final:
             prompt_final, prompt_trace = await build_enriched_image_prompt(
                 style=style,
                 sphere=sphere,
@@ -1379,6 +1436,7 @@ async def _run_generation(
         custom_style_description=custom_style_description,
         logger=logger,
     )
+    prompt_final = prompt_final or image_meta.get("final_prompt") or image_meta.get("prompt")
 
     if settings.show_image_debug:
         caption = f"{caption}\n\n{_build_image_debug_block(image_meta, model=settings.image_model, image_size=settings.image_size)}"

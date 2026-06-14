@@ -505,6 +505,80 @@ def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last
     assert state.data["recent_generation_history"]
 
 
+def test_run_generation_symbolic_bypasses_scene_planner_and_prompt_override(monkeypatch):
+    async def _fake_get_user(_uid):
+        return {"language": "en", "gender": "female"}
+
+    async def _fake_generate_affirmations(**_kwargs):
+        return ["I trust my inner rhythm", "I move with calm clarity", "I stay centered", "I choose quiet balance"]
+
+    async def _fake_scene_plan_shadow(**_kwargs):
+        return {"scene_plan": {"scene_type": "abstract_light"}}
+
+    async def _fake_generate_image(**kwargs):
+        captured["image_kwargs"] = kwargs
+        return "fake_image.png"
+
+    captured = {}
+    monkeypatch.setattr(generation, "get_user", _fake_get_user)
+    monkeypatch.setattr(
+        generation,
+        "get_settings",
+        lambda: SimpleNamespace(
+            disable_daily_generation_limit=True,
+            generation_daily_limit=0,
+            llm_image_prompt_enabled=True,
+            show_image_debug=False,
+            image_model="image-model",
+            image_size="1024x1024",
+            text_planner_shadow_enabled=False,
+            text_planner_controlled_enabled=False,
+            scene_planner_shadow_enabled=False,
+            scene_planner_image_prompt_enabled=True,
+        ),
+    )
+    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "build_scene_plan_shadow_best_effort", _fake_scene_plan_shadow)
+    monkeypatch.setattr(
+        generation,
+        "build_controlled_scene_prompt",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("symbolic mode must not use scene planner prompt")),
+    )
+    monkeypatch.setattr(
+        generation,
+        "build_enriched_image_prompt",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("symbolic mode must not use enriched prompt override")),
+    )
+    monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
+    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
+
+    state = _FakeState(
+        {
+            "sphere": "spirituality",
+            "subsphere": None,
+            "style": "mandala_harmony",
+            "visual_mode": "symbolic",
+            "recent_generation_history": [],
+        }
+    )
+    message = _FakeMessage(user_id=108)
+
+    asyncio.run(
+        generation._run_generation(
+            message,
+            state,
+            theme_text="quiet lake by the window",
+            user_telegram_id=108,
+        )
+    )
+
+    assert captured["image_kwargs"]["visual_mode"] == "symbolic"
+    assert captured["image_kwargs"]["resolved_style_override"] == "mandala_harmony"
+    assert captured["image_kwargs"]["prompt_override"] is None
+    assert captured["image_kwargs"]["image_prompt_trace"] == "template"
+
+
 def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru", "gender": "female"}

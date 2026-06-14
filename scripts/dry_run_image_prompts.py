@@ -60,11 +60,16 @@ SAMPLES: list[tuple[str, str | None, str, str, str | None]] = [
     ("health", None, "living_nature_photo", "photo", "энергия и свежесть"),
     ("self_worth", None, "textured_collage", "illustration", None),
     ("self_worth", None, "cozy_home_photo", "photo", "уверенность в себе"),
-    ("spirituality", None, "symbolic_luxe", "illustration", None),
+    ("spirituality", None, "ethereal_landscape", "illustration", None),
     ("spirituality", None, "sea_coast_photo", "photo", "тихий ритуал по утрам"),
     ("home_support", None, "quiet_interior", "illustration", None),
     ("home_support", None, "rural_calm_photo", "photo", "уют и забота о доме"),
-    ("spirituality", None, "symbolic_luxe", "illustration", "тихий внутренний свет"),
+    ("spirituality", None, "mandala_harmony", "symbolic", "тихий внутренний свет"),
+    ("inner_peace", None, "mandala_harmony", "symbolic", None),
+    ("self_worth", None, "sacred_geometry_light", "symbolic", None),
+    ("health", None, "botanical_mandala", "symbolic", None),
+    ("self_realization", None, "daily_symbol", "symbolic", None),
+    ("money", None, "auto", "symbolic", None),
 ]
 
 
@@ -172,6 +177,18 @@ def main() -> None:
         print(f"Archetypes present in >= half of samples (possible repetition): {overused_archetypes}")
     else:
         print("No archetype present in >= half of samples.")
+
+    symbolic_items = [item for item in results if item["visual_mode"] == "symbolic"]
+    if symbolic_items:
+        print("\n--- Symbolic visual mode prompt excerpts (first 800 chars) ---")
+        for item in symbolic_items:
+            print(
+                f"[{item['sphere']}/{item['subsphere'] or '-'}] "
+                f"style={item['resolved_style']} visual_mode={item['visual_mode']} "
+                f"user_text={item['user_text']!r}"
+            )
+            print(item["prompt"][:800])
+            print()
 
     print("\n--- Anti-repeat demo (auto style, illustration, sphere=inner_peace) ---")
     history_window: list[str] = []
