@@ -1,8 +1,10 @@
 from pathlib import Path
 
 from config import (
+    get_database_url,
     get_image_provider_config,
     get_settings,
+    get_sqlite_db_path,
     get_stt_provider_config,
     get_text_provider_config,
     get_tts_provider_config,
@@ -34,6 +36,31 @@ def test_daily_generation_limit_defaults_to_five(monkeypatch):
     assert settings.generation_daily_limit == 5
     assert settings.disable_daily_generation_limit is False
     assert settings.show_image_debug is False
+
+
+def test_database_url_defaults_to_none(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    assert get_database_url() is None
+
+
+def test_database_url_reads_env(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
+
+    assert get_database_url() == "postgresql://user:pass@localhost:5432/rise"
+
+
+def test_sqlite_db_path_defaults_to_bot_db(monkeypatch):
+    monkeypatch.delenv("SQLITE_DB_PATH", raising=False)
+    monkeypatch.delenv("BOT_DATA_DIR", raising=False)
+
+    assert get_sqlite_db_path() == "bot.db"
+
+
+def test_sqlite_db_path_respects_override(monkeypatch):
+    monkeypatch.setenv("SQLITE_DB_PATH", "data/local-dev.db")
+
+    assert get_sqlite_db_path() == "data/local-dev.db"
 
 
 def test_daily_generation_limit_zero_means_no_limit(monkeypatch):
@@ -108,6 +135,78 @@ def test_text_planner_shadow_enabled_env(monkeypatch):
     settings = get_settings()
 
     assert settings.text_planner_shadow_enabled is True
+
+
+def test_text_planner_controlled_disabled_by_default(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("TEXT_PLANNER_CONTROLLED_ENABLED", raising=False)
+
+    settings = get_settings()
+
+    assert settings.text_planner_controlled_enabled is False
+
+
+def test_text_planner_controlled_enabled_env(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("TEXT_PLANNER_CONTROLLED_ENABLED", "true")
+
+    settings = get_settings()
+
+    assert settings.text_planner_controlled_enabled is True
+
+
+def test_text_memory_context_disabled_by_default(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("TEXT_MEMORY_CONTEXT_ENABLED", raising=False)
+
+    settings = get_settings()
+
+    assert settings.text_memory_context_enabled is False
+
+
+def test_text_memory_context_enabled_env(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("TEXT_MEMORY_CONTEXT_ENABLED", "true")
+
+    settings = get_settings()
+
+    assert settings.text_memory_context_enabled is True
+
+
+def test_text_reviewer_shadow_disabled_by_default(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("TEXT_REVIEWER_SHADOW_ENABLED", raising=False)
+
+    settings = get_settings()
+
+    assert settings.text_reviewer_shadow_enabled is False
+
+
+def test_text_reviewer_shadow_enabled_env(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("TEXT_REVIEWER_SHADOW_ENABLED", "true")
+
+    settings = get_settings()
+
+    assert settings.text_reviewer_shadow_enabled is True
+
+
+def test_orchestrator_shadow_disabled_by_default(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("ORCHESTRATOR_SHADOW_ENABLED", raising=False)
+
+    settings = get_settings()
+
+    assert settings.orchestrator_shadow_enabled is False
+
+
+def test_orchestrator_shadow_enabled_env(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("ORCHESTRATOR_SHADOW_ENABLED", "true")
+
+    settings = get_settings()
+
+    assert settings.orchestrator_shadow_enabled is True
 
 
 def test_scene_planner_image_prompt_enabled_env(monkeypatch):

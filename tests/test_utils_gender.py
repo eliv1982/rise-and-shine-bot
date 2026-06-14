@@ -1,5 +1,13 @@
 from services.ritual_config import get_focuses
-from utils import build_focus_of_day, display_name_for_language, gender_display, is_gibberish_text, normalize_gender
+from utils import (
+    build_focus_of_day,
+    display_name_for_language,
+    gender_display,
+    infer_gender_from_hint,
+    is_gibberish_text,
+    normalize_gender,
+    normalize_russian_informal_address,
+)
 
 
 def test_normalize_gender_basic():
@@ -10,12 +18,28 @@ def test_normalize_gender_basic():
     assert normalize_gender(None) is None
     assert normalize_gender("") is None
     assert normalize_gender("unknown") is None
+    assert normalize_gender("женщина") == "female"
+    assert normalize_gender("мужчина") == "male"
+    assert normalize_gender("она") == "female"
+    assert normalize_gender("он") == "male"
 
 
 def test_gender_display_never_empty():
     assert gender_display(None, "ru")
-    assert "мужч" in gender_display(None, "ru").lower() or "для" in gender_display(None, "ru")
+    assert "нейтраль" in gender_display(None, "ru").lower()
     assert gender_display("female", "ru") == "для женщины"
+
+
+def test_infer_gender_from_hint_supports_runtime_values():
+    assert infer_gender_from_hint("для женщины") == "female"
+    assert infer_gender_from_hint("женский") == "female"
+    assert infer_gender_from_hint("она") == "female"
+    assert infer_gender_from_hint("feminine") == "female"
+    assert infer_gender_from_hint("для мужчины") == "male"
+    assert infer_gender_from_hint("мужской") == "male"
+    assert infer_gender_from_hint("он") == "male"
+    assert infer_gender_from_hint("masculine") == "male"
+    assert infer_gender_from_hint("для пользователя") is None
 
 
 def test_focus_of_day_is_localized_and_non_empty():
@@ -31,3 +55,16 @@ def test_display_name_transliterates_for_english_ui():
 def test_is_gibberish_text_detects_repeated_nonsense():
     assert is_gibberish_text("Do stoint weh weh weh")
     assert not is_gibberish_text("Достоинство и вера в себя")
+
+
+def test_normalize_russian_informal_address_handles_common_formal_imperatives():
+    assert normalize_russian_informal_address("Упростите один бытовой шаг.") == "Упрости один бытовой шаг."
+    assert normalize_russian_informal_address("Выберите одно действие.") == "Выбери одно действие."
+    assert normalize_russian_informal_address("Назовите три вещи.") == "Назови три вещи."
+    assert normalize_russian_informal_address("Позвольте себе паузу.") == "Позволь себе паузу."
+
+
+def test_normalize_russian_informal_address_leaves_unrelated_or_correct_words_untouched():
+    assert normalize_russian_informal_address("Прими одно решение из ясности.") == "Прими одно решение из ясности."
+    assert normalize_russian_informal_address("Выбери одно действие из любопытства.") == "Выбери одно действие из любопытства."
+    assert normalize_russian_informal_address("Это уже упрощённый шаг.") == "Это уже упрощённый шаг."

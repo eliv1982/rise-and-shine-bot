@@ -6,6 +6,33 @@ from services.text_quality import is_gibberish_text
 
 GenderKey = Literal["male", "female"]
 
+_RUSSIAN_INFORMAL_ADDRESS_REPLACEMENTS: list[tuple[str, str]] = [
+    ("Позвольте себе", "Позволь себе"),
+    ("позвольте себе", "позволь себе"),
+    ("Упростите", "Упрости"),
+    ("упростите", "упрости"),
+    ("Выберите", "Выбери"),
+    ("выберите", "выбери"),
+    ("Назовите", "Назови"),
+    ("назовите", "назови"),
+    ("Сделайте", "Сделай"),
+    ("сделайте", "сделай"),
+    ("Примите", "Прими"),
+    ("примите", "прими"),
+    ("Запишите", "Запиши"),
+    ("запишите", "запиши"),
+    ("Заметьте", "Заметь"),
+    ("заметьте", "заметь"),
+    ("Подумайте", "Подумай"),
+    ("подумайте", "подумай"),
+    ("Отметьте", "Отметь"),
+    ("отметьте", "отметь"),
+    ("Остановитесь", "Остановись"),
+    ("остановитесь", "остановись"),
+    ("Подышите", "Подыши"),
+    ("подышите", "подыши"),
+]
+
 
 def normalize_gender(gender: Optional[str]) -> Optional[GenderKey]:
     """
@@ -15,11 +42,50 @@ def normalize_gender(gender: Optional[str]) -> Optional[GenderKey]:
     if not gender:
         return None
     g = str(gender).strip().lower()
-    if g in ("female", "f", "woman", "женский", "жен", "девушка"):
+    if g in ("female", "f", "woman", "girl", "feminine", "женский", "жен", "женщина", "девушка", "она"):
         return "female"
-    if g in ("male", "m", "man", "мужской", "муж", "парень"):
+    if g in ("male", "m", "man", "boy", "masculine", "мужской", "муж", "мужчина", "парень", "он"):
         return "male"
     return None
+
+
+def infer_gender_from_hint(gender_hint: Optional[str]) -> Optional[GenderKey]:
+    if not gender_hint:
+        return None
+    normalized = normalize_gender(gender_hint)
+    if normalized:
+        return normalized
+
+    text = str(gender_hint).strip().lower()
+    if not text:
+        return None
+
+    words = set(re.findall(r"[A-Za-zА-Яа-яЁё]+", text))
+    if "она" in words:
+        return "female"
+    if "он" in words:
+        return "male"
+
+    female_markers = ("femin", "woman", "girl", "жен", "девуш")
+    male_markers = ("mascul", "man", "boy", "муж", "парен")
+    if any(marker in text for marker in female_markers):
+        return "female"
+    if any(marker in text for marker in male_markers):
+        return "male"
+    return None
+
+
+def normalize_russian_informal_address(text: Optional[str]) -> Optional[str]:
+    if text is None:
+        return None
+    normalized = text
+    for formal, informal in _RUSSIAN_INFORMAL_ADDRESS_REPLACEMENTS:
+        normalized = re.sub(
+            rf"(?<!\w){re.escape(formal)}(?=[\s,.;:!?]|$)",
+            informal,
+            normalized,
+        )
+    return normalized
 
 
 def extract_name_from_introduction(text: str) -> Optional[str]:
@@ -89,20 +155,22 @@ def extract_name_from_introduction(text: str) -> Optional[str]:
 def gender_display(gender: Optional[str], language: str = "ru") -> str:
     """
     Возвращает строку для описания рода в промпте.
-    Не возвращает пустую строку: при неизвестном поле — формулировка для мужского рода (как запасной вариант).
+    Не возвращает пустую строку: при неизвестном поле — нейтральная формулировка.
     """
     g = normalize_gender(gender)
     if language == "en":
         mapping = {
             "male": "for a man",
             "female": "for a woman",
+            None: "with gender-neutral wording where possible",
         }
     else:
         mapping = {
             "male": "для мужчины",
             "female": "для женщины",
+            None: "по возможности в гендерно-нейтральной форме",
         }
-    return mapping.get(g or "male", mapping["male"])
+    return mapping[g]
 
 
 def build_focus_of_day(sphere: str, language: str = "ru", subsphere: Optional[str] = None) -> str:

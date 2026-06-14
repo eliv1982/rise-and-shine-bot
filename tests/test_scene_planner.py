@@ -79,6 +79,77 @@ def test_scene_presets_include_new_cafe_rural_home_and_book_scenes():
     assert "bookshop_aisle" in scene_planner.SCENE_PRESETS
 
 
+def test_cafe_scene_presets_include_lived_in_cafe_markers():
+    preset = scene_planner.SCENE_PRESETS["street_cafe_terrace"]
+    joined = " ".join(
+        [
+            preset["setting"],
+            preset["main_subject"],
+            preset["composition"],
+            " ".join(preset["visual_motifs"]),
+            " ".join(preset.get("avoid", [])),
+        ]
+    ).lower()
+
+    assert "terrace" in joined
+    assert "coffee" in joined
+    assert "menu" in joined
+    assert "planters" in joined
+    assert "guests" in joined
+    assert "abandoned" in joined
+    assert "post-apocalyptic" in joined
+
+
+def test_nature_and_rural_scene_presets_include_small_signs_of_life():
+    forest_joined = " ".join(
+        [
+            scene_planner.SCENE_PRESETS["forest_path"]["setting"],
+            scene_planner.SCENE_PRESETS["forest_path"]["main_subject"],
+            " ".join(scene_planner.SCENE_PRESETS["forest_path"]["visual_motifs"]),
+            " ".join(scene_planner.SCENE_PRESETS["forest_path"].get("avoid", [])),
+        ]
+    ).lower()
+    rural_joined = " ".join(
+        [
+            scene_planner.SCENE_PRESETS["village_veranda"]["setting"],
+            scene_planner.SCENE_PRESETS["village_veranda"]["main_subject"],
+            " ".join(scene_planner.SCENE_PRESETS["village_veranda"]["visual_motifs"]),
+            " ".join(scene_planner.SCENE_PRESETS["village_veranda"].get("avoid", [])),
+        ]
+    ).lower()
+
+    assert "butterflies" in forest_joined or "birds" in forest_joined
+    assert "desolate" in forest_joined or "eerie" in forest_joined
+    assert "tea" in rural_joined
+    assert "potted" in rural_joined or "animal" in rural_joined
+
+
+def test_home_and_work_scene_presets_include_lived_in_details():
+    home_joined = " ".join(
+        [
+            scene_planner.SCENE_PRESETS["warm_living_room"]["setting"],
+            scene_planner.SCENE_PRESETS["warm_living_room"]["main_subject"],
+            " ".join(scene_planner.SCENE_PRESETS["warm_living_room"]["visual_motifs"]),
+            " ".join(scene_planner.SCENE_PRESETS["warm_living_room"].get("avoid", [])),
+        ]
+    ).lower()
+    work_joined = " ".join(
+        [
+            scene_planner.SCENE_PRESETS["office_morning_light"]["setting"],
+            scene_planner.SCENE_PRESETS["office_morning_light"]["main_subject"],
+            " ".join(scene_planner.SCENE_PRESETS["office_morning_light"]["visual_motifs"]),
+            " ".join(scene_planner.SCENE_PRESETS["office_morning_light"].get("avoid", [])),
+        ]
+    ).lower()
+
+    assert "blanket" in home_joined
+    assert "plant" in home_joined
+    assert "sterile" in home_joined
+    assert "stationery" in work_joined or "planner" in work_joined
+    assert "coffee" in work_joined
+    assert "cold empty office" in work_joined
+
+
 def test_normalize_scene_family_groups_cafe_scenes():
     assert scene_planner.normalize_scene_family("calm_cafe_corner") == "cafe_quiet"
     assert scene_planner.normalize_scene_family("quiet_cafe_window") == "cafe_quiet"
@@ -292,6 +363,18 @@ def test_build_fallback_scene_plan_can_choose_cafe_scene_for_cafe_style():
         "bookstore_cafe",
         "calm_cafe_corner",
     }
+
+
+def test_build_fallback_scene_plan_uses_limited_background_human_presence_for_cafe_scenes():
+    plan = scene_planner.build_fallback_scene_plan(
+        focus_title="quiet morning reset",
+        visual_memory_context={"recent_scene_types": [], "recent_scene_families": [], "overused_scene_families": []},
+        selected_style="cafe_terrace_photo",
+        resolved_style="cafe_terrace_photo",
+        visual_mode="photo",
+    )
+    if scene_planner.normalize_scene_family(plan["scene_type"]) in {"cafe_terrace", "cafe_quiet"}:
+        assert plan["human_presence"] == "distant_figure"
 
 
 def test_build_fallback_scene_plan_avoids_repeated_cafe_terrace_family():

@@ -50,6 +50,10 @@ class Settings:
     scene_planner_shadow_enabled: bool
     text_planner_shadow_enabled: bool
     scene_planner_image_prompt_enabled: bool
+    text_planner_controlled_enabled: bool
+    text_memory_context_enabled: bool
+    text_reviewer_shadow_enabled: bool
+    orchestrator_shadow_enabled: bool
     yandex_completion_model: str
     text_provider: str
     image_provider: str
@@ -115,6 +119,21 @@ def _get_env_var(name: str, required: bool = True, default: str | None = None) -
 def get_bot_data_dir() -> str:
     """Каталог для БД, логов и outputs (в Docker: BOT_DATA_DIR=/app/data)."""
     return os.getenv("BOT_DATA_DIR", "").strip()
+
+
+def get_database_url() -> str | None:
+    """PostgreSQL URL for production/beta; when absent, SQLite remains the default backend."""
+    value = os.getenv("DATABASE_URL", "").strip()
+    return value or None
+
+
+def get_sqlite_db_path() -> str:
+    """Local SQLite path override; falls back to BOT_DATA_DIR/bot.db or plain bot.db."""
+    override = os.getenv("SQLITE_DB_PATH", "").strip()
+    if override:
+        return override
+    d = get_bot_data_dir()
+    return os.path.join(d, "bot.db") if d else "bot.db"
 
 
 def get_outputs_dir() -> str:
@@ -308,6 +327,10 @@ def get_settings() -> Settings:
         scene_planner_shadow_enabled=_get_env_bool("SCENE_PLANNER_SHADOW_ENABLED", False),
         text_planner_shadow_enabled=_get_env_bool("TEXT_PLANNER_SHADOW_ENABLED", False),
         scene_planner_image_prompt_enabled=_get_env_bool("SCENE_PLANNER_IMAGE_PROMPT_ENABLED", False),
+        text_planner_controlled_enabled=_get_env_bool("TEXT_PLANNER_CONTROLLED_ENABLED", False),
+        text_memory_context_enabled=_get_env_bool("TEXT_MEMORY_CONTEXT_ENABLED", False),
+        text_reviewer_shadow_enabled=_get_env_bool("TEXT_REVIEWER_SHADOW_ENABLED", False),
+        orchestrator_shadow_enabled=_get_env_bool("ORCHESTRATOR_SHADOW_ENABLED", False),
         yandex_completion_model=text_cfg.model if text_cfg.provider == "yandex" else (_get_env_var("YANDEX_COMPLETION_MODEL", required=False, default="yandexgpt-lite/latest") or "yandexgpt-lite/latest"),
         text_provider=text_cfg.provider,
         image_provider=image_cfg.provider,

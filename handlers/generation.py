@@ -14,7 +14,12 @@ from config import (
     get_text_provider_config,
     get_tts_provider_config,
 )
-from database import can_start_interactive_generation, get_user, record_interactive_generation
+from database import (
+    can_start_interactive_generation,
+    get_user,
+    get_user_profile_preferences,
+    record_interactive_generation,
+)
 from handlers.common_guards import answer_menu_option_guard, answer_menu_style_guard
 from handlers.common_messages import (
     menu_choose_option_text as _menu_choose_option_text,
@@ -62,6 +67,10 @@ from services.generation_history import (
     record_generation_history_best_effort,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.orchestrator_shadow import (
+    attach_orchestrator_shadow_to_metadata,
+    build_orchestrator_shadow_best_effort,
+)
 from services.scene_planner import (
     build_fallback_scene_plan,
     normalize_scene_family,
@@ -79,15 +88,30 @@ from services.scene_planner_shadow import (
     attach_scene_plan_shadow_to_visual_motifs,
     build_scene_plan_shadow_best_effort,
 )
+from services.text_planner import build_fallback_text_plan
+from services.text_memory import get_text_memory_context
+from services.text_prompt_builder import (
+    build_profile_text_guidance,
+    build_text_generation_guidance,
+    is_text_planner_controlled_enabled,
+)
 from services.text_planner_shadow import (
     attach_text_plan_shadow_to_metadata,
     build_text_plan_shadow_best_effort,
 )
+from services.text_reviewer_shadow import (
+    attach_text_reviewer_shadow_to_metadata,
+    build_text_reviewer_shadow_best_effort,
+)
 from services.ritual_config import (
     get_focus_for_date,
     get_sphere_label,
+    get_style_label,
+    get_visual_archetype,
+    get_visual_mode_label,
     has_coastal_intent,
     is_tts_available,
+    normalize_style_key,
     normalize_visual_mode,
     resolve_style,
     visual_mode_for_style,
@@ -103,9 +127,219 @@ from utils import gender_display, is_gibberish_text, is_input_language_compatibl
 router = Router()
 logger = logging.getLogger(__name__)
 
+_CREATE_MOOD_BUTTON_TEXTS = {"🌿 Создать настрой", "🌿 Create mood", "🌿 Create focus"}
+
+
+def _is_create_mood_button(text: Optional[str]) -> bool:
+    return (text or "").strip() in _CREATE_MOOD_BUTTON_TEXTS
+
+
+_RELATIONSHIP_SUBSPHERE_LABELS = {
+    "partner": {"ru": "❤️ С партнёром", "en": "❤️ With partner"},
+    "colleagues": {"ru": "💼 С коллегами", "en": "💼 With colleagues"},
+    "friends": {"ru": "🫶 С друзьями", "en": "🫶 With friends"},
+}
+
+_STYLE_CONFIRM_ICONS = {
+    "auto": "🎨",
+    "sunny_morning_photo": "☀️",
+    "living_nature_photo": "🌿",
+    "urban_city_photo": "🏙",
+    "cafe_terrace_photo": "☕",
+    "rural_calm_photo": "🌾",
+    "sea_coast_photo": "🌊",
+    "cozy_home_photo": "🏡",
+    "book_nook_photo": "📚",
+    "calm_lifestyle_photo": "📷",
+    "custom": "✍️",
+}
+
 
 def _is_usable_flow_text(text: Optional[str]) -> bool:
     return not is_gibberish_text(text)
+
+
+def _style_confirmation_label(style: str, language: str) -> str:
+    if style == "custom":
+        return "✍️ Свой стиль" if language == "ru" else "✍️ Custom style"
+    normalized = normalize_style_key(style)
+    label = get_style_label(normalized, language)
+    if label and label[0] in "☀🌿🏙☕🌾🌊🏡📚📷🎨✍️":
+        return label
+    icon = _STYLE_CONFIRM_ICONS.get(normalized)
+    return f"{icon} {label}" if icon else label
+
+
+def _relationship_subsphere_label(subsphere: str, language: str) -> str:
+    labels = _RELATIONSHIP_SUBSPHERE_LABELS.get(subsphere)
+    if not labels:
+        return subsphere
+    return labels["en"] if language == "en" else labels["ru"]
+
+
+async def safe_confirm_callback_choice(callback: CallbackQuery, text: str) -> None:
+    message = getattr(callback, "message", None)
+    if message is None:
+        return
+    try:
+        await message.edit_text(text, reply_markup=None)
+        return
+    except Exception:
+        pass
+    try:
+        await message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    try:
+        await message.answer(text)
+    except Exception:
+        logger.debug("Failed to send callback confirmation text", exc_info=True)
+
+
+def _generation_limit_text(language: str, limit: int) -> str:
+    if language == "ru":
+        return (
+            f"Сегодня уже {limit} генераций — это дневной лимит. "
+            "Завтра снова сможешь создать настрой дня."
+        )
+    return f"You've reached the daily limit of {limit} generations. Try again tomorrow."
+
+
+async def _clear_inline_keyboard_best_effort(message: Message | None) -> None:
+    if message is None:
+        return
+    try:
+        await message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        logger.debug("Failed to clear inline keyboard", exc_info=True)
+
+
+async def _handle_generation_limit_reached(
+    message: Message | None,
+    state: FSMContext,
+    *,
+    language: str,
+    limit: int,
+    clear_inline: bool = False,
+) -> None:
+    if clear_inline:
+        await _clear_inline_keyboard_best_effort(message)
+    if message is not None:
+        await message.answer(
+            _generation_limit_text(language, limit),
+            reply_markup=main_reply_keyboard(language),
+        )
+    await state.clear()
+
+
+def _profile_theme_from_preferences(preferences: dict | None, language: str) -> str | None:
+    prefs = preferences if isinstance(preferences, dict) else {}
+    current_focus = str(prefs.get("current_focus") or "").strip()
+    if current_focus:
+        return current_focus
+    life_areas = [str(item).strip() for item in (prefs.get("life_areas") or []) if str(item).strip()]
+    if not life_areas:
+        return None
+    joined = ", ".join(life_areas[:3])
+    if language == "en":
+        return f"Important life areas right now: {joined}"
+    return f"Важные жизненные сферы сейчас: {joined}"
+
+
+def _profile_sphere_from_preferences(preferences: dict | None, language: str) -> str:
+    prefs = preferences if isinstance(preferences, dict) else {}
+    haystack_parts = [str(prefs.get("current_focus") or "")]
+    haystack_parts.extend(str(item) for item in (prefs.get("life_areas") or []))
+    haystack = " ".join(haystack_parts).strip().lower()
+    if not haystack:
+        return "inner_peace"
+    mapping = [
+        ("money", ["money", "finance", "budget", "income", "деньг", "финанс", "бюджет", "доход"]),
+        ("career", ["career", "work", "job", "office", "project", "работ", "карьер", "проект", "офис"]),
+        ("relationships", ["relationship", "partner", "family", "friend", "dating", "отношен", "партнер", "семь", "друз", "любов"]),
+        ("health", ["health", "body", "sleep", "energy", "recovery", "здоров", "тело", "сон", "энер", "восстанов"]),
+        ("self_realization", ["creativity", "creative", "purpose", "voice", "art", "твор", "самореал", "голос", "смысл"]),
+        ("self_worth", ["confidence", "dignity", "worth", "boundaries", "самоцен", "достоин", "границ", "уверен"]),
+        ("inner_peace", ["rest", "calm", "peace", "anxiety", "support", "опор", "спокой", "трев", "отдых", "тишин"]),
+    ]
+    for sphere_key, keywords in mapping:
+        if any(keyword in haystack for keyword in keywords):
+            return sphere_key
+    return "inner_peace"
+
+
+def _profile_generation_text(language: str) -> str:
+    if language == "en":
+        return "✨ Creating a daily mood with your saved profile preferences..."
+    return "✨ Собираю настрой дня по твоему профилю..."
+
+
+async def _start_profile_generation(
+    message: Message,
+    state: FSMContext,
+    *,
+    user_id: int,
+    edit_inline: bool = False,
+) -> None:
+    user = await get_user(user_id)
+    language = (user or {}).get("language", "ru")
+    preferences = await get_user_profile_preferences(user_id)
+    profile_theme = _profile_theme_from_preferences(preferences, language)
+    profile_sphere = _profile_sphere_from_preferences(preferences, language)
+
+    await state.clear()
+    await state.update_data(
+        sphere=profile_sphere,
+        subsphere=None,
+        style="auto",
+        visual_mode="illustration",
+        theme_text=profile_theme,
+        generation_request_type="profile_preferences",
+        use_profile_preferences=True,
+    )
+    if edit_inline:
+        try:
+            await message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            logger.debug("Failed to clear profile inline keyboard before profile generation", exc_info=True)
+    await message.answer(_profile_generation_text(language), reply_markup=main_reply_keyboard(language))
+    await _start_generation_after_preflight(
+        message,
+        state,
+        profile_theme,
+        language,
+        user_telegram_id=user_id,
+    )
+
+
+async def _check_generation_limit_and_handle(
+    message: Message | None,
+    state: FSMContext,
+    *,
+    uid: int,
+    language: str,
+    settings: object | None = None,
+    clear_inline: bool = False,
+) -> bool:
+    effective_settings = settings or get_settings()
+    limit = int(getattr(effective_settings, "generation_daily_limit", 0) or 0)
+    limit_enabled = not getattr(effective_settings, "disable_daily_generation_limit", False) and limit > 0
+    if not limit_enabled:
+        return False
+
+    allowed, used = await can_start_interactive_generation(uid, limit)
+    if allowed:
+        return False
+
+    log_rate_limited(uid, used, limit)
+    await _handle_generation_limit_reached(
+        message,
+        state,
+        language=language,
+        limit=limit,
+        clear_inline=clear_inline,
+    )
+    return True
 
 
 async def _process_generation_voice_input(
@@ -145,6 +379,13 @@ async def _start_generation_after_preflight(
     if error_text:
         await _answer_generation_preflight_error(message, state, error_text, language)
         return
+    if await _check_generation_limit_and_handle(
+        message,
+        state,
+        uid=user_telegram_id if user_telegram_id is not None else message.from_user.id,
+        language=language,
+    ):
+        return
     await message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
     await _run_generation(message, state, theme_text=theme_text, user_telegram_id=user_telegram_id)
 
@@ -155,6 +396,14 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
     await callback.answer()
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        return
     await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
@@ -168,6 +417,13 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
 async def cmd_new(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        message,
+        state,
+        uid=message.from_user.id,
+        language=language,
+    ):
+        return
     await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)
@@ -177,11 +433,31 @@ async def cmd_new(message: Message, state: FSMContext) -> None:
     )
 
 
+@router.callback_query(F.data == "profile_generate:yes")
+async def cb_generate_from_profile(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await _start_profile_generation(
+        callback.message,
+        state,
+        user_id=callback.from_user.id,
+        edit_inline=True,
+    )
+
+
 @router.callback_query(GenerationState.choosing_sphere, F.data == "sphere:custom_theme")
 async def choose_custom_theme_early(callback: CallbackQuery, state: FSMContext) -> None:
     """Своя тема в меню сферы: запрос текста или голоса."""
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     await state.set_state(GenerationState.waiting_for_theme_early)
     await callback.message.edit_text(
         (
@@ -248,6 +524,13 @@ async def handle_text_theme_early(message: Message, state: FSMContext) -> None:
     if not is_input_language_compatible(text, language):
         await message.answer(_text_language_mismatch_text(language))
         return
+    if await _check_generation_limit_and_handle(
+        message,
+        state,
+        uid=message.from_user.id,
+        language=language,
+    ):
+        return
     await state.update_data(theme_text=text, sphere="inner_peace", subsphere=None)
     await state.set_state(GenerationState.choosing_visual_mode)
     await message.answer(
@@ -263,18 +546,35 @@ async def choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     sphere = callback.data.split(":", maxsplit=1)[1]
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
 
     await state.update_data(sphere=sphere)
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Сфера выбрана: {get_sphere_label(sphere, language)}"
+            if language == "ru"
+            else f"✅ Area selected: {get_sphere_label(sphere, language)}"
+        ),
+    )
 
     if sphere == "relationships":
         await state.set_state(GenerationState.choosing_relationship_subsphere)
-        await callback.message.edit_text(
+        await callback.message.answer(
             "Уточни, пожалуйста:" if language == "ru" else "Please specify:",
             reply_markup=relationships_subsphere_keyboard(language),
         )
     else:
         await state.set_state(GenerationState.choosing_visual_mode)
-        await callback.message.edit_text(
+        await callback.message.answer(
             _visual_mode_text(language),
             reply_markup=visual_mode_keyboard(language),
         )
@@ -286,10 +586,27 @@ async def choose_relationship_subsphere(callback: CallbackQuery, state: FSMConte
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     subsphere = callback.data.split(":", maxsplit=1)[1]
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
 
     await state.update_data(subsphere=subsphere)
     await state.set_state(GenerationState.choosing_visual_mode)
-    await callback.message.edit_text(
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Выбрано: {_relationship_subsphere_label(subsphere, language)}"
+            if language == "ru"
+            else f"✅ Selected: {_relationship_subsphere_label(subsphere, language)}"
+        ),
+    )
+    await callback.message.answer(
         _visual_mode_text(language),
         reply_markup=visual_mode_keyboard(language),
     )
@@ -301,22 +618,97 @@ async def choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     visual_mode = normalize_visual_mode(callback.data.split(":", maxsplit=1)[1])
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     await state.update_data(visual_mode=visual_mode)
     await state.set_state(GenerationState.choosing_style)
-    await callback.message.edit_text(
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Визуал выбран: {get_visual_mode_label(visual_mode, language)}"
+            if language == "ru"
+            else f"✅ Visual selected: {get_visual_mode_label(visual_mode, language)}"
+        ),
+    )
+    await callback.message.answer(
         _style_choice_text(language),
         reply_markup=style_keyboard(language, visual_mode=visual_mode),
     )
     await callback.answer()
 
 
+@router.callback_query(GenerationState.choosing_visual_mode, F.data == "nav:back_to_sphere")
+@router.callback_query(GenerationState.choosing_relationship_subsphere, F.data == "nav:back_to_sphere")
+async def nav_back_to_sphere(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await state.set_state(GenerationState.choosing_sphere)
+    await callback.message.edit_text(
+        _new_flow_text(language),
+        reply_markup=sphere_keyboard(language),
+    )
+    await callback.answer()
+
+
+@router.callback_query(GenerationState.choosing_style, F.data == "nav:back_to_visual")
+async def nav_back_to_visual(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await state.set_state(GenerationState.choosing_visual_mode)
+    await callback.message.edit_text(
+        _visual_mode_text(language),
+        reply_markup=visual_mode_keyboard(language),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "nav:main_menu")
+async def nav_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await state.clear()
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer(
+        "🏠 Главное меню снова внизу." if language == "ru" else "🏠 The main menu is available below.",
+        reply_markup=main_reply_keyboard(language),
+    )
+
+
 @router.callback_query(GenerationState.choosing_style, F.data == "style:custom")
 async def choose_custom_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     await state.update_data(style="custom")
     await state.set_state(GenerationState.waiting_for_custom_style)
-    await callback.message.edit_text(
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Стиль выбран: {_style_confirmation_label('custom', language)}"
+            if language == "ru"
+            else f"✅ Style selected: {_style_confirmation_label('custom', language)}"
+        ),
+    )
+    await callback.message.answer(
         (
             "Опиши желаемый стиль изображения текстом или отправь голосовое сообщение."
             if language == "ru"
@@ -334,6 +726,15 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
     style = callback.data.split(":", maxsplit=1)[1]
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     await state.update_data(style=style, custom_style_description=None)
     data = await state.get_data()
     error_text = _generation_preflight_error(data, data.get("theme_text"), language)
@@ -341,7 +742,15 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         await _answer_generation_preflight_error(callback.message, state, error_text, language)
         return
-    await callback.message.edit_text(_creating_text(language))
+    await safe_confirm_callback_choice(
+        callback,
+        (
+            f"✅ Стиль выбран: {_style_confirmation_label(style, language)}"
+            if language == "ru"
+            else f"✅ Style selected: {_style_confirmation_label(style, language)}"
+        ),
+    )
+    await callback.message.answer(_creating_text(language))
     await callback.answer()
     await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
 
@@ -399,6 +808,15 @@ async def handle_theme_voice_recovery(callback: CallbackQuery, state: FSMContext
             recognized_text_pending=None,
             recognized_text_pending_kind=None,
         )
+        if await _check_generation_limit_and_handle(
+            callback.message,
+            state,
+            uid=callback.from_user.id,
+            language=language,
+            clear_inline=True,
+        ):
+            await callback.answer()
+            return
         await state.set_state(GenerationState.choosing_visual_mode)
         await callback.message.answer(
             (f"Тема: «{pending}».\n\n{_visual_mode_text(language)}" if language == "ru" else f"Theme: “{pending}”.\n\n{_visual_mode_text(language)}"),
@@ -485,9 +903,14 @@ async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext
             await callback.answer()
             await _answer_generation_preflight_error(callback.message, state, error_text, language)
             return
-        await callback.message.answer(_creating_text(language), reply_markup=main_reply_keyboard(language))
         await callback.answer()
-        await _run_generation(callback.message, state, theme_text=data.get("theme_text"), user_telegram_id=callback.from_user.id)
+        await _start_generation_after_preflight(
+            callback.message,
+            state,
+            data.get("theme_text"),
+            language,
+            user_telegram_id=callback.from_user.id,
+        )
     elif action == "retry_voice":
         await state.update_data(
             recognized_text_pending=None,
@@ -585,6 +1008,9 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
     ~F.text.startswith("/"),
 )
 async def generation_button_menu_text_guard(message: Message, state: FSMContext) -> None:
+    if _is_create_mood_button(message.text):
+        await cmd_new(message, state)
+        return
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
     await answer_menu_option_guard(message, language)
@@ -604,6 +1030,9 @@ async def generation_button_menu_voice_guard(message: Message, state: FSMContext
 
 @router.message(GenerationState.choosing_style, F.text, ~F.text.startswith("/"))
 async def generation_style_menu_text_guard(message: Message, state: FSMContext) -> None:
+    if _is_create_mood_button(message.text):
+        await cmd_new(message, state)
+        return
     user = await get_user(message.from_user.id)
     language = (user or {}).get("language", "ru")
     await answer_menu_style_guard(message, language)
@@ -639,6 +1068,8 @@ async def _run_generation(
     text_provider = get_text_provider_config()
     image_provider = get_image_provider_config()
     tts_provider = get_tts_provider_config()
+    use_profile_preferences = bool(data.get("use_profile_preferences"))
+    profile_preferences = await get_user_profile_preferences(uid) if use_profile_preferences else {}
 
     context = build_generation_context_snapshot(data, theme_text=theme_text)
     sphere = context.sphere
@@ -649,8 +1080,16 @@ async def _run_generation(
     custom_style_description = context.custom_style_description
     last_stt_meta = context.last_stt_meta or {}
     history = list(context.recent_generation_history)
-    recent_styles = [item.get("selected_style") for item in history[-3:] if item.get("selected_style")]
-    recent_scenes = [item.get("scene_preset") for item in history[-2:] if item.get("scene_preset")]
+    recent_styles = [item.get("selected_style") for item in history[-7:] if item.get("selected_style")]
+    recent_scenes = [item.get("scene_preset") for item in history[-5:] if item.get("scene_preset")]
+    recent_archetypes = [
+        item.get("visual_archetype")
+        or get_visual_archetype(style=item.get("selected_style"), scene_preset=item.get("scene_preset"))
+        for item in history[-5:]
+        if item.get("selected_style") or item.get("scene_preset")
+    ]
+    if use_profile_preferences and not theme_text:
+        theme_text = _profile_theme_from_preferences(profile_preferences, language)
 
     if not sphere:
         await message.answer(
@@ -663,20 +1102,13 @@ async def _run_generation(
 
     limit_enabled = not settings.disable_daily_generation_limit and settings.generation_daily_limit > 0
     if limit_enabled:
-        allowed, used = await can_start_interactive_generation(uid, settings.generation_daily_limit)
-        if not allowed:
-            log_rate_limited(uid, used, settings.generation_daily_limit)
-            if language == "ru":
-                await message.answer(
-                    f"Сегодня уже {settings.generation_daily_limit} генераций — это дневной лимит. Завтра снова сможешь создать настрой дня.",
-                    reply_markup=style_keyboard(language, visual_mode=visual_mode),
-                )
-            else:
-                await message.answer(
-                    f"You've reached the daily limit of {settings.generation_daily_limit} generations. Try again tomorrow.",
-                    reply_markup=style_keyboard(language, visual_mode=visual_mode),
-                )
-            await state.set_state(GenerationState.choosing_style)
+        if await _check_generation_limit_and_handle(
+            message,
+            state,
+            uid=uid,
+            language=language,
+            settings=settings,
+        ):
             return
 
     gender_hint = gender_display(gender, language=language)
@@ -704,10 +1136,82 @@ async def _run_generation(
         focus_key=focus["key"],
         visual_mode=visual_mode,
         recent_styles=recent_styles,
+        recent_archetypes=recent_archetypes,
     )
     if normalize_visual_mode(visual_mode) == "photo" and style == "auto" and has_coastal_intent(theme_text):
         resolved_style = "sea_coast_photo"
     effective_visual_mode = visual_mode_for_style(visual_mode, resolved_style)
+    text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
+        sphere=sphere,
+        subsphere=subsphere,
+        focus_title=focus_text,
+        user_custom_topic=theme_text,
+        language=language,
+        recent_text_context=None,
+        settings=settings,
+    )
+    text_plan = None
+    text_memory_context = None
+    if is_text_planner_controlled_enabled(settings):
+        if isinstance(text_plan_shadow_payload, dict):
+            candidate_text_plan = text_plan_shadow_payload.get("text_plan")
+            if isinstance(candidate_text_plan, dict):
+                text_plan = candidate_text_plan
+        if text_plan is None:
+            text_plan = build_fallback_text_plan(
+                sphere=sphere,
+                subsphere=subsphere,
+                focus_title=focus_text,
+                user_custom_topic=theme_text,
+                language=language,
+                recent_text_context=None,
+            )
+        if getattr(settings, "text_memory_context_enabled", False):
+            text_memory_context = await get_text_memory_context(uid, limit=10)
+    text_plan_guidance = build_text_generation_guidance(
+        text_plan=text_plan,
+        language=language,
+        gender_hint=gender_hint,
+        text_memory_context=text_memory_context,
+    )
+    profile_text_guidance = build_profile_text_guidance(
+        preferences=profile_preferences if use_profile_preferences else None,
+        language=language,
+    )
+    combined_text_guidance = "\n\n".join(
+        part for part in [text_plan_guidance, profile_text_guidance] if part
+    ) or None
+    text_prompt_controlled_meta = None
+    if text_plan_guidance:
+        text_prompt_controlled_meta = {
+            "enabled": True,
+            "source": "text_plan_local_fallback",
+            "theme_category": (text_plan or {}).get("theme_category"),
+            "tone": (text_plan or {}).get("tone"),
+            "guidance_used": True,
+        }
+    profile_guidance_meta = None
+    if use_profile_preferences:
+        profile_preferences_count = len([key for key, value in profile_preferences.items() if value])
+        profile_avoid_constraints_count = len(profile_preferences.get("avoid_topics") or []) + len(
+            profile_preferences.get("avoid_words") or []
+        )
+        profile_guidance_meta = {
+            "profile_used": True,
+            "profile_preferences_count": profile_preferences_count,
+            "profile_current_focus_used": bool(str(profile_preferences.get("current_focus") or "").strip()),
+            "profile_avoid_constraints_count": profile_avoid_constraints_count,
+            "guidance_used": bool(profile_text_guidance),
+        }
+    text_memory_context_meta = None
+    if isinstance(text_memory_context, dict) and text_memory_context:
+        text_memory_context_meta = {
+            "enabled": True,
+            "limit": text_memory_context.get("limit", 10),
+            "overused_text_patterns": list(text_memory_context.get("overused_text_patterns") or []),
+            "recent_focus_titles_count": len(text_memory_context.get("recent_focus_titles") or []),
+            "avoid_soft_actions_count": len(text_memory_context.get("avoid_soft_actions") or []),
+        }
 
     try:
         affirmations = await generate_affirmations(
@@ -720,6 +1224,7 @@ async def _run_generation(
             focus=focus_text,
             micro_theme=micro_step,
             sphere_label=get_sphere_label(sphere, language),
+            text_plan_guidance=combined_text_guidance,
         )
     except Exception as exc:
         logger.exception("Affirmations generation failed: %s", exc)
@@ -732,6 +1237,18 @@ async def _run_generation(
         )
         await state.set_state(GenerationState.choosing_style)
         return
+
+    text_reviewer_shadow_payload = build_text_reviewer_shadow_best_effort(
+        affirmations=affirmations,
+        soft_action=micro_step,
+        focus_title=focus_text,
+        language=language,
+        gender_hint=gender_hint,
+        text_plan=text_plan,
+        text_memory_context=text_memory_context,
+        profile_preferences=profile_preferences if use_profile_preferences else None,
+        settings=settings,
+    )
 
     scene_plan_shadow_payload = await build_scene_plan_shadow_best_effort(
         telegram_user_id=uid,
@@ -747,16 +1264,6 @@ async def _run_generation(
         sphere=sphere,
         subsphere=subsphere,
     )
-    text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
-        sphere=sphere,
-        subsphere=subsphere,
-        focus_title=focus_text,
-        user_custom_topic=theme_text,
-        language=language,
-        recent_text_context=None,
-        settings=settings,
-    )
-
     color_mood = random.choice(_COLOR_MOODS)
     composition_hint = random.choice(_COMPOSITION_HINTS)
     photo_scene_preset_override = None
@@ -764,7 +1271,7 @@ async def _run_generation(
     prompt_trace = "template"
     prompt_final = None
 
-    if is_scene_planner_image_prompt_enabled(settings):
+    if effective_visual_mode != "symbolic" and is_scene_planner_image_prompt_enabled(settings):
         try:
             scene_plan = None
             if isinstance(scene_plan_shadow_payload, dict):
@@ -841,7 +1348,10 @@ async def _run_generation(
             prompt_final = None
 
     try:
-        if not prompt_final:
+        if effective_visual_mode == "symbolic":
+            prompt_final = None
+            prompt_trace = "template"
+        elif not prompt_final:
             prompt_final, prompt_trace = await build_enriched_image_prompt(
                 style=style,
                 sphere=sphere,
@@ -877,6 +1387,7 @@ async def _run_generation(
             color_mood=color_mood,
             composition_hint=composition_hint,
             recent_scene_presets=recent_scenes,
+            recent_archetypes=recent_archetypes,
             photo_scene_preset_override=photo_scene_preset_override,
         )
     except Exception as exc:
@@ -925,6 +1436,7 @@ async def _run_generation(
         custom_style_description=custom_style_description,
         logger=logger,
     )
+    prompt_final = prompt_final or image_meta.get("final_prompt") or image_meta.get("prompt")
 
     if settings.show_image_debug:
         caption = f"{caption}\n\n{_build_image_debug_block(image_meta, model=settings.image_model, image_size=settings.image_size)}"
@@ -956,8 +1468,35 @@ async def _run_generation(
         visual_motifs,
         text_plan_shadow_payload,
     )
+    visual_motifs = attach_text_reviewer_shadow_to_metadata(
+        visual_motifs,
+        text_reviewer_shadow_payload,
+    )
     if scene_prompt_controlled_meta is not None:
         visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
+    if text_prompt_controlled_meta is not None:
+        visual_motifs["text_prompt_controlled"] = text_prompt_controlled_meta
+    if profile_guidance_meta is not None:
+        visual_motifs["profile_text_guidance"] = profile_guidance_meta
+    if text_memory_context_meta is not None:
+        visual_motifs["text_memory_context"] = text_memory_context_meta
+    orchestrator_shadow_payload = build_orchestrator_shadow_best_effort(
+        settings=settings,
+        language=language,
+        sphere=sphere,
+        subsphere=subsphere,
+        focus_title=focus_text,
+        selected_style=resolved_style,
+        visual_mode=effective_visual_mode,
+        text_plan_shadow=text_plan_shadow_payload,
+        text_prompt_controlled=text_prompt_controlled_meta,
+        text_memory_context=text_memory_context,
+        text_reviewer_shadow=text_reviewer_shadow_payload,
+        scene_plan_shadow=scene_plan_shadow_payload,
+        scene_prompt_controlled=scene_prompt_controlled_meta,
+        profile_guidance_meta=profile_guidance_meta,
+    )
+    visual_motifs = attach_orchestrator_shadow_to_metadata(visual_motifs, orchestrator_shadow_payload)
     await record_generation_history_best_effort(
         telegram_user_id=uid,
         request_type=request_type,
@@ -976,6 +1515,7 @@ async def _run_generation(
         {
             "selected_style": resolved_style,
             "scene_preset": image_meta.get("scene_preset") or image_meta.get("photo_scene_preset"),
+            "visual_archetype": image_meta.get("visual_archetype"),
         }
     )
     await state.clear()
@@ -992,7 +1532,8 @@ async def _run_generation(
             "focus_key": focus["key"],
         },
         generation_request_type=None,
-        recent_generation_history=history[-5:],
+        use_profile_preferences=None,
+        recent_generation_history=history[-7:],
     )
 
 
@@ -1019,6 +1560,15 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         custom_style_description=last.get("custom_style_description"),
     )
     again_language = (await get_user(callback.from_user.id) or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=again_language,
+        clear_inline=True,
+    ):
+        await callback.answer()
+        return
     data = await state.get_data()
     error_text = _generation_preflight_error(data, last.get("theme_text"), again_language)
     if error_text:
@@ -1083,6 +1633,14 @@ async def new_request_from_result(callback: CallbackQuery, state: FSMContext) ->
     await callback.answer()
     user = await get_user(callback.from_user.id)
     language = (user or {}).get("language", "ru")
+    if await _check_generation_limit_and_handle(
+        callback.message,
+        state,
+        uid=callback.from_user.id,
+        language=language,
+        clear_inline=True,
+    ):
+        return
     await state.clear()
     await state.update_data(theme_text=None)
     await state.set_state(GenerationState.choosing_sphere)

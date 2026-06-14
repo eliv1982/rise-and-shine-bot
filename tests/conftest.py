@@ -27,3 +27,5 @@ def isolate_provider_env(monkeypatch):
     monkeypatch.setenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
     monkeypatch.setenv("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
     monkeypatch.setenv("BOT_TOKEN", "test-bot-token")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("SQLITE_DB_PATH", raising=False)

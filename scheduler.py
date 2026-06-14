@@ -23,6 +23,10 @@ from services.generation_history import (
     record_generation_history_best_effort,
 )
 from services.openai_image import _COLOR_MOODS, _COMPOSITION_HINTS, generate_image
+from services.orchestrator_shadow import (
+    attach_orchestrator_shadow_to_metadata,
+    build_orchestrator_shadow_best_effort,
+)
 from services.scene_planner import (
     build_fallback_scene_plan,
     normalize_scene_family,
@@ -40,9 +44,19 @@ from services.scene_planner_shadow import (
     attach_scene_plan_shadow_to_visual_motifs,
     build_scene_plan_shadow_best_effort,
 )
+from services.text_planner import build_fallback_text_plan
+from services.text_memory import get_text_memory_context
+from services.text_prompt_builder import (
+    build_text_generation_guidance,
+    is_text_planner_controlled_enabled,
+)
 from services.text_planner_shadow import (
     attach_text_plan_shadow_to_metadata,
     build_text_plan_shadow_best_effort,
+)
+from services.text_reviewer_shadow import (
+    attach_text_reviewer_shadow_to_metadata,
+    build_text_reviewer_shadow_best_effort,
 )
 from services.ritual_config import (
     get_focus_for_date,
@@ -103,6 +117,57 @@ async def send_daily_affirmations(bot: Bot) -> None:
         settings = get_settings()
         text_provider = get_text_provider_config()
         image_provider = get_image_provider_config()
+        text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
+            sphere=sphere,
+            subsphere=subsphere,
+            focus_title=focus_text,
+            user_custom_topic=None,
+            language=language,
+            recent_text_context=None,
+            settings=settings,
+        )
+        text_plan = None
+        text_memory_context = None
+        if is_text_planner_controlled_enabled(settings):
+            if isinstance(text_plan_shadow_payload, dict):
+                candidate_text_plan = text_plan_shadow_payload.get("text_plan")
+                if isinstance(candidate_text_plan, dict):
+                    text_plan = candidate_text_plan
+            if text_plan is None:
+                text_plan = build_fallback_text_plan(
+                    sphere=sphere,
+                    subsphere=subsphere,
+                    focus_title=focus_text,
+                    user_custom_topic=None,
+                    language=language,
+                    recent_text_context=None,
+                )
+            if getattr(settings, "text_memory_context_enabled", False):
+                text_memory_context = await get_text_memory_context(user_id, limit=10)
+        text_plan_guidance = build_text_generation_guidance(
+            text_plan=text_plan,
+            language=language,
+            gender_hint=gender_hint,
+            text_memory_context=text_memory_context,
+        )
+        text_prompt_controlled_meta = None
+        if text_plan_guidance:
+            text_prompt_controlled_meta = {
+                "enabled": True,
+                "source": "text_plan_local_fallback",
+                "theme_category": (text_plan or {}).get("theme_category"),
+                "tone": (text_plan or {}).get("tone"),
+                "guidance_used": True,
+            }
+        text_memory_context_meta = None
+        if isinstance(text_memory_context, dict) and text_memory_context:
+            text_memory_context_meta = {
+                "enabled": True,
+                "limit": text_memory_context.get("limit", 10),
+                "overused_text_patterns": list(text_memory_context.get("overused_text_patterns") or []),
+                "recent_focus_titles_count": len(text_memory_context.get("recent_focus_titles") or []),
+                "avoid_soft_actions_count": len(text_memory_context.get("avoid_soft_actions") or []),
+            }
 
         try:
             affirmations = await generate_affirmations(
@@ -115,6 +180,17 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 focus=focus_text,
                 micro_theme=micro_step,
                 sphere_label=get_sphere_label(sphere, language),
+                text_plan_guidance=text_plan_guidance,
+            )
+            text_reviewer_shadow_payload = build_text_reviewer_shadow_best_effort(
+                affirmations=affirmations,
+                soft_action=micro_step,
+                focus_title=focus_text,
+                language=language,
+                gender_hint=gender_hint,
+                text_plan=text_plan,
+                text_memory_context=text_memory_context,
+                settings=settings,
             )
             scene_plan_shadow_payload = await build_scene_plan_shadow_best_effort(
                 telegram_user_id=user_id,
@@ -129,15 +205,6 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 style_mode=style_mode,
                 sphere=sphere,
                 subsphere=subsphere,
-            )
-            text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
-                sphere=sphere,
-                subsphere=subsphere,
-                focus_title=focus_text,
-                user_custom_topic=None,
-                language=language,
-                recent_text_context=None,
-                settings=settings,
             )
             color_mood = random.choice(_COLOR_MOODS)
             composition_hint = random.choice(_COMPOSITION_HINTS)
@@ -356,8 +423,32 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 visual_motifs,
                 text_plan_shadow_payload,
             )
+            visual_motifs = attach_text_reviewer_shadow_to_metadata(
+                visual_motifs,
+                text_reviewer_shadow_payload,
+            )
             if scene_prompt_controlled_meta is not None:
                 visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
+            if text_prompt_controlled_meta is not None:
+                visual_motifs["text_prompt_controlled"] = text_prompt_controlled_meta
+            if text_memory_context_meta is not None:
+                visual_motifs["text_memory_context"] = text_memory_context_meta
+            orchestrator_shadow_payload = build_orchestrator_shadow_best_effort(
+                settings=settings,
+                language=language,
+                sphere=sphere,
+                subsphere=subsphere,
+                focus_title=focus_text,
+                selected_style=style,
+                visual_mode=effective_visual_mode,
+                text_plan_shadow=text_plan_shadow_payload,
+                text_prompt_controlled=text_prompt_controlled_meta,
+                text_memory_context=text_memory_context,
+                text_reviewer_shadow=text_reviewer_shadow_payload,
+                scene_plan_shadow=scene_plan_shadow_payload,
+                scene_prompt_controlled=scene_prompt_controlled_meta,
+            )
+            visual_motifs = attach_orchestrator_shadow_to_metadata(visual_motifs, orchestrator_shadow_payload)
             await record_generation_history_best_effort(
                 telegram_user_id=user_id,
                 request_type="subscription",

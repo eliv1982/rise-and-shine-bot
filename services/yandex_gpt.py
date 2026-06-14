@@ -7,11 +7,22 @@ import aiohttp
 
 from config import TextProviderConfig, get_text_provider_config
 from services.ritual_config import get_sphere_label, normalize_visual_mode, resolve_style, visual_mode_for_style
-from utils import normalize_gender
+from utils import infer_gender_from_hint, normalize_gender, normalize_russian_informal_address
 
 logger = logging.getLogger(__name__)
 
 _MAX_INJECTION_CHARS = 450
+
+_RUSSIAN_FIRST_PERSON_GENDER_PAIRS = [
+    ("открыт", "открыта"),
+    ("готов", "готова"),
+    ("уверен", "уверена"),
+    ("спокоен", "спокойна"),
+    ("сосредоточен", "сосредоточена"),
+    ("настроен", "настроена"),
+    ("благодарен", "благодарна"),
+    ("выбрал", "выбрала"),
+]
 
 
 def _build_text_provider_request(
@@ -76,6 +87,69 @@ def _clip_user_text(text: Optional[str], max_len: int = _MAX_INJECTION_CHARS) ->
     if len(t) > max_len:
         return t[: max_len - 1] + "…"
     return t
+
+
+def _resolve_grammatical_gender(gender: Optional[str], gender_hint: Optional[str]) -> Optional[str]:
+    return normalize_gender(gender) or infer_gender_from_hint(gender_hint)
+
+
+def normalize_russian_first_person_gender(text: str, gender_hint: str | None = None, gender: str | None = None) -> str:
+    if not text:
+        return text
+    effective_gender = _resolve_grammatical_gender(gender, gender_hint)
+    if effective_gender not in {"female", "male"}:
+        return text
+
+    normalized = text
+    for masculine, feminine in _RUSSIAN_FIRST_PERSON_GENDER_PAIRS:
+        if effective_gender == "female":
+            replacements = [
+                (rf"\bЯ {masculine}(?=[\s,.;:!?]|$)", f"Я {feminine}"),
+                (rf"\bя {masculine}(?=[\s,.;:!?]|$)", f"я {feminine}"),
+            ]
+        else:
+            replacements = [
+                (rf"\bЯ {feminine}(?=[\s,.;:!?]|$)", f"Я {masculine}"),
+                (rf"\bя {feminine}(?=[\s,.;:!?]|$)", f"я {masculine}"),
+            ]
+        for pattern, replacement in replacements:
+            normalized = re.sub(pattern, replacement, normalized)
+    return normalized
+
+
+def normalize_russian_user_facing_text_fields(
+    payload,
+    *,
+    gender_hint: str | None = None,
+    gender: str | None = None,
+):
+    def _normalize_string(value: str) -> str:
+        value = normalize_russian_first_person_gender(value, gender_hint=gender_hint, gender=gender)
+        value = normalize_russian_informal_address(value) or value
+        return value
+
+    if isinstance(payload, str):
+        return _normalize_string(payload)
+    if isinstance(payload, list):
+        return [
+            _normalize_string(item)
+            if isinstance(item, str)
+            else item
+            for item in payload
+        ]
+    if isinstance(payload, dict):
+        normalized = dict(payload)
+        if isinstance(normalized.get("affirmations"), list):
+            normalized["affirmations"] = normalize_russian_user_facing_text_fields(
+                normalized["affirmations"],
+                gender_hint=gender_hint,
+                gender=gender,
+            )
+        for key in ("soft_action", "micro_step"):
+            if isinstance(normalized.get(key), str):
+                normalized[key] = _normalize_string(normalized[key])
+        return normalized
+    return payload
 
 
 def _affirmation_system_message(language: str, gender: Optional[str]) -> str:
@@ -265,6 +339,7 @@ def _build_prompt(
     focus: Optional[str] = None,
     micro_theme: Optional[str] = None,
     sphere_label: Optional[str] = None,
+    text_plan_guidance: Optional[str] = None,
 ) -> str:
     """
     Формирует промпт к YandexGPT с инструкцией вернуть JSON-массив аффирмаций.
@@ -284,6 +359,9 @@ def _build_prompt(
     focus_line_ru = f"- Фокус дня: {focus}.\n" if focus else ""
     micro_line_en = f"- Micro theme / gentle daily step context: {micro_theme}.\n" if micro_theme else ""
     micro_line_ru = f"- Микротема / контекст мягкого шага дня: {micro_theme}.\n" if micro_theme else ""
+    guidance = _clip_user_text(text_plan_guidance, 1500)
+    guidance_line_en = f"{guidance}\n" if guidance else ""
+    guidance_line_ru = f"{guidance}\n" if guidance else ""
 
     gender_part_en = ""
     gender_part_ru = ""
@@ -306,6 +384,7 @@ def _build_prompt(
             "- The image style affects only the visual scene. Do not replace or reinterpret the theme because of the style.\n"
             f"{focus_line_en}"
             f"{micro_line_en}"
+            f"{guidance_line_en}"
             f"- Direction for this sphere: {sphere_direction}.\n"
             f"{money_rules}"
             "- Each phrase should be about 8–16 words.\n"
@@ -325,42 +404,59 @@ def _build_prompt(
         )
 
     # Род в русском: нормализованный пол из БД + подсказка gender_hint
-    gender_norm = normalize_gender(gender)
-    gh = (gender_hint or "").lower()
-    if gender_norm == "female":
-        is_female = True
-    elif gender_norm == "male":
-        is_female = False
-    else:
-        is_female = bool(gender_hint and ("женщин" in gh or "woman" in gh))
+    effective_gender = _resolve_grammatical_gender(gender, gender_hint)
+    is_female = effective_gender == "female"
 
     gender_grammar = ""
     gender_preamble = ""
-    if gender_norm == "female":
+    if effective_gender == "female":
         gender_preamble = "Пол пользователя (из регистрации): женский. Пиши только в женском роде.\n\n"
-    elif gender_norm == "male":
+    elif effective_gender == "male":
         gender_preamble = "Пол пользователя (из регистрации): мужской. Пиши только в мужском роде.\n\n"
 
     examples_line = ""
-    if gender_norm or gender_hint:
-        if is_female:
+    final_gender_rule = ""
+    if effective_gender == "female":
             gender_grammar = (
                 " КРИТИЧЕСКИ ВАЖНО: адресат — женщина. Все прилагательные, причастия и глаголы в женском роде: "
                 "Я открыта, готова, способна, я создаю, я принимаю (окончания -а, -я и т.д.). "
-                "Никогда не используй мужской род (Я открыт, готов — нельзя).\n"
+                "Никогда не используй мужской род (Я открыт, готов, уверен, выбрал — нельзя). "
+                "Не используй мужские самохарактеристики вроде «таким, какой я есть»; правильно: «такой, какая я есть» или нейтральная переформулировка.\n"
             )
             examples_line = (
                 "- Примеры правильных окончаний (не копируй дословно): «Я спокойна», «Я готова», «Я уверена в себе», "
-                "«Я открыта новому» — везде женский род.\n"
+                "«Я открыта новому», «Я принимаю себя такой, какая я есть» — везде женский род.\n"
             )
-        else:
+            final_gender_rule = (
+                "- Для русских фраз от первого лица используй только женские формы, когда нужен род: "
+                "готова, выбрала, уверена, открыта, спокойна, сосредоточена.\n"
+                "- Запрещены мужские формы в первом лице для этой пользовательницы: "
+                "«Я готов», «Я выбрал», «Я уверен», «Я открыт», «Я спокоен», «Я сосредоточен», "
+                "«Я принимаю себя таким, какой я есть».\n"
+                "- Если есть риск спорной родовой конструкции, предпочитай нейтральную формулировку: "
+                "«Я принимаю себя без необходимости что-то доказывать».\n"
+            )
+    elif effective_gender == "male":
             gender_grammar = (
-                " КРИТИЧЕСКИ ВАЖНО: адресат — мужчина. Все в мужском роде: Я открыт, готов, способен (окончания -а у кратких только для мужского).\n"
+                " КРИТИЧЕСКИ ВАЖНО: адресат — мужчина. Все в мужском роде: Я открыт, готов, способен, уверен, выбрал.\n"
             )
             examples_line = (
                 "- Примеры правильных окончаний (не копируй дословно): «Я спокоен», «Я готов», «Я уверен в себе», "
-                "«Я открыт новому» — везде мужской род.\n"
+                "«Я открыт новому», «Я принимаю себя таким, какой я есть» — везде мужской род.\n"
             )
+            final_gender_rule = (
+                "- Для русских фраз от первого лица используй только мужские формы, когда нужен род: "
+                "готов, выбрал, уверен, открыт, спокоен, сосредоточен.\n"
+                "- Избегай женских форм в первом лице для этого пользователя, включая «Я принимаю себя такой, какая я есть».\n"
+            )
+    elif language == "ru":
+        final_gender_rule = (
+            "- Если род не задан явно, предпочитай гендерно-нейтральные русские формулировки, где это возможно.\n"
+            "- Не используй гендерные самохарактеристики по умолчанию: избегай «Я готов/готова», «Я уверен/уверена», "
+            "«Я принимаю себя таким/такой, какой/какая я есть», если можно сказать нейтральнее.\n"
+            "- Предпочитай нейтральные формы вроде: «Я принимаю себя без необходимости что-то доказывать», "
+            "«Я могу действовать спокойно», «Я выбираю бережный следующий шаг».\n"
+        )
 
     return (
         gender_preamble
@@ -380,20 +476,40 @@ def _build_prompt(
         "- Стиль изображения влияет только на визуальную сцену. Не переосмысляй и не подменяй тему из-за стиля.\n"
         f"{focus_line_ru}"
         f"{micro_line_ru}"
+        f"{guidance_line_ru}"
         f"- Направление для этой сферы: {sphere_direction}.\n"
         f"{money_rules}"
         "- Каждая фраза примерно 8–16 слов.\n"
         "- Аффирмации в форме от первого лица (\"Я ...\"), в настоящем времени.\n"
+        "- Весь пользовательский вывод должен быть строго на русском языке: без английских слов, английских фраз и смешения языков.\n"
+        "- Если в контексте есть focus, мягкий шаг дня или микротема, не оставляй их в английской формулировке внутри результата.\n"
         "- Пиши психологически бережно, эмоционально точно и с живой человеческой конкретикой.\n"
         "- Не обещай гарантированный успех, любовь, деньги, исцеление или мгновенные перемены.\n"
         "- Избегай токсичного позитива и магического мышления, если пользователь сам этого не просил.\n"
         "- Не используй пустые универсальные фразы без эмоциональной конкретики.\n"
         "- Каждая фраза должна быть конкретно связана с фокусом дня, если фокус передан.\n"
         "- Не начинай все пункты одинаково.\n"
+        "- Не делай все четыре аффирмации одинаковой конструкцией «Я + глагол + абстрактное слово».\n"
+        "- Варьируй начала аффирмаций: не повторяй одно и то же открытие во всех строках.\n"
+        "- Чередуй структуру фраз: часть может начинаться с «Я ...», но не каждая строка должна строиться одинаково.\n"
+        "- Стиль должен быть тёплым, естественным, личным, не канцелярским и не бюрократическим.\n"
+        "- Используй тёплое неформальное обращение на «ты», а не на «Вы/вы».\n"
+        "- Если появляется обращение к пользователю, используй только неформальное единственное число: «ты», «твой», «тебе».\n"
+        "- Мягкий шаг и микрошаг должны быть в повелительном наклонении единственного числа.\n"
+        "- Запрещены формальные или множественные формы: «Выберите», «Назовите», «Сделайте», "
+        "«Примите», «Упростите», «Запишите», «Заметьте», «Позвольте», а также обращение «Ваш/ваш».\n"
+        "- Используй формы: «Выбери», «Назови», «Сделай», «Прими», «Упрости», "
+        "«Запиши», «Заметь», «Позволь себе».\n"
+        "- Для мягкого шага избегай повторяющихся конструкций. Не повторяй снова и снова шаблоны вроде "
+        "«Прими одно ... из ..., а не из ...», «Выбери одно ... из ..., а не из ...», "
+        "«Сделай один шаг ...», «Позволь себе ...», если можно выбрать другой живой формат.\n"
+        "- Не злоупотребляй формулой противопоставления «из X, а не из Y».\n"
+        "- Для мягкого шага предпочитай маленькое наблюдаемое действие или конкретный жизненный контекст, а не цепочку абстрактных существительных.\n"
         "- Избегай чрезмерного повторения начал: «Я спокойна и уверена», «Я спокоен и уверен», "
         "«Я открыта», «Я открыт», «Я способна», «Я способен», «Я благодарна», «Я благодарен», "
         "«Я готова», «Я готов», «Я создаю возможности», «Я принимаю мир таким, какой он есть», "
         "«Я принимаю», «Я уверена», «Я уверен».\n"
+        f"{final_gender_rule}"
         "- Не пиши как мотивационный плакат.\n"
         "- Не упоминай, что ты ИИ.\n"
         "Формат вывода:\n"
@@ -412,6 +528,7 @@ async def generate_affirmations(
     focus: Optional[str] = None,
     micro_theme: Optional[str] = None,
     sphere_label: Optional[str] = None,
+    text_plan_guidance: Optional[str] = None,
 ) -> List[str]:
     """
     Асинхронно вызывает YandexGPT и возвращает список аффирмаций.
@@ -429,6 +546,7 @@ async def generate_affirmations(
         focus=focus,
         micro_theme=micro_theme,
         sphere_label=sphere_label,
+        text_plan_guidance=text_plan_guidance,
     )
 
     url, headers, payload = _build_text_provider_request(
@@ -477,6 +595,13 @@ async def generate_affirmations(
     except json.JSONDecodeError:
         logger.warning("Failed to parse YandexGPT output as JSON; returning raw text.")
         affirmations = [cleaned]
+
+    if language == "ru":
+        affirmations = normalize_russian_user_facing_text_fields(
+            affirmations,
+            gender_hint=gender_hint,
+            gender=gender,
+        )
 
     return affirmations
 

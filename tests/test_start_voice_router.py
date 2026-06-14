@@ -248,6 +248,19 @@ def test_main_menu_text_routes_subscriptions_intent(monkeypatch):
     assert called["subs"] is True
 
 
+def test_main_menu_help_button_reuses_help_behavior(monkeypatch):
+    async def _fake_help(message):
+        message.answers.append(("help-called", None))
+
+    monkeypatch.setattr("handlers.smalltalk.cmd_help", _fake_help)
+
+    state = _FakeState()
+    msg = _FakeMessage(with_voice=False, text="❓ Помощь")
+    asyncio.run(start.main_menu_help(msg, state))
+
+    assert msg.answers == [("help-called", None)]
+
+
 def test_ru_ui_main_menu_text_does_not_match_english_phrase(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru"}

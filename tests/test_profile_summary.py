@@ -1,7 +1,7 @@
 import inspect
 
 from handlers import start
-from keyboards.inline import gender_keyboard, main_reply_keyboard, relationships_subsphere_keyboard, style_keyboard
+from keyboards.inline import gender_keyboard, main_reply_keyboard, profile_keyboard, relationships_subsphere_keyboard, style_keyboard
 from services.subscription_ui import (
     build_dashboard_text,
     build_subscription_summary,
@@ -122,8 +122,24 @@ def test_sea_coast_photo_is_selectable_with_emoji():
 def test_main_reply_keyboard_labels_ru_en():
     ru = main_reply_keyboard("ru").keyboard
     en = main_reply_keyboard("en").keyboard
-    assert [button.text for row in ru for button in row] == ["🌿 Создать настрой", "⚙️ Подписки", "👤 Профиль"]
-    assert [button.text for row in en for button in row] == ["🌿 Create mood", "⚙️ Subscriptions", "👤 Profile"]
+    assert [button.text for row in ru for button in row] == ["🌿 Создать настрой", "✨ По моему профилю", "👤 Профиль", "⚙️ Подписки", "❓ Помощь"]
+    assert [button.text for row in en for button in row] == ["🌿 Create mood", "✨ From my profile", "👤 Profile", "⚙️ Subscriptions", "❓ Help"]
+    assert len(ru[0]) == 2
+    assert len(ru[1]) == 2
+    assert len(ru[2]) == 1
+    assert len(en[0]) == 2
+    assert len(en[1]) == 2
+    assert len(en[2]) == 1
+
+
+def test_profile_keyboard_contains_generate_from_profile_button():
+    texts = [button.text for row in profile_keyboard("ru", has_subscription=False).inline_keyboard for button in row]
+    assert "✨ По моему профилю" in texts
+
+
+def test_main_menu_profile_generation_handler_uses_safe_default_state_filter():
+    source = inspect.getsource(start)
+    assert '@router.message(StateFilter(None), F.text.in_({"✨ По моему профилю", "✨ From my profile"}))' in source
 
 
 def test_relationships_keyboard_contains_emojis():
@@ -146,3 +162,46 @@ def test_start_flow_does_not_send_bare_done_message():
     source = inspect.getsource(start)
     assert '"Готово."' not in source
     assert '"Done."' not in source
+
+
+def test_build_profile_summary_text_includes_preference_labels():
+    text = start.build_profile_summary_text(
+        {"name": "Алина", "gender": "female", "language": "ru"},
+        {
+            "tone_preference": "warm_soft",
+            "support_style": "grounding",
+            "text_length_preference": "standard",
+            "life_areas": ["работа", "дом"],
+            "current_focus": "спокойнее прожить неделю",
+            "avoid_topics": ["давление"],
+            "avoid_words": ["срочно"],
+        },
+        "Пока нет активных подписок.",
+        0,
+        "ru",
+    )
+    assert "💬 Как обращаться: Алина" in text
+    assert "🎨 Тон общения: Мягко и бережно" in text
+    assert "🤝 Формат поддержки: Заземлить" in text
+    assert "📝 Длина текста: Стандартно" in text
+    assert "🧭 Жизненные сферы: работа, дом" in text
+    assert "🎯 Текущий фокус: спокойнее прожить неделю" in text
+    assert "🚫 Избегать тем: давление" in text
+    assert "🧹 Избегать слов: срочно" in text
+
+
+def test_build_profile_summary_text_uses_soft_placeholders():
+    text = start.build_profile_summary_text(
+        {"name": None, "gender": "female", "language": "ru"},
+        {},
+        "Пока нет активных подписок.",
+        0,
+        "ru",
+    )
+    assert "🎨 Тон общения: не задано" in text
+    assert "🤝 Формат поддержки: не задано" in text
+    assert "📝 Длина текста: не задано" in text
+    assert "🧭 Жизненные сферы: не задано" in text
+    assert "🎯 Текущий фокус: не задано" in text
+    assert "🚫 Избегать тем: не задано" in text
+    assert "🧹 Избегать слов: не задано" in text

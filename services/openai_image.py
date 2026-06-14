@@ -13,6 +13,7 @@ from config import get_image_provider_config, get_outputs_dir
 from services.ritual_config import (
     PHOTO_SCENE_PRESETS,
     STYLE_DESCRIPTIONS,
+    get_visual_archetype,
     has_coastal_intent,
     normalize_style_key,
     normalize_visual_mode,
@@ -32,15 +33,27 @@ _COLOR_MOODS = [
     "pale turquoise, sand, warm white",
     "fresh meadow green, daisy white, sunlight yellow",
     "soft peach dawn, warm cloud grey, light gold",
-    "morning blue, silver light, white mist",
+    "morning blue, silver light, clear glow",
     "blossom pink, pale green, warm ivory",
-    "dawn pearl, misty blue, pale gold",
+    "dawn pearl, soft blue, pale gold",
     "clear aqua, sunlit cream, tender green",
     "fresh mint, white linen, warm daylight",
     "soft lavender, pearl white, pale gold",
     "bright sage, cream, apricot light",
     "warm walnut, parchment, soft sage",
-    "sea glass, fog, linen white",
+    "sea glass, clear air, linen white",
+    "soft lilac dawn, cream, pale blue",
+    "warm apricot light, cool slate blue, white",
+    "golden wheat, sky blue, soft white",
+    "cool eucalyptus green, warm sand, ivory",
+    "rose quartz pink, warm grey, soft gold",
+    "clear citrus yellow, sky blue, white linen",
+    "muted coral, warm cream, soft denim blue",
+    "fresh birch green, morning silver, warm white",
+    "amber glow, cool stone grey, pale yellow",
+    "soft periwinkle, warm sand, cream",
+    "clear morning teal, warm beige, soft gold",
+    "blush peach, sage green, warm ivory",
 ]
 
 # Варианты композиции
@@ -56,7 +69,32 @@ _COMPOSITION_HINTS = [
     "intimate still life with symbolic objects, no text",
     "quiet interior scene with natural window light",
     "soft landscape with readable focal point and bright exposure",
+    "wide horizon view with low foreground and generous open sky",
+    "layered scene with near, middle and far elements for depth",
+    "diagonal path or shoreline leading the eye through the frame",
+    "framed view through an open window or doorway",
+    "close but not tight still life with soft negative space around the subject",
+    "elevated viewpoint overlooking a bright open scene",
+    "rule-of-thirds framing with a single clear focal element",
+    "symmetrical calm composition with balanced light on both sides",
+    "scene framed by natural elements like branches or leaves at the edges",
+    "wide-angle interior with daylight pouring in from one side",
+    "minimal composition with one main subject and soft uncluttered background",
 ]
+
+# Компактный позитивный якорь анатомии: снижает риск искажённых лиц/рук без огромного негативного промпта
+_ANATOMY_ANCHOR = (
+    "If a person appears, give them natural human proportions, anatomically correct hands and face, "
+    "no extra or missing fingers, no distorted limbs."
+)
+
+# Компактное ограничение против туманной/мистической дымки.
+# Не запрещает лёгкий/утренний туман, упомянутый в самих темах (light mist, luminous mist),
+# чтобы не создавать противоречие "light mist" + "avoid misty atmosphere".
+_HAZE_GUARD = (
+    "Avoid heavy fog, murky haze, smeared pastel haze or mystical fog as the dominant atmosphere; "
+    "gentle natural mist or soft morning haze is fine only if it fits the scene."
+)
 
 
 def _build_default_image_theme(sphere: str, subsphere: Optional[str]) -> str:
@@ -103,7 +141,11 @@ def _build_photo_image_theme(sphere: str, subsphere: Optional[str]) -> str:
     subsphere_key = (subsphere or "").lower()
 
     if sphere_key == "career":
-        return "realistic editorial photo of a bright workspace, open window, real desk, notebook without readable text, cup, plant, morning daylight, clean perspective and calm professional order"
+        return (
+            "realistic editorial photo of a bright workspace, open window, real desk, notebook without readable text, "
+            "cup, plant, morning daylight, clean perspective and calm professional order, lived-in but tidy details "
+            "with varied natural materials and textured surfaces, avoiding beige showroom or catalog-furniture staging"
+        )
     if sphere_key == "self_worth":
         return "real-life photo of a sunlit room corner, real flowers or botanical branch, linen, ceramic cup, window light, quiet dignity and enough space around the subject"
     if sphere_key == "self_realization":
@@ -123,7 +165,8 @@ def _build_photo_image_theme(sphere: str, subsphere: Optional[str]) -> str:
     if sphere_key == "money":
         return (
             "realistic interior still life photo of calm order and stability, bright organized desk without financial props, "
-            "sunlight on a clean table, notebook without readable text, ceramic cup, plant, open window, real wood, linen and glass"
+            "sunlight on a clean table, notebook without readable text, ceramic cup, plant, open window, real wood, linen and glass, "
+            "lived-in but tidy editorial details with varied natural materials and textured surfaces, avoiding beige showroom or catalog-furniture staging"
         )
     if sphere_key == "spirituality":
         return "realistic still life photo of a quiet grounded ritual corner, candle, ceramic bowl, linen, plant, natural window light, physically real objects and believable shadows"
@@ -145,9 +188,12 @@ def _style_to_phrase(style: str) -> str:
         "abstract": "abstract art, flowing shapes, harmonious colors",
         "sunny_photo_scene": STYLE_DESCRIPTIONS["sunny_photo_scene"],
         "living_nature_photo": STYLE_DESCRIPTIONS["living_nature_photo"],
+        "urban_city_photo": STYLE_DESCRIPTIONS["urban_city_photo"],
         "sea_coast_photo": STYLE_DESCRIPTIONS["sea_coast_photo"],
         "bright_ocean_coast_photo": STYLE_DESCRIPTIONS["bright_ocean_coast_photo"],
         "light_interior_photo": STYLE_DESCRIPTIONS["light_interior_photo"],
+        "cozy_home_photo": STYLE_DESCRIPTIONS["cozy_home_photo"],
+        "book_nook_photo": STYLE_DESCRIPTIONS["book_nook_photo"],
         "calm_lifestyle_photo": STYLE_DESCRIPTIONS["calm_lifestyle_photo"],
         "bright_nature_card": STYLE_DESCRIPTIONS["bright_nature_card"],
         "quiet_interior": STYLE_DESCRIPTIONS["quiet_interior"],
@@ -160,9 +206,154 @@ def _style_to_phrase(style: str) -> str:
         "minimal_botanical": STYLE_DESCRIPTIONS["minimal_botanical"],
         "cinematic_light": STYLE_DESCRIPTIONS["cinematic_light"],
         "ethereal_landscape": STYLE_DESCRIPTIONS["ethereal_landscape"],
-        "symbolic_luxe": STYLE_DESCRIPTIONS["symbolic_luxe"],
+        "mandala_harmony": STYLE_DESCRIPTIONS["mandala_harmony"],
+        "sacred_geometry_light": STYLE_DESCRIPTIONS["sacred_geometry_light"],
+        "botanical_mandala": STYLE_DESCRIPTIONS["botanical_mandala"],
+        "daily_symbol": STYLE_DESCRIPTIONS["daily_symbol"],
     }
     return mapping.get(style, "soft, inspiring, visually harmonious style")
+
+
+_SYMBOLIC_MEANING_HINTS = {
+    "money": "stability, abundance and calm order",
+    "career": "clarity, purpose and steady growth",
+    "self_worth": "self-acceptance, inner light and quiet confidence",
+    "health": "vitality, balance and renewal",
+    "relationships": "harmony, connection and warmth",
+    "self_realization": "creativity, expression and inner blossoming",
+    "home_support": "comfort, grounding and care",
+    "inner_peace": "calm, balance and quiet harmony",
+    "spirituality": "inner light, harmony and quiet reflection",
+}
+
+
+def _symbolic_meaning_hint(sphere: str) -> str:
+    return _SYMBOLIC_MEANING_HINTS.get(sphere.lower(), "calm balance and quiet harmony")
+
+
+# Short style accents for the symbolic visual mode. Deliberately shorter and
+# narrower than STYLE_DESCRIPTIONS: the full illustration-oriented descriptions
+# carry their own "not a landscape / not wallpaper / not a photo" negations,
+# which would otherwise leak those words back into the symbolic prompt contract.
+_SYMBOLIC_STYLE_ACCENTS = {
+    "mandala_harmony": "luminous gold, warm pastel and pearl tones, fine delicate linework, elegant refined ornament",
+    "sacred_geometry_light": "soft luminous pastel tones, clean fine linework, airy light geometric palette",
+    "botanical_mandala": "soft botanical greens, warm cream and floral pastel tones, delicate organic linework",
+    "daily_symbol": "luminous warm pastel tones, soft gentle glow, clean minimal linework",
+}
+
+
+# Per-style main-subject contracts for the symbolic visual mode. Each entry
+# reinforces the visual anchor for that style, deliberately without any
+# sphere/focus scene content (lake, hands, room, office, cafe, etc.).
+_SYMBOLIC_STYLE_SUBJECTS = {
+    "mandala_harmony": (
+        "Mandala details: one centered visible mandala as the main subject; the mandala occupies roughly "
+        "65-80% of the image, with clear radial symmetry, a circular geometric rosette, fine ornamental "
+        "linework, balanced symmetrical layers, a calm luminous palette and a clean decorative card composition."
+    ),
+    "sacred_geometry_light": (
+        "Mandala details: one centered visible mandala-like ornamental rosette as the main subject; "
+        "it occupies roughly 65-80% of the image, with clear radial symmetry, interlocking circles, "
+        "soft polygons, a circular geometric rosette, fine luminous linework, balanced symmetrical "
+        "layers and a clean decorative card composition."
+    ),
+    "botanical_mandala": (
+        "Mandala details: one centered visible botanical mandala as the main subject; it occupies roughly "
+        "65-80% of the image, with clear radial symmetry, petals, leaves and branches arranged into a "
+        "circular rosette, fine ornamental linework, balanced symmetrical layers and a clean decorative "
+        "card composition."
+    ),
+    "daily_symbol": (
+        "Main subject details: one centered visible abstract emblem as the main subject, occupying roughly "
+        "35-55% of the image, with crisp edges, balanced negative space, calm luminous color and a clean "
+        "decorative card composition. Use only universal abstract shapes such as a circle, sun, leaf, "
+        "wave, path or star-like light; this is not a mandala, not a rune, not a sigil and not an "
+        "alphabet-like glyph."
+    ),
+}
+
+
+# Shared safety negations for the symbolic visual mode, regardless of style.
+_SYMBOLIC_GLOBAL_SAFETY = (
+    "No readable text, no words, no letters, no numbers, no typography, no logos, no watermarks. "
+    "No plain abstract texture, no wallpaper, no soft blurry background, no vague glowing background. "
+    "No water surface, no ocean reflection, no landscape, no realistic photo, no room or interior, no furniture, "
+    "no human figure, no face, no hands, no body parts. "
+    "No religious icons, no occult sigils, no pentagrams, no runes, no dark mysticism, no fantasy creatures. "
+    "Keep a clean background with no extra clutter: no corner twig, no corner ornament, no side frame, "
+    "no border lines, no card frame, no extra decorative branches or leaves added outside the main subject, "
+    "no secondary small symbols around the edges unless required by the chosen style, and no wallpaper-like "
+    "filler details. "
+    "Keep the mood calm, luminous, harmonious and emotionally uplifting."
+)
+
+
+def _symbolic_style_accent(style: str) -> str:
+    return _SYMBOLIC_STYLE_ACCENTS.get(
+        normalize_style_key(style), "luminous refined colors and a calm harmonious palette"
+    )
+
+
+def _build_symbolic_image_prompt(
+    *,
+    sphere: str,
+    user_text: Optional[str],
+    style: str,
+    custom_style_description: Optional[str],
+    color_mood: Optional[str],
+    composition_hint: Optional[str],
+) -> str:
+    """
+    Dedicated prompt contract for the "symbolic" visual mode (🪷 Мандалы и символы).
+
+    Unlike the regular illustration/mixed flow, this mode does not use the
+    sphere/focus scene theme (lake, hands, room, office, cafe, etc.) at all.
+    The sphere/focus may only influence mood, color palette and symbolic meaning,
+    via _symbolic_meaning_hint, never the visual subject itself.
+    """
+    normalized_style = normalize_style_key(style)
+
+    if normalized_style == "custom" and custom_style_description:
+        style_phrase = f"in the style: {custom_style_description}"
+    else:
+        style_phrase = _symbolic_style_accent(normalized_style)
+        if custom_style_description:
+            style_phrase = (
+                f"{style_phrase}. Optional nuance: {custom_style_description}. "
+                "Keep it only as ornamental color or linework nuance, never as scene content."
+            )
+
+    color_part = f" Color palette only: {color_mood}." if color_mood else ""
+
+    meaning_part = (
+        f" Symbolic meaning to evoke through pattern, rhythm and color only: {_symbolic_meaning_hint(sphere)}."
+    )
+
+    extra = ""
+    if user_text:
+        extra = (
+            " If a custom theme exists, use it only as abstract emotional meaning; "
+            "do not depict literal objects, places or scenes from it."
+        )
+
+    subject = _SYMBOLIC_STYLE_SUBJECTS.get(
+        normalized_style, _SYMBOLIC_STYLE_SUBJECTS["mandala_harmony"]
+    )
+    opening = (
+        "Create a decorative symbolic card. The image must contain one centered visible symbol as the main subject, clearly isolated in the center of the image. "
+        if normalized_style == "daily_symbol"
+        else "Create a decorative symbolic card. The image must contain one centered visible mandala as the main subject, occupying most of the image. "
+    )
+
+    return (
+        f"{opening}"
+        f"{subject}"
+        f"{meaning_part}{extra} "
+        "Decorative symbolic branch only. Keep the subject centered, clear and dominant on a phone screen. "
+        f"Visual style: {style_phrase}.{color_part} "
+        f"{_SYMBOLIC_GLOBAL_SAFETY}"
+    )
 
 
 def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration") -> str:
@@ -256,6 +447,7 @@ def _build_photo_prompt(
         "If an interior appears, it must be a realistic interior photo with real ceramics, wood, linen, glass, paper or plants. "
         "If the scene is symbolic still life, it must look physically photographed, with real objects and believable shadows. "
         "Do not create a greeting card image, decorative art print, drawn scene or stylized AI illustration. "
+        f"{_ANATOMY_ANCHOR} "
         f"{coastal_clause}"
         f"Photo style direction: {style_phrase}.{color_part}{comp_part} "
         f"{avoid_clause}"
@@ -319,6 +511,17 @@ def _build_image_prompt(
         style = "bright_ocean_coast_photo"
     coastal_force = style in {"sea_coast_photo", "bright_ocean_coast_photo"} or coastal_intent
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), style)
+
+    if effective_visual_mode == "symbolic":
+        return _build_symbolic_image_prompt(
+            sphere=sphere,
+            user_text=user_text,
+            style=style,
+            custom_style_description=custom_style_description,
+            color_mood=color_mood,
+            composition_hint=composition_hint,
+        )
+
     base_theme = (
         _build_photo_image_theme(sphere, subsphere)
         if effective_visual_mode == "photo"
@@ -379,9 +582,11 @@ def _build_image_prompt(
         "Use a high-quality soft semi-realistic or gentle illustration look. "
         "Prefer nature scenes, lake, sea, sky, soft landscape, flowering branches, trees in sunlight, meadow, garden, morning light, bright still life with window light, light workspace without visible text, two cups or warm table for relationships, and gentle symbolic nature metaphors. "
         "If a person appears, keep them small, from behind or side view, not a dominant portrait, with no direct eye contact. "
+        f"{_ANATOMY_ANCHOR} "
         f"Atmosphere: bright daily card, elegant, simple, warm and hopeful, suitable for affirmation practice about {sphere}. "
         f"Visual style: {style_phrase}.{color_part}{comp_part} "
         "No text, no words, no letters, no numbers, no typography, no logos, no watermarks. "
+        f"{_HAZE_GUARD} "
         f"{avoid_clause}"
     )
 
@@ -411,6 +616,7 @@ async def generate_image(
     color_mood: Optional[str] = None,
     composition_hint: Optional[str] = None,
     recent_scene_presets: Optional[list[str]] = None,
+    recent_archetypes: Optional[list[str]] = None,
     photo_scene_preset_override: Optional[str] = None,
 ) -> str:
     """
@@ -427,6 +633,7 @@ async def generate_image(
             resolved_style,
             focus_key=focus_key,
             recent_scene_presets=recent_scene_presets,
+            recent_archetypes=recent_archetypes,
         )
     if output_dir is None:
         output_dir = get_outputs_dir()
@@ -437,6 +644,10 @@ async def generate_image(
 
     color_mood = color_mood or random.choice(_COLOR_MOODS)
     composition_hint = composition_hint or random.choice(_COMPOSITION_HINTS)
+    if effective_visual_mode == "symbolic":
+        prompt_override = None
+        image_prompt_trace = "symbolic_prompt_builder"
+
     if prompt_override:
         if effective_visual_mode == "photo":
             coastal_override = (
@@ -455,6 +666,7 @@ async def generate_image(
                     coastal_scene_style,
                     focus_key=focus_key,
                     recent_scene_presets=recent_scene_presets,
+                    recent_archetypes=recent_archetypes,
                 )
             scene_text = PHOTO_SCENE_PRESETS.get(photo_scene_preset or "", PHOTO_SCENE_PRESETS["window_still_life"])
             prompt = _augment_photo_override_prompt(
@@ -545,6 +757,7 @@ async def generate_image(
         "prompt_source": trace,
         "requested_style": style,
         "selected_style": resolved_style,
+        "visual_archetype": get_visual_archetype(style=resolved_style, scene_preset=photo_scene_preset),
         "visual_mode": effective_visual_mode,
         "style": style,
         "resolved_style": resolved_style,

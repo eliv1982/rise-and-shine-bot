@@ -1,7 +1,7 @@
 import logging
 
 from config import get_settings
-from services.scene_planner import build_scene_image_prompt, normalize_scene_plan
+from services.scene_planner import build_scene_image_prompt, normalize_scene_family, normalize_scene_plan
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +179,61 @@ def build_living_nature_constraints() -> list[str]:
     ]
 
 
+def build_cafe_scene_constraints() -> list[str]:
+    return [
+        "a few calm guests seated at distant tables",
+        "one or two coffee cups on tables as small supporting details",
+        "small dessert or pastry hint",
+        "menu card",
+        "warm lived-in cafe atmosphere",
+        "terrace seating",
+        "city street view",
+        "planters, awning and facade details",
+        "people stay in background and are not the main subject",
+        "limit human presence to one to three calm people",
+        "avoid empty abandoned cafe",
+        "avoid post-apocalyptic street",
+        "avoid deserted showroom",
+        "avoid sterile dining room",
+        "avoid empty classroom feeling",
+        "avoid no people anywhere",
+        "avoid crowded noisy scene",
+    ]
+
+
+def build_outdoor_liveliness_constraints() -> list[str]:
+    return [
+        "small signs of life such as butterflies, birds, bees or dragonflies",
+        "flowers, grasses and subtle natural movement",
+        "avoid desolate emptiness",
+        "avoid eerie lifeless landscape",
+    ]
+
+
+def build_rural_scene_constraints() -> list[str]:
+    return [
+        "if semantically appropriate, a cup of tea or coffee, a blanket, a book, potted flowers or a small domestic animal in the distance",
+        "rural scene should feel cared-for and lived-in, not barren",
+    ]
+
+
+def build_home_scene_constraints() -> list[str]:
+    return [
+        "lived-in home details such as a book, blanket, lamp, mug, plant and optionally fireplace",
+        "avoid sterile empty room",
+        "avoid furniture showroom",
+    ]
+
+
+def build_work_scene_constraints() -> list[str]:
+    return [
+        "tasteful stationery, notebook or planner, coffee cup, laptop, plant and sunlight as supporting details",
+        "subtle human presence is optional and remains secondary",
+        "avoid cold empty office",
+        "avoid generic productivity stock photo",
+    ]
+
+
 def build_controlled_scene_prompt(
     *,
     scene_plan: dict,
@@ -215,6 +270,8 @@ def build_controlled_scene_prompt(
     elif _clean_str(selected_style):
         extras.append(f"Style direction: {_clean_str(selected_style)}.")
 
+    scene_family = normalize_scene_family(normalized.get("scene_type"))
+
     if is_living_nature_style(
         selected_style=selected_style,
         resolved_style=resolved_style,
@@ -226,6 +283,33 @@ def build_controlled_scene_prompt(
         )
         extras.append(
             "Living nature constraints: " + ", ".join(nature_constraints) + "."
+        )
+
+    if scene_family in {"cafe_terrace", "cafe_quiet"}:
+        cafe_constraints = build_cafe_scene_constraints()
+        extras.append(
+            "Cafe scene direction: " + ", ".join(cafe_constraints) + "."
+        )
+    elif scene_family in {"nature_path", "meadow_field", "garden_botanical", "water_nature", "mountain"}:
+        outdoor_constraints = build_outdoor_liveliness_constraints()
+        extras.append(
+            "Outdoor scene liveliness: " + ", ".join(outdoor_constraints) + "."
+        )
+    elif scene_family in {"rural_quiet", "country_garden", "farmhouse_cozy"}:
+        outdoor_constraints = build_outdoor_liveliness_constraints()
+        rural_constraints = build_rural_scene_constraints()
+        extras.append(
+            "Rural scene liveliness: " + ", ".join(outdoor_constraints + rural_constraints) + "."
+        )
+    elif scene_family in {"cozy_home", "book_nook"}:
+        home_constraints = build_home_scene_constraints()
+        extras.append(
+            "Home scene direction: " + ", ".join(home_constraints) + "."
+        )
+    elif scene_family == "work_quiet":
+        work_constraints = build_work_scene_constraints()
+        extras.append(
+            "Work scene direction: " + ", ".join(work_constraints) + "."
         )
 
     return " ".join([prompt] + extras).strip()

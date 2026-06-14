@@ -36,7 +36,7 @@ FOCUSES = {
             "en": "inner stillness",
             "micro_step_ru": "Сделай одну короткую паузу на дыхание перед важным делом.",
             "micro_step_en": "Take one short breathing pause before an important task.",
-            "image_hint_en": "quiet lake, mist, soft morning light, breathing space",
+            "image_hint_en": "quiet lake, clear morning light, breathing space",
         },
         {
             "key": "gentle_clarity",
@@ -455,7 +455,7 @@ FOCUSES = {
     ],
 }
 
-VALID_VISUAL_MODES = ("photo", "illustration", "mixed")
+VALID_VISUAL_MODES = ("photo", "illustration", "mixed", "symbolic")
 
 PHOTO_STYLE_KEYS = [
     "sunny_morning_photo",
@@ -479,6 +479,9 @@ PHOTO_STYLE_ALIASES = {
     "bright_ocean_coast_photo": "sea_coast_photo",
     "vivid_ocean_photo": "sea_coast_photo",
     "bright_ocean": "sea_coast_photo",
+    # symbolic_luxe was the original single symbolic style; keep old
+    # subscriptions/history pointed at its closest replacement.
+    "symbolic_luxe": "mandala_harmony",
 }
 
 ILLUSTRATION_STYLE_KEYS = [
@@ -488,11 +491,21 @@ ILLUSTRATION_STYLE_KEYS = [
     "minimal_botanical",
     "cinematic_light",
     "ethereal_landscape",
-    "symbolic_luxe",
     "textured_collage",
 ]
 
 CURATED_STYLE_KEYS = ILLUSTRATION_STYLE_KEYS
+
+# Symbolic visual mode (🪷 Мандалы и символы): a small dedicated taxonomy of
+# mandala / sacred-geometry / botanical-ornament / single-emblem styles, each
+# with its own prompt contract in services/openai_image.py. These styles are
+# NOT part of the regular illustration/mixed menus.
+SYMBOLIC_STYLE_KEYS = [
+    "mandala_harmony",
+    "sacred_geometry_light",
+    "botanical_mandala",
+    "daily_symbol",
+]
 
 LEGACY_STYLE_KEYS = ["realistic", "nature", "cosmos", "mandala", "sacred_geometry", "abstract", "cartoon"]
 
@@ -520,8 +533,11 @@ STYLE_LABELS = {
     "minimal_botanical": {"ru": "Ботанический минимализм", "en": "Minimal botanical"},
     "cinematic_light": {"ru": "Кинематографичный свет", "en": "Cinematic light"},
     "ethereal_landscape": {"ru": "Туманный пейзаж", "en": "Ethereal landscape"},
-    "symbolic_luxe": {"ru": "Абстрактная гармония", "en": "Abstract harmony"},
     "textured_collage": {"ru": "Текстурный коллаж", "en": "Textured collage"},
+    "mandala_harmony": {"ru": "Мандальная гармония", "en": "Mandala harmony"},
+    "sacred_geometry_light": {"ru": "Светлая геометрия", "en": "Light geometry"},
+    "botanical_mandala": {"ru": "Ботаническая мандала", "en": "Botanical mandala"},
+    "daily_symbol": {"ru": "Символ дня", "en": "Symbol of the day"},
     "realistic": {"ru": "Реалистичный", "en": "Realistic"},
     "cartoon": {"ru": "Мультяшный", "en": "Cartoon"},
     "mandala": {"ru": "Мандала", "en": "Mandala"},
@@ -533,28 +549,31 @@ STYLE_LABELS = {
 
 STYLE_DESCRIPTIONS = {
     "sunny_morning_photo": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
-    "living_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
-    "urban_city_photo": "calm realistic city photography, quiet street, courtyard, park or bridge walkway, soft natural light, believable urban atmosphere, editorial lifestyle realism, no crowd as focal point, no harsh corporate stock feeling",
+    "living_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, crisp clear air, fresh daylight and readable natural detail, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail, avoid visible fog, mist, murky haze or smeared pastel haze unless explicitly requested",
+    "urban_city_photo": "calm realistic city photography, quiet street, courtyard, park or bridge walkway, soft natural light, believable urban atmosphere, editorial lifestyle realism, may include subtle small-scale signs of city life such as a distant pedestrian, cyclist, dog walker, parked car or an open cafe, kept small and not as the focal point, no crowd as focal point, no harsh corporate stock feeling",
     "cafe_terrace_photo": "realistic cafe terrace or city veranda photography, calm urban atmosphere, awning, planters, facade details and small seating groups, coffee or pastry hints allowed but never as mug close-up hero object, editorial cafe environment realism",
     "rural_calm_photo": "realistic rural morning photography, cottage garden, orchard, wooden porch, country road or village veranda, soft daylight, grounded countryside atmosphere, calm lived-in details, no generic wild forest default",
     "sea_coast_photo": "real coastal photograph, sea or ocean coastline photography, realistic natural light, realistic sky and cloud formations, believable wave and water behavior, natural atmospheric perspective, camera realism, editorial landscape photography feel, calm restorative airy mood",
-    "cozy_home_photo": "realistic cozy home photography, lived-in calm home atmosphere, chair, lamp, shelf, blanket or fireplace glow, believable textures and daylight, emotionally supportive without sterile showroom feeling",
-    "book_nook_photo": "realistic library or reading nook photography, bookshelves, reading chair, lamp or bookstore atmosphere, calm reflective mood, no office feeling, no laptop-centered productivity stock look",
-    "calm_lifestyle_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
+    "cozy_home_photo": "realistic cozy home photography, lived-in domestic warmth, kitchen corner, textiles, cushions or houseplants, morning or evening home details like a warm mug, folded blanket or soft lamp light, believable textures and daylight, emotionally supportive without sterile showroom feeling",
+    "book_nook_photo": "realistic reading nook or library corner photography, bookshelves, stacked books, reading chair and lamp, bookshop aisle atmosphere, calm reflective reading mood, no office feeling, no laptop-centered productivity stock look",
+    "calm_lifestyle_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, quiet everyday moments such as a balcony view, table detail, simple morning ritual, a calm walk, a cafe corner or hands doing a calm everyday activity, not centered on bookshelves, armchair or reading-lamp imagery, magazine lifestyle shoot, authentic photo look, lived-in but tidy details with natural materials, textured surfaces and daylight shadows, avoid generic corporate stock-photo look and showroom or catalog-furniture staging, avoid repeating the same laptop-cup-plant-notebook combination unless the scene specifically needs it",
     "bright_photo_card": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
     "sunny_photo_scene": "warm real-life photo, fresh sunny morning atmosphere, natural daylight, realistic scene, authentic photographic textures, serene editorial photography, crisp enough to read as a photo, candid but composed, camera realism",
-    "sunny_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail",
-    "light_interior_photo": "realistic cozy home photography, lived-in calm home atmosphere, chair, lamp, shelf, blanket or fireplace glow, believable textures and daylight, emotionally supportive without sterile showroom feeling",
+    "sunny_nature_photo": "realistic nature photography, real landscape, riverside, meadow or trees, crisp clear air, fresh daylight and readable natural detail, believable atmosphere, natural light, camera realism, nature photo not a painted landscape, real weather and sharp photographic detail, avoid visible fog, mist, murky haze or smeared pastel haze unless explicitly requested",
+    "light_interior_photo": "realistic cozy home photography, lived-in domestic warmth, kitchen corner, textiles, cushions or houseplants, morning or evening home details like a warm mug, folded blanket or soft lamp light, believable textures and daylight, emotionally supportive without sterile showroom feeling",
     "bright_ocean_coast_photo": "real coastal photograph, sea or ocean coastline photography, realistic natural light, realistic sky and cloud formations, believable wave and water behavior, natural atmospheric perspective, camera realism, editorial landscape photography feel, calm restorative airy mood",
-    "cinematic_real_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, desk, notebook, tea, window, hands or natural objects, magazine lifestyle shoot, authentic photo look",
+    "cinematic_real_photo": "editorial lifestyle photography, realistic everyday scene, calm warm understated mood, quiet everyday moments such as a balcony view, table detail, simple morning ritual, a calm walk, a cafe corner or hands doing a calm everyday activity, not centered on bookshelves, armchair or reading-lamp imagery, magazine lifestyle shoot, authentic photo look, lived-in but tidy details with natural materials, textured surfaces and daylight shadows, avoid generic corporate stock-photo look and showroom or catalog-furniture staging, avoid repeating the same laptop-cup-plant-notebook combination unless the scene specifically needs it",
     "bright_nature_card": "bright uplifting daily card, warm natural light, beautiful nature or light airy scene, fresh atmosphere, photorealistic or soft semi-realistic quality, optimistic and emotionally supportive mood, clear composition",
     "dreamy_painterly": "light dreamy painterly artwork, airy watercolor and gouache texture, luminous pastel atmosphere, soft but clear forms, warm and hopeful mood, delicate artistic charm",
     "quiet_interior": "light-filled quiet interior, natural window light, elegant still life, notebooks, cup, fabrics, plants, soft morning or late-afternoon glow, calm and welcoming atmosphere, no dominant portrait",
     "minimal_botanical": "refined botanical composition, cream, sage, warm green, soft floral tones, elegant organic forms, bright and airy look, delicate detail, graceful negative space",
     "cinematic_light": "cinematic but luminous scene, warm or pearl natural light, elegant composition, soft realism, emotionally grounded and hopeful, focus on atmosphere, space, action or setting rather than close-up face",
     "ethereal_landscape": "light ethereal landscape, luminous mist, dawn light, soft sky, reflective water, gentle trees, quiet spacious beauty, bright readable atmosphere",
-    "symbolic_luxe": "elegant symbolic visual with soft light, clean refined textures, subtle metaphor, warm luminous palette, graceful and clear composition, emotionally uplifting rather than mysterious",
     "textured_collage": "light textured collage with paper layers, botanical or natural motifs, handmade feel, soft sunlight palette, elegant editorial balance, cheerful and refined",
+    "mandala_harmony": "a single large centered visible mandala as the clear main subject filling most of the frame, strong radial symmetry and symmetrical balance, intricate geometric rosette and circular ornament with sacred geometry inspired layout, fine ornamental linework, decorative card-like composition, luminous refined colors and calm harmonious palette, purely decorative abstract motifs not tied to any specific religion, belief system or symbol set, no readable text, not a plain abstract texture, not wallpaper, not a water surface or ocean reflection, not a landscape, not a vague glowing background, not a realistic photo",
+    "sacred_geometry_light": "a centered sacred-geometry-inspired ornamental composition filling most of the frame, interlocking circles, soft polygons and a geometric rosette, clear symmetry, fine luminous linework, decorative card-like composition, soft pastel palette, not occult, not religious, not a plain texture, not wallpaper, not a realistic photo",
+    "botanical_mandala": "leaves, petals, flowers and branches arranged into a single large centered radial mandala ornament, clear radial symmetry and balanced botanical patterning, decorative card-like composition, soft botanical palette, a botanical ornament rather than a landscape, not a meadow or nature photo, not wallpaper, not a plain texture",
+    "daily_symbol": "one simple central abstract emblem made of universal shapes such as a circle, sun, leaf, wave, path or star-like glow, placed centrally with calm balanced negative space, decorative card-like composition, luminous warm palette, a single abstract symbol rather than a mandala, not a rune, not a sigil, not an alphabet-like glyph, not wallpaper, not a plain texture",
 }
 
 ILLUSTRATION_RECOMMENDED_STYLES = {
@@ -566,7 +585,7 @@ ILLUSTRATION_RECOMMENDED_STYLES = {
     "relationships": ["bright_nature_card", "quiet_interior", "dreamy_painterly"],
     "self_realization": ["bright_nature_card", "cinematic_light", "dreamy_painterly", "textured_collage"],
     "home_support": ["quiet_interior", "minimal_botanical", "bright_nature_card", "dreamy_painterly"],
-    "spirituality": ["ethereal_landscape", "bright_nature_card", "symbolic_luxe"],
+    "spirituality": ["ethereal_landscape", "bright_nature_card"],
 }
 
 PHOTO_RECOMMENDED_STYLES = {
@@ -590,9 +609,11 @@ PHOTO_SCENE_PRESETS = {
         "believable materials, perspective and shadows."
     ),
     "calm_workspace": (
-        "Photo scene preset: calm_workspace. Realistic clean workspace with desk, notebook without readable text, "
-        "pen, laptop or book, cup, daylight from a window, calm lifestyle/editorial photography, "
-        "real textures and realistic composition."
+        "Photo scene preset: calm_workspace. Realistic lived-in workspace with desk and daylight from a window, "
+        "varying the props (e.g. notebook, pen, books, lamp, mug, plant) rather than always combining laptop, cup, "
+        "plant and notebook together, with natural materials and textured surfaces, calm lifestyle/editorial photography, "
+        "avoid generic corporate stock-photo look and showroom or catalog-furniture staging, "
+        "real textures, daylight shadows and tasteful realistic composition."
     ),
     "botanical_corner": (
         "Photo scene preset: botanical_corner. Real plant or branches in a vase on a windowsill or table, "
@@ -689,6 +710,107 @@ PHOTO_SCENE_PRESETS = {
     ),
 }
 
+# Visual Diversity v1.1: lightweight visual archetype layer.
+# Maps illustration/photo styles and photo scene presets to a small set of
+# broad visual archetypes, used to avoid repeating the same "look" across
+# recent generations (e.g. meadow/flowers, cozy reading corner, cafe table).
+VISUAL_ARCHETYPES = [
+    "meadow_or_flowers",
+    "forest_path",
+    "cozy_reading_corner",
+    "cafe_table",
+    "workspace_desk",
+    "city_morning",
+    "botanical_detail",
+    "water_horizon",
+    "architecture_detail",
+    "abstract_light",
+    "minimal_object",
+    "open_sky",
+]
+
+STYLE_ARCHETYPES = {
+    # illustration styles
+    "bright_nature_card": "meadow_or_flowers",
+    "dreamy_painterly": "abstract_light",
+    "quiet_interior": "cozy_reading_corner",
+    "minimal_botanical": "botanical_detail",
+    "cinematic_light": "abstract_light",
+    "ethereal_landscape": "water_horizon",
+    "textured_collage": "botanical_detail",
+    # symbolic mode styles
+    "mandala_harmony": "minimal_object",
+    "sacred_geometry_light": "minimal_object",
+    "botanical_mandala": "botanical_detail",
+    "daily_symbol": "minimal_object",
+    # photo styles
+    "sunny_morning_photo": "open_sky",
+    "living_nature_photo": "forest_path",
+    "urban_city_photo": "city_morning",
+    "cafe_terrace_photo": "cafe_table",
+    "rural_calm_photo": "architecture_detail",
+    "sea_coast_photo": "water_horizon",
+    "cozy_home_photo": "cozy_reading_corner",
+    "book_nook_photo": "cozy_reading_corner",
+    "calm_lifestyle_photo": "workspace_desk",
+    "bright_photo_card": "open_sky",
+    "sunny_photo_scene": "open_sky",
+    "sunny_nature_photo": "forest_path",
+    "light_interior_photo": "cozy_reading_corner",
+    "bright_ocean_coast_photo": "water_horizon",
+    "cinematic_real_photo": "workspace_desk",
+}
+
+SCENE_PRESET_ARCHETYPES = {
+    "window_still_life": "minimal_object",
+    "calm_workspace": "workspace_desk",
+    "botanical_corner": "botanical_detail",
+    "outdoor_path": "forest_path",
+    "restful_daily_scene": "cozy_reading_corner",
+    "street_cafe_terrace": "cafe_table",
+    "city_veranda_morning": "city_morning",
+    "courtyard_cafe": "cafe_table",
+    "village_veranda": "architecture_detail",
+    "cottage_garden": "meadow_or_flowers",
+    "warm_living_room": "cozy_reading_corner",
+    "bookshop_aisle": "architecture_detail",
+    "relationship_table_scene": "cafe_table",
+    "ocean_sunrise": "water_horizon",
+    "seaside_sunset": "water_horizon",
+    "quiet_beach_morning": "open_sky",
+    "rocky_coast": "water_horizon",
+    "dunes_and_seabirds": "open_sky",
+    "coastal_path": "water_horizon",
+    "bright_ocean_sunrise": "water_horizon",
+    "vivid_seaside_sunset": "water_horizon",
+    "sunny_beach_morning": "open_sky",
+    "turquoise_shoreline": "water_horizon",
+    "rocky_ocean_coast": "water_horizon",
+    "seabirds_over_waves": "open_sky",
+}
+
+
+def get_visual_archetype(style: Optional[str] = None, scene_preset: Optional[str] = None) -> str:
+    """Return a broad visual archetype label for a style/scene combination.
+
+    Scene preset (more specific, photo mode) takes priority over style.
+    Falls back to "abstract_light" for unmapped/unknown styles.
+    """
+    if scene_preset and scene_preset in SCENE_PRESET_ARCHETYPES:
+        return SCENE_PRESET_ARCHETYPES[scene_preset]
+    style_key = normalize_style_key(style)
+    return STYLE_ARCHETYPES.get(style_key, "abstract_light")
+
+
+def _filter_by_recent_archetypes(candidates: List[str], archetype_for, recent_archetypes: Optional[List[str]]) -> List[str]:
+    """Drop candidates whose archetype was used recently; fall back to the original list if that empties it."""
+    if not recent_archetypes:
+        return candidates
+    recent_set = set(recent_archetypes)
+    filtered = [candidate for candidate in candidates if archetype_for(candidate) not in recent_set]
+    return filtered or candidates
+
+
 PHOTO_SCENE_ROUTING = {
     "inner_peace": ["window_still_life", "botanical_corner", "ocean_sunrise", "coastal_path", "outdoor_path", "restful_daily_scene"],
     "self_worth": ["botanical_corner", "window_still_life", "calm_workspace", "quiet_beach_morning", "restful_daily_scene"],
@@ -715,9 +837,9 @@ PHOTO_STYLE_SCENE_HINTS = {
         "dunes_and_seabirds",
         "coastal_path",
     ],
-    "cozy_home_photo": ["warm_living_room", "restful_daily_scene", "window_still_life", "botanical_corner"],
-    "book_nook_photo": ["bookshop_aisle", "warm_living_room", "window_still_life"],
-    "calm_lifestyle_photo": ["restful_daily_scene", "calm_workspace", "relationship_table_scene", "window_still_life"],
+    "cozy_home_photo": ["warm_living_room", "restful_daily_scene", "botanical_corner"],
+    "book_nook_photo": ["bookshop_aisle", "window_still_life"],
+    "calm_lifestyle_photo": ["calm_workspace", "relationship_table_scene"],
     "bright_ocean_coast_photo": [
         "bright_ocean_sunrise",
         "vivid_seaside_sunset",
@@ -781,6 +903,7 @@ def get_visual_mode_label(visual_mode: str, language: str = "ru") -> str:
         "photo": {"ru": "📷 Фото-стиль", "en": "📷 Photo style"},
         "illustration": {"ru": "🖌 Мягкая иллюстрация", "en": "🖌 Soft illustration"},
         "mixed": {"ru": "🔀 Смешанный стиль", "en": "🔀 Mixed style"},
+        "symbolic": {"ru": "🪷 Мандалы и символы", "en": "🪷 Mandalas & symbols"},
     }
     mode = normalize_visual_mode(visual_mode)
     return labels[mode][language if language == "en" else "ru"]
@@ -832,6 +955,8 @@ def get_recommended_styles(
     day: Optional[dt.date] = None,
 ) -> List[str]:
     branch = _visual_branch(normalize_visual_mode(visual_mode), user_id, day, sphere)
+    if branch == "symbolic":
+        return SYMBOLIC_STYLE_KEYS
     mapping = PHOTO_RECOMMENDED_STYLES if branch == "photo" else ILLUSTRATION_RECOMMENDED_STYLES
     return mapping.get(sphere, mapping["inner_peace"])
 
@@ -855,12 +980,18 @@ def resolve_photo_scene_preset(
     day: Optional[dt.date] = None,
     focus_key: Optional[str] = None,
     recent_scene_presets: Optional[List[str]] = None,
+    recent_archetypes: Optional[List[str]] = None,
 ) -> str:
     presets = get_photo_scene_presets(sphere, style)
     if recent_scene_presets:
         filtered = [p for p in presets if p not in set(recent_scene_presets)]
         if filtered:
             presets = filtered
+    presets = _filter_by_recent_archetypes(
+        presets,
+        lambda candidate: get_visual_archetype(style=style, scene_preset=candidate),
+        recent_archetypes,
+    )
     if len(presets) == 1:
         return presets[0]
     if user_id is not None and day is not None:
@@ -908,6 +1039,7 @@ def resolve_style(
     focus_key: Optional[str] = None,
     visual_mode: Optional[str] = None,
     recent_styles: Optional[List[str]] = None,
+    recent_archetypes: Optional[List[str]] = None,
 ) -> str:
     style = normalize_style_key(style)
     if style == "random":
@@ -920,6 +1052,16 @@ def resolve_style(
             filtered_recommended = [candidate for candidate in recommended if candidate not in recent_set]
             if filtered_recommended:
                 recommended = filtered_recommended
+        # Money/career photo-auto has a dedicated grounding rule (_resolve_photo_auto_style)
+        # that keeps coast occasional; archetype anti-repeat must not remove those
+        # grounded candidates and cause drift to sea_coast_photo/sunny_morning_photo.
+        skip_archetype_filter_for_grounding = style == "auto" and mode == "photo" and sphere in ("money", "career")
+        if not skip_archetype_filter_for_grounding:
+            recommended = _filter_by_recent_archetypes(
+                recommended,
+                lambda candidate: get_visual_archetype(style=candidate),
+                recent_archetypes,
+            )
         if user_id is not None and day is not None:
             iso_year, iso_week, weekday = day.isocalendar()
             salt = "auto-style" if style == "auto" else "suitable-style"

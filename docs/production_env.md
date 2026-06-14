@@ -14,6 +14,19 @@ OPENAI_TTS_MODEL=gpt-4o-mini-tts
 OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 ```
 
+Database backend:
+
+```env
+# Beta / production PostgreSQL
+DATABASE_URL=postgresql://user:password@host:5432/dbname
+
+# Local development override for SQLite (optional)
+SQLITE_DB_PATH=bot.db
+```
+
+- If `DATABASE_URL` is absent, the bot keeps using SQLite by default.
+- If `DATABASE_URL` starts with `postgres://` or `postgresql://`, the bot uses PostgreSQL.
+
 Recommended planner flags:
 
 ```env
@@ -36,3 +49,10 @@ Deployment reminders:
 
 - After changing `.env`, restart the container.
 - After code changes, rebuild the container.
+
+Role metadata inspection:
+
+- Inspect latest role metadata locally or on the server with:
+  `python scripts/inspect_generation_roles.py --db bot.db --limit 5`
+- Check the active runtime config profile with:
+  `python scripts/check_runtime_config.py`
