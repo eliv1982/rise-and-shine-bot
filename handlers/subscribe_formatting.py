@@ -1,6 +1,6 @@
 from typing import Optional
 
-from services.ritual_config import get_sphere_label, get_style_label, normalize_visual_mode
+from services.ritual_config import get_allowed_visual_modes, get_sphere_label, get_style_label, normalize_visual_mode
 
 
 def sphere_display(sphere: str, language: str) -> str:
@@ -35,6 +35,7 @@ def subscription_update_kwargs(subscription: dict, **overrides) -> dict:
         "subscription_sphere": subscription.get("subscription_sphere"),
         "subscription_style_mode": subscription.get("subscription_style_mode") or subscription.get("image_style") or "auto",
         "visual_mode": normalize_visual_mode(subscription.get("visual_mode")),
+        "allowed_visual_modes": get_allowed_visual_modes(subscription),
     }
     data.update(overrides)
     return data

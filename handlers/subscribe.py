@@ -54,16 +54,33 @@ from keyboards.inline import (
     subscription_confirm_keyboard,
     subscription_time_keyboard_hours,
     subscription_time_keyboard_minutes,
-    visual_mode_keyboard,
+    visual_mix_keyboard_for_subscription,
 )
 from scheduler import last_subscription_affirmations
 from services.speechkit_tts import synthesize_affirmations_with_pauses
-from services.ritual_config import get_visual_mode_label, is_tts_available, normalize_visual_mode
+from services.ritual_config import (
+    VISUAL_MIX_PRESETS,
+    get_allowed_visual_modes,
+    get_visual_mode_label,
+    get_visual_mix_preset_label,
+    is_tts_available,
+    normalize_visual_mode,
+    visual_mix_preset_for_modes,
+)
 from services.subscription_ui import build_dashboard_text, build_subscription_summary
 from states import SubscriptionState
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+def _visual_mix_label(allowed_visual_modes: list[str], language: str) -> str:
+    if len(allowed_visual_modes) == 1:
+        return get_visual_mode_label(allowed_visual_modes[0], language)
+    preset_key = visual_mix_preset_for_modes(allowed_visual_modes)
+    if preset_key:
+        return get_visual_mix_preset_label(preset_key, language)
+    return " + ".join(get_visual_mode_label(mode, language) for mode in allowed_visual_modes)
 
 
 async def _show_dashboard_message(message: Message, user_id: int, language: str) -> None:
@@ -245,7 +262,7 @@ async def sub_choose_mode(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(SubscriptionState.choosing_visual_mode)
         await callback.message.edit_text(
             _visual_mode_text(language),
-            reply_markup=visual_mode_keyboard(language, for_subscription=True),
+            reply_markup=visual_mix_keyboard_for_subscription(language),
         )
     else:
         await state.set_state(SubscriptionState.choosing_sphere)
@@ -305,7 +322,7 @@ async def sub_choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(SubscriptionState.choosing_visual_mode)
     await callback.message.edit_text(
         _visual_mode_text(language),
-        reply_markup=visual_mode_keyboard(language, for_subscription=True),
+        reply_markup=visual_mix_keyboard_for_subscription(language),
     )
     await callback.answer()
 
@@ -320,17 +337,19 @@ async def sub_choose_relationship_subsphere(callback: CallbackQuery, state: FSMC
     await state.set_state(SubscriptionState.choosing_visual_mode)
     await callback.message.edit_text(
         _visual_mode_text(language),
-        reply_markup=visual_mode_keyboard(language, for_subscription=True),
+        reply_markup=visual_mix_keyboard_for_subscription(language),
     )
     await callback.answer()
 
 
-@router.callback_query(SubscriptionState.choosing_visual_mode, F.data.startswith("visual:"))
-async def sub_choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(SubscriptionState.choosing_visual_mode, F.data.startswith("visualmix:"))
+async def sub_choose_visual_mix(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     data = await state.get_data()
     language = _sub_language(data, user)
-    visual_mode = normalize_visual_mode(callback.data.split(":", maxsplit=1)[1])
+    preset_key = callback.data.split(":", maxsplit=1)[1]
+    allowed_visual_modes = VISUAL_MIX_PRESETS.get(preset_key) or VISUAL_MIX_PRESETS["illustration"]
+    visual_mode = allowed_visual_modes[0]
     if data.get("partial_edit_field") == "visual":
         subscription_id = int(data["edit_subscription_id"])
         updated = await _update_subscription_fields(
@@ -339,8 +358,9 @@ async def sub_choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> 
             image_style="auto",
             subscription_style_mode="auto",
             visual_mode=visual_mode,
+            allowed_visual_modes=allowed_visual_modes,
         )
-        await state.update_data(visual_mode=visual_mode)
+        await state.update_data(visual_mode=visual_mode, allowed_visual_modes=allowed_visual_modes)
         if not updated:
             await state.clear()
             await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
@@ -356,11 +376,11 @@ async def sub_choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> 
             )
         await callback.answer()
         return
-    await state.update_data(visual_mode=visual_mode)
+    await state.update_data(visual_mode=visual_mode, allowed_visual_modes=allowed_visual_modes)
     await state.set_state(SubscriptionState.choosing_style)
     await callback.message.edit_text(
         _style_choice_text(language),
-        reply_markup=style_keyboard_for_subscription(language, visual_mode=visual_mode),
+        reply_markup=style_keyboard_for_subscription(language, visual_mode=allowed_visual_modes),
     )
     await callback.answer()
 
@@ -447,19 +467,18 @@ async def sub_choose_minute(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     sphere = data.get("sphere")
     style = data.get("style")
-    visual_mode = normalize_visual_mode(data.get("visual_mode"))
+    allowed_visual_modes = data.get("allowed_visual_modes") or [normalize_visual_mode(data.get("visual_mode"))]
     hour = int(data["hour"])
     mode = data.get("subscription_mode", "weekly_balance")
     sphere_label = _sphere_display(sphere, language)
     style_label = _style_display(style, language)
     time_str = f"{hour:02d}:{minute:02d}"
+    visual_label = _visual_mix_label(allowed_visual_modes, language)
     if language == "ru":
         mode_label = "Баланс недели" if mode == "weekly_balance" else "Фокус на сфере"
-        visual_label = get_visual_mode_label(visual_mode, language)
         text = f"Подтверди подписку:\n\n• Режим: {mode_label}\n• Визуально: {visual_label}\n• Сфера: {sphere_label}\n• Стиль: {style_label}\n• Время: {time_str}"
     else:
         mode_label = "Weekly balance" if mode == "weekly_balance" else "Focus on one area"
-        visual_label = get_visual_mode_label(visual_mode, language)
         text = f"Confirm subscription:\n\n• Mode: {mode_label}\n• Visual: {visual_label}\n• Area: {sphere_label}\n• Style: {style_label}\n• Time: {time_str}"
     await callback.message.edit_text(text, reply_markup=subscription_confirm_keyboard(language))
     await callback.answer()
@@ -490,6 +509,8 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     subscription_sphere = None if subscription_mode == "weekly_balance" else sphere
     action = data.get("subscription_action", "add")
     edit_subscription_id = data.get("edit_subscription_id")
+    allowed_visual_modes = data.get("allowed_visual_modes") or [normalize_visual_mode(data.get("visual_mode"))]
+    visual_mode = allowed_visual_modes[0]
     try:
         if action == "edit" and edit_subscription_id:
             updated = await update_subscription(
@@ -504,7 +525,8 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
                 subscription_mode=subscription_mode,
                 subscription_sphere=subscription_sphere,
                 subscription_style_mode=data["style"],
-                visual_mode=normalize_visual_mode(data.get("visual_mode")),
+                visual_mode=visual_mode,
+                allowed_visual_modes=allowed_visual_modes,
             )
             if not updated:
                 raise ValueError("subscription_not_found")
@@ -521,7 +543,8 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
                 subscription_mode=subscription_mode,
                 subscription_sphere=subscription_sphere,
                 subscription_style_mode=data["style"],
-                visual_mode=normalize_visual_mode(data.get("visual_mode")),
+                visual_mode=visual_mode,
+                allowed_visual_modes=allowed_visual_modes,
             )
             saved_subscription = await get_subscription_by_id(subscription_id, callback.from_user.id)
     except ValueError as exc:
@@ -699,15 +722,15 @@ async def sub_edit_field(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(SubscriptionState.choosing_visual_mode)
         await callback.message.answer(
             _visual_mode_text(language),
-            reply_markup=visual_mode_keyboard(language, for_subscription=True),
+            reply_markup=visual_mix_keyboard_for_subscription(language),
         )
     elif field == "style":
-        visual_mode = normalize_visual_mode(subscription.get("visual_mode"))
-        await state.update_data(visual_mode=visual_mode)
+        allowed_visual_modes = get_allowed_visual_modes(subscription)
+        await state.update_data(visual_mode=allowed_visual_modes[0], allowed_visual_modes=allowed_visual_modes)
         await state.set_state(SubscriptionState.choosing_style)
         await callback.message.answer(
             _style_choice_text(language),
-            reply_markup=style_keyboard_for_subscription(language, visual_mode=visual_mode),
+            reply_markup=style_keyboard_for_subscription(language, visual_mode=allowed_visual_modes),
         )
     elif field == "mode":
         await state.set_state(SubscriptionState.choosing_mode)
@@ -760,14 +783,19 @@ async def sub_visual_style_followup(callback: CallbackQuery, state: FSMContext) 
         await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
         await callback.answer()
         return
-    visual_mode = normalize_visual_mode(subscription.get("visual_mode"))
+    allowed_visual_modes = get_allowed_visual_modes(subscription)
     if choice == "yes":
         await state.clear()
-        await state.update_data(edit_subscription_id=subscription_id, partial_edit_field="style", visual_mode=visual_mode)
+        await state.update_data(
+            edit_subscription_id=subscription_id,
+            partial_edit_field="style",
+            visual_mode=allowed_visual_modes[0],
+            allowed_visual_modes=allowed_visual_modes,
+        )
         await state.set_state(SubscriptionState.choosing_style)
         await callback.message.edit_text(
             _style_choice_text(language),
-            reply_markup=style_keyboard_for_subscription(language, visual_mode=visual_mode),
+            reply_markup=style_keyboard_for_subscription(language, visual_mode=allowed_visual_modes),
         )
     else:
         await state.clear()

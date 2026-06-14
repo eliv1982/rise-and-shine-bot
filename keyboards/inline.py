@@ -6,11 +6,36 @@ from services.ritual_config import (
     MAIN_SPHERES,
     PHOTO_STYLE_KEYS,
     SYMBOLIC_STYLE_KEYS,
+    VISUAL_MIX_PRESETS,
+    get_allowed_visual_modes,
     get_sphere_label,
     get_style_label,
+    get_visual_mix_preset_label,
     is_tts_available,
     normalize_visual_mode,
+    visual_mix_preset_for_modes,
 )
+
+_VISUAL_MODE_ICONS = {"photo": "📷", "illustration": "🖌", "symbolic": "🪷"}
+
+_VISUAL_MIX_PRESET_ICONS = {
+    "photo": "📷",
+    "illustration": "🖌",
+    "symbolic": "🪷",
+    "photo_illustration": "🔀",
+    "photo_symbolic": "🌿",
+    "illustration_symbolic": "✨",
+    "all": "🌈",
+}
+
+
+def _visual_mix_icon(allowed_visual_modes: list[str]) -> str:
+    if len(allowed_visual_modes) == 1:
+        return _VISUAL_MODE_ICONS.get(allowed_visual_modes[0], "🖌")
+    preset_key = visual_mix_preset_for_modes(allowed_visual_modes)
+    if preset_key:
+        return _VISUAL_MIX_PRESET_ICONS.get(preset_key, "🔀")
+    return "🔀"
 
 
 def _t(language: str, ru: str, en: str) -> str:
@@ -71,6 +96,15 @@ def visual_mode_keyboard(language: str, *, for_subscription: bool = False) -> In
     return b.as_markup()
 
 
+def visual_mix_keyboard_for_subscription(language: str) -> InlineKeyboardMarkup:
+    """Visual mode / mix presets offered when setting up a subscription."""
+    b = InlineKeyboardBuilder()
+    for preset_key in VISUAL_MIX_PRESETS:
+        b.button(text=get_visual_mix_preset_label(preset_key, language), callback_data=f"visualmix:{preset_key}")
+    b.adjust(1)
+    return b.as_markup()
+
+
 def relationships_subsphere_keyboard(language: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.button(text=_t(language, "❤️ С партнёром", "❤️ With partner"), callback_data="subsphere:partner")
@@ -80,7 +114,7 @@ def relationships_subsphere_keyboard(language: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def _style_keys_for_visual_mode(visual_mode: str) -> list[str]:
+def _style_keys_for_single_visual_mode(visual_mode: str) -> list[str]:
     mode = normalize_visual_mode(visual_mode)
     if mode == "photo":
         return PHOTO_STYLE_KEYS
@@ -89,6 +123,18 @@ def _style_keys_for_visual_mode(visual_mode: str) -> list[str]:
     if mode == "symbolic":
         return SYMBOLIC_STYLE_KEYS
     return ILLUSTRATION_STYLE_KEYS
+
+
+def _style_keys_for_visual_mode(visual_mode) -> list[str]:
+    """Style keys for a visual mode, or the union of keys for a list of modes."""
+    if isinstance(visual_mode, (list, tuple)):
+        keys: list[str] = []
+        for mode in visual_mode:
+            for key in _style_keys_for_single_visual_mode(mode):
+                if key not in keys:
+                    keys.append(key)
+        return keys or _style_keys_for_single_visual_mode("illustration")
+    return _style_keys_for_single_visual_mode(visual_mode)
 
 
 def _style_button_label(style: str, language: str) -> str:
@@ -491,8 +537,7 @@ def subscription_select_keyboard(subscriptions: list[dict], language: str, actio
         else:
             title = get_sphere_label(sub.get("subscription_sphere") or sub.get("sphere") or "inner_peace", language)
         time_str = f"{int(sub.get('hour', 0)):02d}:{int(sub.get('minute', 0)):02d}"
-        visual = sub.get("visual_mode") or "illustration"
-        visual_icon = {"photo": "📷", "illustration": "🖌", "mixed": "🔀"}.get(visual, "🖌")
+        visual_icon = _visual_mix_icon(get_allowed_visual_modes(sub))
         b.button(text=f"{idx}. {title} — {time_str} — {visual_icon}", callback_data=f"{prefix}:{sub['id']}")
     b.button(text=_t(language, "↩️ Назад", "↩️ Back"), callback_data="sub:dash")
     b.adjust(1)

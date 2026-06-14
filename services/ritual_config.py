@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import random
 from typing import Dict, List, Optional
 
@@ -457,6 +458,30 @@ FOCUSES = {
 
 VALID_VISUAL_MODES = ("photo", "illustration", "mixed", "symbolic")
 
+# Single visual modes that a subscription can mix between.
+SINGLE_VISUAL_MODES = ("photo", "illustration", "symbolic")
+
+# Presets offered when picking a subscription's visual mix.
+VISUAL_MIX_PRESETS: Dict[str, List[str]] = {
+    "photo": ["photo"],
+    "illustration": ["illustration"],
+    "symbolic": ["symbolic"],
+    "photo_illustration": ["photo", "illustration"],
+    "photo_symbolic": ["photo", "symbolic"],
+    "illustration_symbolic": ["illustration", "symbolic"],
+    "all": ["photo", "illustration", "symbolic"],
+}
+
+VISUAL_MIX_PRESET_LABELS: Dict[str, Dict[str, str]] = {
+    "photo": {"ru": "📷 Только фото", "en": "📷 Photo only"},
+    "illustration": {"ru": "🎨 Только иллюстрация", "en": "🎨 Illustration only"},
+    "symbolic": {"ru": "🪷 Только мандалы и символы", "en": "🪷 Mandalas & symbols only"},
+    "photo_illustration": {"ru": "🔀 Фото + иллюстрация", "en": "🔀 Photo + illustration"},
+    "photo_symbolic": {"ru": "🌿 Фото + мандалы", "en": "🌿 Photo + mandalas"},
+    "illustration_symbolic": {"ru": "✨ Иллюстрация + мандалы", "en": "✨ Illustration + mandalas"},
+    "all": {"ru": "🌈 Все стили", "en": "🌈 All styles"},
+}
+
 PHOTO_STYLE_KEYS = [
     "sunny_morning_photo",
     "living_nature_photo",
@@ -907,6 +932,99 @@ def get_visual_mode_label(visual_mode: str, language: str = "ru") -> str:
     }
     mode = normalize_visual_mode(visual_mode)
     return labels[mode][language if language == "en" else "ru"]
+
+
+def get_visual_mix_preset_label(preset_key: str, language: str = "ru") -> str:
+    labels = VISUAL_MIX_PRESET_LABELS.get(preset_key, VISUAL_MIX_PRESET_LABELS["illustration"])
+    return labels[language if language == "en" else "ru"]
+
+
+def visual_mix_preset_for_modes(allowed_visual_modes: List[str]) -> Optional[str]:
+    """Find the preset key matching a set of allowed visual modes, if any."""
+    modes = set(allowed_visual_modes)
+    for preset_key, preset_modes in VISUAL_MIX_PRESETS.items():
+        if set(preset_modes) == modes:
+            return preset_key
+    return None
+
+
+def get_allowed_visual_modes(subscription: Dict) -> List[str]:
+    """Resolve a subscription's allowed visual modes, falling back to its single visual_mode."""
+    raw = subscription.get("allowed_visual_modes_json")
+    if raw is None:
+        raw = subscription.get("allowed_visual_modes")
+    parsed = raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            parsed = None
+    if isinstance(parsed, list):
+        modes = [mode for mode in parsed if mode in SINGLE_VISUAL_MODES]
+        if modes:
+            return modes
+    fallback = normalize_visual_mode(subscription.get("visual_mode"))
+    if fallback == "mixed":
+        return ["photo", "illustration"]
+    return [fallback]
+
+
+def pick_subscription_visual_mode(
+    allowed_visual_modes: List[str],
+    last_visual_mode: Optional[str] = None,
+    rng: Optional[random.Random] = None,
+) -> str:
+    """Pick a visual mode for a scheduled subscription run.
+
+    Avoids repeating the previous run's mode when other allowed modes are
+    available, with a graceful fallback if that would empty the candidates.
+    """
+    modes = [mode for mode in allowed_visual_modes if mode in SINGLE_VISUAL_MODES]
+    if not modes:
+        modes = ["illustration"]
+    candidates = modes
+    if last_visual_mode and len(modes) > 1:
+        filtered = [mode for mode in modes if mode != last_visual_mode]
+        if filtered:
+            candidates = filtered
+    chooser = rng or random
+    return chooser.choice(candidates)
+
+
+def get_visual_mode_for_style(style_key: Optional[str]) -> Optional[str]:
+    """Return the single visual mode a concrete style belongs to.
+
+    Returns None for auto/random styles (or unknown styles) that don't pin a mode.
+    """
+    style_key = normalize_style_key(style_key)
+    if style_key in ("auto", "random", "random_suitable"):
+        return None
+    if style_key in PHOTO_STYLE_KEYS:
+        return "photo"
+    if style_key in SYMBOLIC_STYLE_KEYS:
+        return "symbolic"
+    if style_key in ILLUSTRATION_STYLE_KEYS or style_key in LEGACY_STYLE_KEYS:
+        return "illustration"
+    return None
+
+
+def resolve_subscription_visual_mode(
+    allowed_visual_modes: List[str],
+    selected_style: Optional[str] = None,
+    last_visual_mode: Optional[str] = None,
+    rng: Optional[random.Random] = None,
+) -> str:
+    """Pick the visual mode for a scheduled run, honoring a concrete selected style.
+
+    If the selected style pins a visual mode that is allowed, that mode is used
+    (so a concrete style like a mandala or a photo style is never paired with the
+    wrong branch). Otherwise (auto/random styles, or a style whose mode isn't
+    allowed) falls back to the anti-repeat picker over allowed modes.
+    """
+    style_mode = get_visual_mode_for_style(selected_style)
+    if style_mode and style_mode in allowed_visual_modes:
+        return style_mode
+    return pick_subscription_visual_mode(allowed_visual_modes, last_visual_mode, rng=rng)
 
 
 def get_focuses(sphere: str) -> List[Dict[str, str]]:

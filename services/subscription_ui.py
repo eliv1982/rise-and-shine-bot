@@ -1,7 +1,23 @@
 from typing import Optional
 
 from database import MAX_ACTIVE_SUBSCRIPTIONS
-from services.ritual_config import get_sphere_label, get_style_label, get_visual_mode_label, normalize_visual_mode
+from services.ritual_config import (
+    get_allowed_visual_modes,
+    get_sphere_label,
+    get_style_label,
+    get_visual_mix_preset_label,
+    get_visual_mode_label,
+    visual_mix_preset_for_modes,
+)
+
+
+def visual_mix_summary_label(allowed_visual_modes: list[str], language: str) -> str:
+    if len(allowed_visual_modes) == 1:
+        return get_visual_mode_label(allowed_visual_modes[0], language)
+    preset_key = visual_mix_preset_for_modes(allowed_visual_modes)
+    if preset_key:
+        return get_visual_mix_preset_label(preset_key, language)
+    return " + ".join(get_visual_mode_label(mode, language) for mode in allowed_visual_modes)
 
 
 def gender_profile_label(gender: Optional[str], language: str) -> str:
@@ -35,7 +51,7 @@ def subscription_style_label(style: Optional[str], language: str) -> str:
 
 def format_subscription_summary(sub: dict, language: str = "ru", index: int = 1) -> str:
     mode = sub.get("subscription_mode") or ("weekly_balance" if sub.get("sphere") == "random" else "sphere_focus")
-    visual_mode = normalize_visual_mode(sub.get("visual_mode"))
+    allowed_visual_modes = get_allowed_visual_modes(sub)
     style = sub.get("subscription_style_mode") or sub.get("image_style") or "auto"
     time_str = f"{int(sub.get('hour', 0)):02d}:{int(sub.get('minute', 0)):02d}"
 
@@ -45,10 +61,11 @@ def format_subscription_summary(sub: dict, language: str = "ru", index: int = 1)
         label = get_sphere_label(sphere, language)
         lines.append(f"   Сфера: {label}" if language == "ru" else f"   Area: {label}")
     lines.append(f"   ⏰ Время: {time_str}" if language == "ru" else f"   ⏰ Time: {time_str}")
+    visual_label = visual_mix_summary_label(allowed_visual_modes, language)
     lines.append(
-        f"   🎨 Визуал: {get_visual_mode_label(visual_mode, language)}"
+        f"   🎨 Визуал: {visual_label}"
         if language == "ru"
-        else f"   🎨 Visual: {get_visual_mode_label(visual_mode, language)}"
+        else f"   🎨 Visual: {visual_label}"
     )
     lines.append(
         f"   ✨ Стиль: {subscription_style_label(style, language)}"
