@@ -8,7 +8,19 @@ def visual_mode_text(language: str) -> str:
     return "🎨 Какой визуал тебе ближе?" if language == "ru" else "🎨 Which visual style feels closer to you?"
 
 
-def style_choice_text(language: str) -> str:
+def style_choice_text(language: str, *, multi_mode: bool = False) -> str:
+    if multi_mode:
+        if language == "ru":
+            return (
+                "✨ Выбери стиль изображения:\n\n"
+                "При сочетании визуалов конкретный стиль не выбирается — "
+                "визуал и стиль подбираются автоматически для каждой рассылки."
+            )
+        return (
+            "✨ Choose image style:\n\n"
+            "With a mix of visuals a specific style can't be pinned — "
+            "the visual and style are picked automatically for each delivery."
+        )
     return "✨ Выбери стиль изображения:" if language == "ru" else "✨ Choose image style:"
 
 

@@ -3,8 +3,8 @@ import json
 import logging
 import os
 import random
+from zoneinfo import ZoneInfo
 
-import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 from aiogram.types import FSInputFile
@@ -59,6 +59,7 @@ from services.text_reviewer_shadow import (
     build_text_reviewer_shadow_best_effort,
 )
 from services.ritual_config import (
+    effective_subscription_style_mode,
     get_allowed_visual_modes,
     get_focus_for_date,
     get_sphere_label,
@@ -73,7 +74,7 @@ from utils import gender_display
 
 logger = logging.getLogger(__name__)
 
-MOSCOW = pytz.timezone("Europe/Moscow")
+MOSCOW = ZoneInfo("Europe/Moscow")
 
 # Планировщик в московском времени, чтобы cron срабатывал по Москве
 scheduler = AsyncIOScheduler(timezone=MOSCOW)
@@ -102,7 +103,11 @@ async def send_daily_affirmations(bot: Bot) -> None:
         subscription_mode = sub.get("subscription_mode") or ("weekly_balance" if sphere == "random" else "sphere_focus")
         allowed_visual_modes = get_allowed_visual_modes(sub)
         subscription_id = sub.get("id")
-        style_mode = sub.get("subscription_style_mode") or style
+        # A multi-mode pool or a style from another mode must not leak a concrete
+        # style downstream; the rest of the run only sees the effective style mode.
+        style_mode = effective_subscription_style_mode(
+            allowed_visual_modes, sub.get("subscription_style_mode") or style
+        )
         visual_mode = resolve_subscription_visual_mode(
             allowed_visual_modes, style_mode, _last_subscription_visual_mode.get(subscription_id)
         )

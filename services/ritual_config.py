@@ -479,7 +479,7 @@ VISUAL_MIX_PRESET_LABELS: Dict[str, Dict[str, str]] = {
     "photo_illustration": {"ru": "🔀 Фото + иллюстрация", "en": "🔀 Photo + illustration"},
     "photo_symbolic": {"ru": "🌿 Фото + мандалы", "en": "🌿 Photo + mandalas"},
     "illustration_symbolic": {"ru": "✨ Иллюстрация + мандалы", "en": "✨ Illustration + mandalas"},
-    "all": {"ru": "🌈 Все стили", "en": "🌈 All styles"},
+    "all": {"ru": "🌈 Все режимы", "en": "🌈 All modes"},
 }
 
 PHOTO_STYLE_KEYS = [
@@ -1008,20 +1008,38 @@ def get_visual_mode_for_style(style_key: Optional[str]) -> Optional[str]:
     return None
 
 
+def effective_subscription_style_mode(allowed_visual_modes: List[str], style: Optional[str]) -> str:
+    """Style preference a subscription may actually apply, given its visual modes.
+
+    - auto / random / random_suitable never pin a mode and are kept as-is.
+    - Multi-mode subscription: the runtime picks the mode per delivery, so a
+      concrete style would silently turn it into a single-mode one; it is
+      treated as "auto".
+    - Single-mode subscription: a concrete style is kept only if it belongs to
+      that mode; an incompatible or unknown style is treated as "auto".
+    """
+    key = normalize_style_key(style)
+    if key in ("auto", "random", "random_suitable"):
+        return style or "auto"
+    if len(allowed_visual_modes) == 1 and get_visual_mode_for_style(key) == allowed_visual_modes[0]:
+        return style
+    return "auto"
+
+
 def resolve_subscription_visual_mode(
     allowed_visual_modes: List[str],
     selected_style: Optional[str] = None,
     last_visual_mode: Optional[str] = None,
     rng: Optional[random.Random] = None,
 ) -> str:
-    """Pick the visual mode for a scheduled run, honoring a concrete selected style.
+    """Pick the visual mode for a scheduled run.
 
-    If the selected style pins a visual mode that is allowed, that mode is used
-    (so a concrete style like a mandala or a photo style is never paired with the
-    wrong branch). Otherwise (auto/random styles, or a style whose mode isn't
-    allowed) falls back to the anti-repeat picker over allowed modes.
+    A single-mode subscription always uses its mode. A multi-mode subscription
+    never lets a concrete style pin the mode (see
+    effective_subscription_style_mode); the anti-repeat picker chooses among the
+    allowed modes instead.
     """
-    style_mode = get_visual_mode_for_style(selected_style)
+    style_mode = get_visual_mode_for_style(effective_subscription_style_mode(allowed_visual_modes, selected_style))
     if style_mode and style_mode in allowed_visual_modes:
         return style_mode
     return pick_subscription_visual_mode(allowed_visual_modes, last_visual_mode, rng=rng)

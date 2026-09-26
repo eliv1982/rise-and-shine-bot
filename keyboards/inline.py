@@ -126,14 +126,15 @@ def _style_keys_for_single_visual_mode(visual_mode: str) -> list[str]:
 
 
 def _style_keys_for_visual_mode(visual_mode) -> list[str]:
-    """Style keys for a visual mode, or the union of keys for a list of modes."""
+    """Concrete style keys for one visual mode.
+
+    A multi-mode pool (list/tuple of several modes) gets none: the runtime picks
+    the mode per delivery, so no mode-specific style may be offered.
+    """
     if isinstance(visual_mode, (list, tuple)):
-        keys: list[str] = []
-        for mode in visual_mode:
-            for key in _style_keys_for_single_visual_mode(mode):
-                if key not in keys:
-                    keys.append(key)
-        return keys or _style_keys_for_single_visual_mode("illustration")
+        if len(visual_mode) != 1:
+            return []
+        visual_mode = visual_mode[0]
     return _style_keys_for_single_visual_mode(visual_mode)
 
 

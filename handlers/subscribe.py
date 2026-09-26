@@ -60,6 +60,7 @@ from scheduler import last_subscription_affirmations
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.ritual_config import (
     VISUAL_MIX_PRESETS,
+    effective_subscription_style_mode,
     get_allowed_visual_modes,
     get_visual_mode_label,
     get_visual_mix_preset_label,
@@ -72,6 +73,10 @@ from states import SubscriptionState
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+def _state_allowed_visual_modes(data: dict) -> list[str]:
+    return data.get("allowed_visual_modes") or [normalize_visual_mode(data.get("visual_mode"))]
 
 
 def _visual_mix_label(allowed_visual_modes: list[str], language: str) -> str:
@@ -379,7 +384,7 @@ async def sub_choose_visual_mix(callback: CallbackQuery, state: FSMContext) -> N
     await state.update_data(visual_mode=visual_mode, allowed_visual_modes=allowed_visual_modes)
     await state.set_state(SubscriptionState.choosing_style)
     await callback.message.edit_text(
-        _style_choice_text(language),
+        _style_choice_text(language, multi_mode=len(allowed_visual_modes) > 1),
         reply_markup=style_keyboard_for_subscription(language, visual_mode=allowed_visual_modes),
     )
     await callback.answer()
@@ -390,7 +395,11 @@ async def sub_choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
     data = await state.get_data()
     language = _sub_language(data, user)
-    style = callback.data.split(":", maxsplit=1)[1]
+    # The keyboard already hides concrete styles a multi-mode pool can't honor;
+    # this also covers stale/forged callbacks.
+    style = effective_subscription_style_mode(
+        _state_allowed_visual_modes(data), callback.data.split(":", maxsplit=1)[1]
+    )
     if data.get("partial_edit_field") == "style":
         subscription_id = int(data["edit_subscription_id"])
         updated = await _update_subscription_fields(
@@ -467,7 +476,7 @@ async def sub_choose_minute(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     sphere = data.get("sphere")
     style = data.get("style")
-    allowed_visual_modes = data.get("allowed_visual_modes") or [normalize_visual_mode(data.get("visual_mode"))]
+    allowed_visual_modes = _state_allowed_visual_modes(data)
     hour = int(data["hour"])
     mode = data.get("subscription_mode", "weekly_balance")
     sphere_label = _sphere_display(sphere, language)
@@ -509,7 +518,7 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     subscription_sphere = None if subscription_mode == "weekly_balance" else sphere
     action = data.get("subscription_action", "add")
     edit_subscription_id = data.get("edit_subscription_id")
-    allowed_visual_modes = data.get("allowed_visual_modes") or [normalize_visual_mode(data.get("visual_mode"))]
+    allowed_visual_modes = _state_allowed_visual_modes(data)
     visual_mode = allowed_visual_modes[0]
     try:
         if action == "edit" and edit_subscription_id:
@@ -729,7 +738,7 @@ async def sub_edit_field(callback: CallbackQuery, state: FSMContext) -> None:
         await state.update_data(visual_mode=allowed_visual_modes[0], allowed_visual_modes=allowed_visual_modes)
         await state.set_state(SubscriptionState.choosing_style)
         await callback.message.answer(
-            _style_choice_text(language),
+            _style_choice_text(language, multi_mode=len(allowed_visual_modes) > 1),
             reply_markup=style_keyboard_for_subscription(language, visual_mode=allowed_visual_modes),
         )
     elif field == "mode":
@@ -794,7 +803,7 @@ async def sub_visual_style_followup(callback: CallbackQuery, state: FSMContext) 
         )
         await state.set_state(SubscriptionState.choosing_style)
         await callback.message.edit_text(
-            _style_choice_text(language),
+            _style_choice_text(language, multi_mode=len(allowed_visual_modes) > 1),
             reply_markup=style_keyboard_for_subscription(language, visual_mode=allowed_visual_modes),
         )
     else:

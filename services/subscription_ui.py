@@ -2,6 +2,7 @@ from typing import Optional
 
 from database import MAX_ACTIVE_SUBSCRIPTIONS
 from services.ritual_config import (
+    effective_subscription_style_mode,
     get_allowed_visual_modes,
     get_sphere_label,
     get_style_label,
@@ -52,7 +53,9 @@ def subscription_style_label(style: Optional[str], language: str) -> str:
 def format_subscription_summary(sub: dict, language: str = "ru", index: int = 1) -> str:
     mode = sub.get("subscription_mode") or ("weekly_balance" if sub.get("sphere") == "random" else "sphere_focus")
     allowed_visual_modes = get_allowed_visual_modes(sub)
-    style = sub.get("subscription_style_mode") or sub.get("image_style") or "auto"
+    style = effective_subscription_style_mode(
+        allowed_visual_modes, sub.get("subscription_style_mode") or sub.get("image_style") or "auto"
+    )
     time_str = f"{int(sub.get('hour', 0)):02d}:{int(sub.get('minute', 0)):02d}"
 
     lines = [f"{index}. {subscription_mode_label(mode, language)}"]
