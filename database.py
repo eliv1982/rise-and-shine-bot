@@ -460,6 +460,7 @@ async def init_db() -> None:
             await add_column_if_missing(conn, "subscriptions", "subscription_sphere", "TEXT")
             await add_column_if_missing(conn, "subscriptions", "subscription_style_mode", "TEXT DEFAULT 'auto'")
             await add_column_if_missing(conn, "subscriptions", "visual_mode", "TEXT DEFAULT 'illustration'")
+            await add_column_if_missing(conn, "subscriptions", "allowed_visual_modes_json", "TEXT")
             await add_column_if_missing(conn, "users", "profile_preferences_json", "TEXT")
         finally:
             await conn.close()
@@ -472,6 +473,7 @@ async def init_db() -> None:
         await add_column_if_missing(db, "subscriptions", "subscription_sphere", "TEXT")
         await add_column_if_missing(db, "subscriptions", "subscription_style_mode", "TEXT DEFAULT 'auto'")
         await add_column_if_missing(db, "subscriptions", "visual_mode", "TEXT DEFAULT 'illustration'")
+        await add_column_if_missing(db, "subscriptions", "allowed_visual_modes_json", "TEXT")
         await add_column_if_missing(db, "users", "profile_preferences_json", "TEXT")
         await db.commit()
     logger.info("Database initialized")
@@ -782,6 +784,7 @@ async def create_subscription(
     subscription_sphere: Optional[str] = None,
     subscription_style_mode: str = "auto",
     visual_mode: str = "illustration",
+    allowed_visual_modes: Optional[List[str]] = None,
 ) -> int:
     active_count = await count_active_subscriptions(user_id)
     if active_count >= MAX_ACTIVE_SUBSCRIPTIONS:
@@ -790,9 +793,10 @@ async def create_subscription(
         """
         INSERT INTO subscriptions (
             user_id, sphere, subsphere, image_style, language, hour, minute, is_active,
-            subscription_mode, subscription_sphere, subscription_style_mode, visual_mode
+            subscription_mode, subscription_sphere, subscription_style_mode, visual_mode,
+            allowed_visual_modes_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -806,6 +810,7 @@ async def create_subscription(
             subscription_sphere,
             subscription_style_mode,
             visual_mode,
+            _serialize_json(allowed_visual_modes),
         ),
         id_column="id",
     )
@@ -824,11 +829,13 @@ async def update_subscription(
     subscription_sphere: Optional[str] = None,
     subscription_style_mode: str = "auto",
     visual_mode: str = "illustration",
+    allowed_visual_modes: Optional[List[str]] = None,
 ) -> bool:
     query = """
         UPDATE subscriptions
         SET sphere = ?, subsphere = ?, image_style = ?, language = ?, hour = ?, minute = ?,
-            subscription_mode = ?, subscription_sphere = ?, subscription_style_mode = ?, visual_mode = ?
+            subscription_mode = ?, subscription_sphere = ?, subscription_style_mode = ?, visual_mode = ?,
+            allowed_visual_modes_json = ?
         WHERE id = ? AND user_id = ? AND is_active = 1
     """
     params = (
@@ -842,6 +849,7 @@ async def update_subscription(
         subscription_sphere,
         subscription_style_mode,
         visual_mode,
+        _serialize_json(allowed_visual_modes),
         subscription_id,
         user_id,
     )
@@ -869,6 +877,7 @@ async def upsert_subscription(
     subscription_sphere: Optional[str] = None,
     subscription_style_mode: str = "auto",
     visual_mode: str = "illustration",
+    allowed_visual_modes: Optional[List[str]] = None,
 ) -> int:
     return await create_subscription(
         user_id=user_id,
@@ -882,6 +891,7 @@ async def upsert_subscription(
         subscription_sphere=subscription_sphere,
         subscription_style_mode=subscription_style_mode,
         visual_mode=visual_mode,
+        allowed_visual_modes=allowed_visual_modes,
     )
 
 

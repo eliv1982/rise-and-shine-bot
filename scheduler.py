@@ -59,11 +59,13 @@ from services.text_reviewer_shadow import (
     build_text_reviewer_shadow_best_effort,
 )
 from services.ritual_config import (
+    effective_subscription_style_mode,
+    get_allowed_visual_modes,
     get_focus_for_date,
     get_sphere_label,
     get_weekly_balance_sphere,
-    normalize_visual_mode,
     resolve_style,
+    resolve_subscription_visual_mode,
     visual_mode_for_style,
 )
 from services.visual_memory import get_visual_memory_context
@@ -79,6 +81,9 @@ scheduler = AsyncIOScheduler(timezone=MOSCOW)
 
 # Кэш последних аффирмаций по подписке для кнопки «Озвучить»
 last_subscription_affirmations: dict[int, dict] = {}
+
+# Anti-repeat: last visual mode used per subscription, to avoid back-to-back repeats
+_last_subscription_visual_mode: dict[int, str] = {}
 
 
 async def send_daily_affirmations(bot: Bot) -> None:
@@ -96,7 +101,17 @@ async def send_daily_affirmations(bot: Bot) -> None:
         language = sub["language"]
         gender = sub.get("user_gender")
         subscription_mode = sub.get("subscription_mode") or ("weekly_balance" if sphere == "random" else "sphere_focus")
-        visual_mode = normalize_visual_mode(sub.get("visual_mode"))
+        allowed_visual_modes = get_allowed_visual_modes(sub)
+        subscription_id = sub.get("id")
+        # A multi-mode pool or a style from another mode must not leak a concrete
+        # style downstream; the rest of the run only sees the effective style mode.
+        style_mode = effective_subscription_style_mode(
+            allowed_visual_modes, sub.get("subscription_style_mode") or style
+        )
+        visual_mode = resolve_subscription_visual_mode(
+            allowed_visual_modes, style_mode, _last_subscription_visual_mode.get(subscription_id)
+        )
+        _last_subscription_visual_mode[subscription_id] = visual_mode
         today = now.date()
 
         if subscription_mode == "weekly_balance" or sphere == "random":
@@ -109,7 +124,6 @@ async def send_daily_affirmations(bot: Bot) -> None:
         focus_text = focus["en"] if language == "en" else focus["ru"]
         micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
         image_hint = focus.get("image_hint_en")
-        style_mode = sub.get("subscription_style_mode") or style
         style = resolve_style(style_mode, sphere, user_id=user_id, day=today, focus_key=focus["key"], visual_mode=visual_mode)
         effective_visual_mode = visual_mode_for_style(visual_mode, style)
 
@@ -212,7 +226,7 @@ async def send_daily_affirmations(bot: Bot) -> None:
             scene_prompt_controlled_meta = None
             prompt_trace = "template"
             prompt_final = None
-            if is_scene_planner_image_prompt_enabled(settings):
+            if effective_visual_mode != "symbolic" and is_scene_planner_image_prompt_enabled(settings):
                 try:
                     scene_plan = None
                     if isinstance(scene_plan_shadow_payload, dict):
@@ -287,7 +301,10 @@ async def send_daily_affirmations(bot: Bot) -> None:
                 except Exception:
                     logger.exception("Controlled subscription scene prompt build failed for user %s", user_id)
                     prompt_final = None
-            if not prompt_final:
+            if effective_visual_mode == "symbolic":
+                prompt_final = None
+                prompt_trace = "template"
+            elif not prompt_final:
                 prompt_final, prompt_trace = await build_enriched_image_prompt(
                     style=style,
                     sphere=sphere,
