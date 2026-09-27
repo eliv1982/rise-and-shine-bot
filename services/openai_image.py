@@ -620,7 +620,7 @@ async def generate_image(
     photo_scene_preset_override: Optional[str] = None,
 ) -> str:
     """
-    Асинхронно вызывает OpenAI-совместимый image API через ProxiAPI и сохраняет PNG.
+    Асинхронно вызывает OpenAI Images API и сохраняет PNG.
     Случайные цвет и композиция добавляют разнообразие при каждой генерации.
     Возвращает путь к файлу.
     """

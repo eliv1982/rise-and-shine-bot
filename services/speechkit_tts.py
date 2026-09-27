@@ -1,6 +1,6 @@
 """
-Озвучивание текста через Yandex SpeechKit TTS.
-Голос выбирается по полу пользователя; результат в формате oggopus для голосовых сообщений.
+Озвучивание текста через OpenAI TTS.
+Результат в формате oggopus для голосовых сообщений.
 Склейка аффирмаций с паузами — через ffmpeg (concat demuxer).
 """
 import asyncio
@@ -69,21 +69,8 @@ AFFIRMATION_SPEED = 0.75
 MAX_TEXT_LENGTH = 4500
 
 
-def _voice_for_gender(gender: Optional[str]) -> str:
-    """
-    Возвращает имя голоса SpeechKit: filipp для мужчин, oksana для женщин и по умолчанию.
-    """
-    if gender == "male":
-        return "filipp"
-    return "oksana"
-
-
-def _resolve_tts_voice(config_voice: str, gender: Optional[str], provider: str) -> str:
-    if config_voice:
-        return config_voice
-    if provider == "yandex":
-        return _voice_for_gender(gender)
-    return "alloy"
+def _resolve_tts_voice(config_voice: str, gender: Optional[str]) -> str:
+    return config_voice or "alloy"
 
 
 async def synthesize_speech(
@@ -94,11 +81,11 @@ async def synthesize_speech(
     speed: float = 0.85,
 ) -> str:
     """
-    Синтезирует речь из текста через Yandex SpeechKit TTS.
+    Синтезирует речь из текста через OpenAI TTS.
 
     :param text: Текст для озвучки (на русском).
-    :param gender: Пол пользователя из БД ("female" / "male") для выбора голоса.
-    :param emotion: Эмоция голоса (good / neutral / evil).
+    :param gender: Пол пользователя из БД (не влияет на выбор голоса; голос задаётся OPENAI_TTS_VOICE).
+    :param emotion: Не используется OpenAI TTS; оставлен для обратной совместимости вызовов.
     :param speed: Скорость речи (0.1–3.0), по умолчанию 0.85.
     :return: Путь к созданному аудиофайлу (oggopus).
     :raises RuntimeError: При ошибке запроса или недоступности TTS.
@@ -111,47 +98,29 @@ async def synthesize_speech(
         text = text[:MAX_TEXT_LENGTH].rsplit(maxsplit=1)[0] or text[:MAX_TEXT_LENGTH]
 
     tts_cfg = get_tts_provider_config()
-    voice = _resolve_tts_voice(tts_cfg.voice, gender, tts_cfg.provider)
+    voice = _resolve_tts_voice(tts_cfg.voice, gender)
 
     try:
         async with aiohttp.ClientSession() as session:
-            if tts_cfg.provider == "yandex":
-                url = "https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize"
-                form = aiohttp.FormData()
-                form.add_field("text", text)
-                form.add_field("lang", "ru-RU")
-                form.add_field("voice", voice)
-                form.add_field("emotion", emotion)
-                form.add_field("speed", str(speed))
-                form.add_field("folderId", str(tts_cfg.options.get("folder_id") or ""))
-                form.add_field("format", "oggopus")
-                headers = {"Authorization": f"Api-Key {tts_cfg.api_key}"}
-                async with session.post(url, data=form, headers=headers, timeout=tts_cfg.timeout_seconds) as resp:
-                    if resp.status != 200:
-                        body = await resp.text()
-                        logger.error("Yandex TTS error: status=%s, body=%s", resp.status, body[:500])
-                        raise RuntimeError("Сервис озвучки временно недоступен. Попробуй позже.")
-                    data = await resp.read()
-            else:
-                base_url = (tts_cfg.base_url or "https://api.openai.com/v1").rstrip("/")
-                url = f"{base_url}/audio/speech"
-                payload = {
-                    "model": tts_cfg.model,
-                    "voice": voice,
-                    "input": text,
-                    "format": "opus",
-                    "speed": speed,
-                }
-                headers = {
-                    "Authorization": f"Bearer {tts_cfg.api_key}",
-                    "Content-Type": "application/json",
-                }
-                async with session.post(url, json=payload, headers=headers, timeout=tts_cfg.timeout_seconds) as resp:
-                    if resp.status != 200:
-                        body = await resp.text()
-                        logger.error("OpenAI TTS error: status=%s, body=%s", resp.status, body[:500])
-                        raise RuntimeError("Сервис озвучки временно недоступен. Попробуй позже.")
-                    data = await resp.read()
+            base_url = (tts_cfg.base_url or "https://api.openai.com/v1").rstrip("/")
+            url = f"{base_url}/audio/speech"
+            payload = {
+                "model": tts_cfg.model,
+                "voice": voice,
+                "input": text,
+                "format": "opus",
+                "speed": speed,
+            }
+            headers = {
+                "Authorization": f"Bearer {tts_cfg.api_key}",
+                "Content-Type": "application/json",
+            }
+            async with session.post(url, json=payload, headers=headers, timeout=tts_cfg.timeout_seconds) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.error("OpenAI TTS error: status=%s, body=%s", resp.status, body[:500])
+                    raise RuntimeError("Сервис озвучки временно недоступен. Попробуй позже.")
+                data = await resp.read()
     except aiohttp.ClientError as exc:
         logger.exception("TTS request failed (%s): %s", tts_cfg.provider, exc)
         raise RuntimeError("Сервис озвучки временно недоступен. Попробуй позже.") from exc

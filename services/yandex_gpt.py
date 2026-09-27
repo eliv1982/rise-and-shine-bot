@@ -33,28 +33,6 @@ def _build_text_provider_request(
     max_tokens: int,
     temperature: float,
 ) -> tuple[str, dict, dict]:
-    if cfg.provider == "yandex":
-        folder_id = str(cfg.options.get("folder_id") or "")
-        model_uri = f"gpt://{folder_id}/{cfg.model}"
-        return (
-            "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
-            {
-                "Authorization": f"Api-Key {cfg.api_key}",
-                "x-folder-id": folder_id,
-                "Content-Type": "application/json",
-            },
-            {
-                "modelUri": model_uri,
-                "completionOptions": {
-                    "maxTokens": max_tokens,
-                    "temperature": temperature,
-                },
-                "messages": [
-                    {"role": "system", "text": system_text},
-                    {"role": "user", "text": user_text},
-                ],
-            },
-        )
     base_url = (cfg.base_url or "").rstrip("/")
     return (
         f"{base_url}/chat/completions",
@@ -75,8 +53,6 @@ def _build_text_provider_request(
 
 
 def _parse_text_provider_response(cfg: TextProviderConfig, data: dict) -> str:
-    if cfg.provider == "yandex":
-        return data["result"]["alternatives"][0]["message"]["text"]
     return data["choices"][0]["message"]["content"]
 
 
@@ -342,7 +318,7 @@ def _build_prompt(
     text_plan_guidance: Optional[str] = None,
 ) -> str:
     """
-    Формирует промпт к YandexGPT с инструкцией вернуть JSON-массив аффирмаций.
+    Формирует промпт для текстовой модели с инструкцией вернуть JSON-массив аффирмаций.
     gender: "male" | "female" из БД — используется для грамматики рода (приоритет над gender_hint).
     """
     if user_text:
@@ -531,7 +507,7 @@ async def generate_affirmations(
     text_plan_guidance: Optional[str] = None,
 ) -> List[str]:
     """
-    Асинхронно вызывает YandexGPT и возвращает список аффирмаций.
+    Асинхронно вызывает текстовую модель (OpenAI) и возвращает список аффирмаций.
     gender: "male" | "female" из БД — для согласования рода в русском.
     """
     text_cfg = get_text_provider_config()
@@ -590,10 +566,10 @@ async def generate_affirmations(
         if isinstance(parsed, list) and all(isinstance(x, str) for x in parsed):
             affirmations = parsed
         else:
-            logger.warning("YandexGPT returned non-list JSON; using raw text.")
+            logger.warning("Text provider returned non-list JSON; using raw text.")
             affirmations = [cleaned]
     except json.JSONDecodeError:
-        logger.warning("Failed to parse YandexGPT output as JSON; returning raw text.")
+        logger.warning("Failed to parse text provider output as JSON; returning raw text.")
         affirmations = [cleaned]
 
     if language == "ru":

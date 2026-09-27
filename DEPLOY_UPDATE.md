@@ -54,16 +54,16 @@ cd /opt/rise-and-shine
 **Из PowerShell (Windows)** — через SCP:
 
 ```powershell
-scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\Telegram_bot_Rise_and_Shine\handlers" user@server:/opt/rise-and-shine/
-scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\Telegram_bot_Rise_and_Shine\keyboards" user@server:/opt/rise-and-shine/
-scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\Telegram_bot_Rise_and_Shine\services" user@server:/opt/rise-and-shine/
-scp "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\Telegram_bot_Rise_and_Shine\scheduler.py" user@server:/opt/rise-and-shine/
+scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\handlers" user@server:/opt/rise-and-shine/
+scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\keyboards" user@server:/opt/rise-and-shine/
+scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\services" user@server:/opt/rise-and-shine/
+scp "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\scheduler.py" user@server:/opt/rise-and-shine/
 ```
 
 **Или одной папкой** (если на сервере нет важных локальных правок):
 
 ```powershell
-scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\Telegram_bot_Rise_and_Shine\*" user@server:/opt/rise-and-shine/
+scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\*" user@server:/opt/rise-and-shine/
 ```
 
 Не копируй на сервер файл `.env` с сервера — на сервере должен остаться свой `.env` с ключами.
@@ -84,6 +84,7 @@ docker compose up -d
 
 ```bash
 docker compose logs -f bot
+./scripts/smoke_check.sh
 ```
 
 Убедись, что в логах нет ошибок при старте. Выход: `Ctrl+C`.
@@ -119,3 +120,4 @@ docker compose logs -f bot
   ```
 - **Логи:** `docker compose logs -f bot` — смотреть стек ошибок.
 - **Перезапуск контейнера:** `docker compose restart bot`
+- **Откат данных БД** (а не только кода): `./scripts/restore.sh <файл-бэкапа>` из бэкапа, сделанного `./scripts/backup.sh` — см. [DEPLOY.md](DEPLOY.md#префлайт-бэкап-и-smoke-check).

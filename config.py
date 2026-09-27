@@ -33,11 +33,6 @@ def _get_env_bool(name: str, default: bool) -> bool:
 
 @dataclass
 class Settings:
-    yandex_api_key: str
-    yandex_folder_id: str
-    yandex_speechkit_api_key: str
-    proxi_api_key: str
-    proxi_base_url: str
     bot_token: str
     generation_daily_limit: int
     disable_daily_generation_limit: bool
@@ -55,7 +50,6 @@ class Settings:
     text_memory_context_enabled: bool
     text_reviewer_shadow_enabled: bool
     orchestrator_shadow_enabled: bool
-    yandex_completion_model: str
     text_provider: str
     image_provider: str
     tts_provider: str
@@ -69,7 +63,6 @@ class TextProviderConfig:
     api_key: str
     model: str
     timeout_seconds: int
-    options: dict[str, str | int | float | bool | None]
 
 
 @dataclass
@@ -80,7 +73,6 @@ class ImageProviderConfig:
     model: str
     size: str
     timeout_seconds: int
-    options: dict[str, str | int | float | bool | None]
 
 
 @dataclass
@@ -155,125 +147,33 @@ def get_heartbeat_path() -> str:
     return os.path.join(d, "heartbeat") if d else "heartbeat"
 
 
-def _normalize_provider(raw_value: str, *, allowed: tuple[str, ...], default: str, env_name: str) -> str:
-    value = (raw_value or "").strip().lower()
-    if not value:
-        return default
-    if value in allowed:
-        return value
-    logger.warning("Unsupported provider %s=%r, using default=%s", env_name, raw_value, default)
-    return default
-
-
-def _get_text_provider_name() -> str:
-    # Default profile: direct OpenAI. Legacy providers remain supported via explicit env.
-    return _normalize_provider(
-        os.getenv("TEXT_PROVIDER", ""),
-        allowed=("proxiapi", "openai", "yandex"),
-        default="openai",
-        env_name="TEXT_PROVIDER",
-    )
-
-
-def _get_image_provider_name() -> str:
-    # Default profile: direct OpenAI. Legacy ProxiAPI remains supported via explicit env.
-    return _normalize_provider(
-        os.getenv("IMAGE_PROVIDER", ""),
-        allowed=("proxiapi", "openai"),
-        default="openai",
-        env_name="IMAGE_PROVIDER",
-    )
-
-
-def _get_tts_provider_name() -> str:
-    # Default profile: direct OpenAI. Legacy Yandex remains supported via explicit env.
-    return _normalize_provider(
-        os.getenv("TTS_PROVIDER", ""),
-        allowed=("yandex", "openai"),
-        default="openai",
-        env_name="TTS_PROVIDER",
-    )
-
-
-def _get_stt_provider_name() -> str:
-    # Default profile: direct OpenAI. Legacy Yandex remains supported via explicit env.
-    return _normalize_provider(
-        os.getenv("STT_PROVIDER", ""),
-        allowed=("yandex", "openai"),
-        default="openai",
-        env_name="STT_PROVIDER",
-    )
-
-
 def get_text_provider_config() -> TextProviderConfig:
-    provider = _get_text_provider_name()
-    if provider == "yandex":
-        return TextProviderConfig(
-            provider=provider,
-            base_url=None,
-            api_key=_get_env_var("YANDEX_API_KEY"),
-            model=_get_env_var("YANDEX_TEXT_MODEL", required=False, default=os.getenv("YANDEX_COMPLETION_MODEL", "yandexgpt-lite/latest"))
-            or "yandexgpt-lite/latest",
-            timeout_seconds=_get_env_int("YANDEX_TEXT_TIMEOUT_SECONDS", 60),
-            options={"folder_id": _get_env_var("YANDEX_FOLDER_ID")},
-        )
-    if provider == "proxiapi":
-        return TextProviderConfig(
-            provider=provider,
-            base_url=_get_env_var("PROXI_BASE_URL", required=False, default="https://api.proxyapi.ru/openai/v1"),
-            api_key=_get_env_var("PROXI_API_KEY"),
-            model=_get_env_var("PROXI_TEXT_MODEL", required=False, default="gpt-4o-mini") or "gpt-4o-mini",
-            timeout_seconds=_get_env_int("PROXI_TEXT_TIMEOUT_SECONDS", 60),
-            options={},
-        )
+    """OpenAI is the only supported text provider; see docs/production_env.md."""
     return TextProviderConfig(
-        provider=provider,
+        provider="openai",
         base_url=_get_env_var("OPENAI_BASE_URL", required=False, default="https://api.openai.com/v1"),
         api_key=_get_env_var("OPENAI_API_KEY"),
         model=_get_env_var("OPENAI_TEXT_MODEL", required=False, default="gpt-4o-mini") or "gpt-4o-mini",
         timeout_seconds=_get_env_int("OPENAI_TEXT_TIMEOUT_SECONDS", 60),
-        options={},
     )
 
 
 def get_image_provider_config() -> ImageProviderConfig:
-    provider = _get_image_provider_name()
-    if provider == "proxiapi":
-        return ImageProviderConfig(
-            provider=provider,
-            base_url=_get_env_var("PROXI_BASE_URL", required=False, default="https://api.proxyapi.ru/openai/v1") or "https://api.proxyapi.ru/openai/v1",
-            api_key=_get_env_var("PROXI_API_KEY"),
-            model=_get_env_var("PROXI_IMAGE_MODEL", required=False, default=os.getenv("IMAGE_MODEL", "gpt-image-1")) or "gpt-image-1",
-            size=_get_env_var("PROXI_IMAGE_SIZE", required=False, default=os.getenv("IMAGE_SIZE", "1024x1024")) or "1024x1024",
-            timeout_seconds=_get_env_int("PROXI_IMAGE_TIMEOUT_SECONDS", _get_env_int("IMAGE_API_TIMEOUT_SECONDS", 240)),
-            options={},
-        )
+    """OpenAI is the only supported image provider; see docs/production_env.md."""
     return ImageProviderConfig(
-        provider=provider,
+        provider="openai",
         base_url=_get_env_var("OPENAI_BASE_URL", required=False, default="https://api.openai.com/v1") or "https://api.openai.com/v1",
         api_key=_get_env_var("OPENAI_API_KEY"),
         model=_get_env_var("OPENAI_IMAGE_MODEL", required=False, default=os.getenv("IMAGE_MODEL", "gpt-image-1")) or "gpt-image-1",
         size=_get_env_var("OPENAI_IMAGE_SIZE", required=False, default=os.getenv("IMAGE_SIZE", "1024x1024")) or "1024x1024",
         timeout_seconds=_get_env_int("OPENAI_IMAGE_TIMEOUT_SECONDS", _get_env_int("IMAGE_API_TIMEOUT_SECONDS", 240)),
-        options={},
     )
 
 
 def get_tts_provider_config() -> TtsProviderConfig:
-    provider = _get_tts_provider_name()
-    if provider == "yandex":
-        return TtsProviderConfig(
-            provider=provider,
-            base_url=None,
-            api_key=_get_env_var("YANDEX_SPEECHKIT_API_KEY", required=False, default=os.getenv("YANDEX_API_KEY"))
-            or "",
-            model=_get_env_var("YANDEX_TTS_MODEL", required=False, default="general") or "general",
-            voice=_get_env_var("YANDEX_TTS_VOICE", required=False, default="") or "",
-            timeout_seconds=_get_env_int("YANDEX_TTS_TIMEOUT_SECONDS", 60),
-            options={"folder_id": _get_env_var("YANDEX_FOLDER_ID")},
-        )
+    """OpenAI is the only supported TTS provider; see docs/production_env.md."""
     return TtsProviderConfig(
-        provider=provider,
+        provider="openai",
         base_url=_get_env_var("OPENAI_BASE_URL", required=False, default="https://api.openai.com/v1"),
         api_key=_get_env_var("OPENAI_API_KEY"),
         model=_get_env_var("OPENAI_TTS_MODEL", required=False, default="gpt-4o-mini-tts") or "gpt-4o-mini-tts",
@@ -284,30 +184,15 @@ def get_tts_provider_config() -> TtsProviderConfig:
 
 
 def get_stt_provider_config() -> SttProviderConfig:
-    provider = _get_stt_provider_name()
-    if provider == "yandex":
-        return SttProviderConfig(
-            provider=provider,
-            base_url=None,
-            api_key=_get_env_var("YANDEX_SPEECHKIT_API_KEY", required=False, default=os.getenv("YANDEX_API_KEY")) or "",
-            model=_get_env_var("YANDEX_STT_MODEL", required=False, default="general") or "general",
-            language=_get_env_var("YANDEX_STT_LANGUAGE", required=False, default="ru-RU") or "ru-RU",
-            timeout_seconds=_get_env_int("YANDEX_STT_TIMEOUT_SECONDS", 120),
-            options={
-                "folder_id": _get_env_var("YANDEX_FOLDER_ID", required=False, default="") or "",
-                "prefer_language": _get_env_var("STT_PREFER_LANGUAGE", required=False, default="ru-RU") or "ru-RU",
-                "allow_cross_language_stt_fallback": _get_env_bool("ALLOW_CROSS_LANGUAGE_STT_FALLBACK", False),
-            },
-        )
+    """OpenAI is the only supported STT provider; see docs/production_env.md."""
     return SttProviderConfig(
-        provider=provider,
+        provider="openai",
         base_url=_get_env_var("OPENAI_BASE_URL", required=False, default="https://api.openai.com/v1"),
         api_key=_get_env_var("OPENAI_API_KEY"),
         model=_get_env_var("OPENAI_STT_MODEL", required=False, default="gpt-4o-mini-transcribe") or "gpt-4o-mini-transcribe",
         language=_get_env_var("OPENAI_STT_LANGUAGE", required=False, default="") or "",
         timeout_seconds=_get_env_int("OPENAI_STT_TIMEOUT_SECONDS", 120),
         options={
-            "prefer_language": _get_env_var("STT_PREFER_LANGUAGE", required=False, default="") or "",
             "allow_cross_language_stt_fallback": _get_env_bool("ALLOW_CROSS_LANGUAGE_STT_FALLBACK", False),
         },
     )
@@ -323,11 +208,6 @@ def get_settings() -> Settings:
     tts_cfg = get_tts_provider_config()
     stt_cfg = get_stt_provider_config()
     return Settings(
-        yandex_api_key=_get_env_var("YANDEX_API_KEY", required=False, default="") or "",
-        yandex_folder_id=_get_env_var("YANDEX_FOLDER_ID", required=False, default="") or "",
-        yandex_speechkit_api_key=_get_env_var("YANDEX_SPEECHKIT_API_KEY", required=False, default=os.getenv("YANDEX_API_KEY", "")) or "",
-        proxi_api_key=_get_env_var("PROXI_API_KEY", required=False, default="") or "",
-        proxi_base_url=_get_env_var("PROXI_BASE_URL", required=False, default="https://api.proxyapi.ru/openai/v1"),
         bot_token=_get_env_var("BOT_TOKEN"),
         generation_daily_limit=daily_limit,
         disable_daily_generation_limit=_get_env_bool("DISABLE_DAILY_GENERATION_LIMIT", False),
@@ -345,7 +225,6 @@ def get_settings() -> Settings:
         text_memory_context_enabled=_get_env_bool("TEXT_MEMORY_CONTEXT_ENABLED", False),
         text_reviewer_shadow_enabled=_get_env_bool("TEXT_REVIEWER_SHADOW_ENABLED", False),
         orchestrator_shadow_enabled=_get_env_bool("ORCHESTRATOR_SHADOW_ENABLED", False),
-        yandex_completion_model=text_cfg.model if text_cfg.provider == "yandex" else (_get_env_var("YANDEX_COMPLETION_MODEL", required=False, default="yandexgpt-lite/latest") or "yandexgpt-lite/latest"),
         text_provider=text_cfg.provider,
         image_provider=image_cfg.provider,
         tts_provider=tts_cfg.provider,

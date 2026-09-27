@@ -22,7 +22,7 @@ docker compose down
 На своём компьютере в папке проекта:
 
 ```powershell
-cd "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\Telegram_bot_Rise_and_Shine"
+cd "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot"
 docker compose up -d --build
 ```
 

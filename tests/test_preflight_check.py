@@ -30,9 +30,6 @@ def _set_required_env(monkeypatch):
     monkeypatch.setenv("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
     monkeypatch.setenv("BOT_TOKEN", "test-token")
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    monkeypatch.delenv("PROXI_API_KEY", raising=False)
-    monkeypatch.delenv("YANDEX_API_KEY", raising=False)
-    monkeypatch.delenv("YANDEX_FOLDER_ID", raising=False)
 
 
 def test_missing_bot_token_fails_preflight(monkeypatch, capsys):

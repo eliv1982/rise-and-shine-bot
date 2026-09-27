@@ -63,14 +63,15 @@ nano .env
 ```
 DOCKERHUB_IMAGE=DOCKERHUB_USERNAME/rise-and-shine-bot:latest
 BOT_TOKEN=токен_от_BotFather
-YANDEX_API_KEY=твой_яндекс_ключ
-YANDEX_FOLDER_ID=твой_folder_id
-YANDEX_SPEECHKIT_API_KEY=твой_speechkit_ключ
-PROXI_API_KEY=твой_proxi_ключ
-PROXI_BASE_URL=https://openai.api.proxyapi.ru/v1
+OPENAI_API_KEY=твой_openai_ключ
+DATABASE_URL=postgresql://user:password@db-host:5432/dbname
 ```
 
+`DATABASE_URL` указывает на self-managed PostgreSQL на этом же сервере (отдельно от этого compose-стека) — см. [DEPLOY.md](DEPLOY.md#архитектура-production-бд) и [docs/production_env.md](docs/production_env.md). Без `DATABASE_URL` бот использует SQLite — это только для локальной/dev-проверки, не для прода.
+
 Остальные переменные — по необходимости из `.env.example` в репозитории.
+
+Перед первым запуском на сервере выполни чек-лист из [DEPLOY.md](DEPLOY.md#первый-запуск-на-сервере) (владение volume, `./scripts/preflight.sh`, бэкап) — здесь он не дублируется.
 
 Сохранить: `Ctrl+O`, Enter, выход: `Ctrl+X`.
 
@@ -91,6 +92,7 @@ docker compose up -d
 ```bash
 docker compose ps
 docker compose logs -f bot
+./scripts/smoke_check.sh
 ```
 Выход из логов: `Ctrl+C`.
 

@@ -303,7 +303,6 @@ def test_generate_affirmations_applies_gender_cleanup_for_russian_female(monkeyp
             api_key="test",
             model="gpt-4o-mini",
             timeout_seconds=5,
-            options={},
         ),
     )
     monkeypatch.setattr(yandex_gpt.aiohttp, "ClientSession", _FakeSession)
