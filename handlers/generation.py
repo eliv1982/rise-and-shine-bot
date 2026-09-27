@@ -1105,8 +1105,9 @@ async def _run_generation(
         return
 
     limit_enabled = not settings.disable_daily_generation_limit and settings.generation_daily_limit > 0
+    reservation_day: Optional[str] = None
     if limit_enabled:
-        reserved = await reserve_generation_usage(uid, settings.generation_daily_limit)
+        reserved, reservation_day = await reserve_generation_usage(uid, settings.generation_daily_limit)
         if not reserved:
             used = await get_generation_usage_today(uid)
             log_rate_limited(uid, used, settings.generation_daily_limit)
@@ -1544,8 +1545,8 @@ async def _run_generation(
             recent_generation_history=history[-7:],
         )
     finally:
-        if limit_enabled and not delivered:
-            await release_generation_usage(uid)
+        if reservation_day is not None and not delivered:
+            await release_generation_usage(uid, reservation_day)
 
 
 @router.callback_query(F.data == "again:yes")
