@@ -8,6 +8,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import aiosqlite
 
 from config import get_database_url, get_sqlite_db_path
+from services.delivery_schedule import (
+    STATUS_ABANDONED,
+    STATUS_FAILED,
+    STATUS_IN_PROGRESS,
+    STATUS_SENT,
+)
 
 try:
     import asyncpg
@@ -58,6 +64,24 @@ _SQLITE_SCHEMA_STATEMENTS = [
         minute      INTEGER NOT NULL,
         is_active   INTEGER NOT NULL DEFAULT 1,
         FOREIGN KEY (user_id) REFERENCES users (user_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS subscription_deliveries (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        subscription_id INTEGER NOT NULL,
+        user_id         INTEGER NOT NULL,
+        delivery_date   TEXT NOT NULL,
+        visual_mode     TEXT NOT NULL,
+        status          TEXT NOT NULL,
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        claimed_at      TEXT,
+        updated_at      TEXT NOT NULL,
+        sent_at         TEXT,
+        last_error      TEXT,
+        created_at      TEXT NOT NULL,
+        FOREIGN KEY (subscription_id) REFERENCES subscriptions (id),
+        UNIQUE (subscription_id, delivery_date)
     )
     """,
     """
@@ -137,6 +161,24 @@ _POSTGRES_SCHEMA_STATEMENTS = [
         minute      INTEGER NOT NULL,
         is_active   INTEGER NOT NULL DEFAULT 1,
         FOREIGN KEY (user_id) REFERENCES users (user_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS subscription_deliveries (
+        id              BIGSERIAL PRIMARY KEY,
+        subscription_id BIGINT NOT NULL,
+        user_id         BIGINT NOT NULL,
+        delivery_date   TEXT NOT NULL,
+        visual_mode     TEXT NOT NULL,
+        status          TEXT NOT NULL,
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        claimed_at      TEXT,
+        updated_at      TEXT NOT NULL,
+        sent_at         TEXT,
+        last_error      TEXT,
+        created_at      TEXT NOT NULL,
+        FOREIGN KEY (subscription_id) REFERENCES subscriptions (id),
+        UNIQUE (subscription_id, delivery_date)
     )
     """,
     """
@@ -447,6 +489,14 @@ async def _update_query_changed(query: str, params: tuple[Any, ...] = ()) -> boo
     return changed
 
 
+# Subscriptions that predate the delivery ledger are effective from the first start
+# that knows about it: their earlier slots were handled by the exact-minute scheduler
+# and are not in the ledger, so catching them up would re-send today's ritual.
+_BACKFILL_SCHEDULE_EFFECTIVE_AT_SQL = (
+    "UPDATE subscriptions SET schedule_effective_at = ? WHERE schedule_effective_at IS NULL"
+)
+
+
 async def init_db() -> None:
     """
     Инициализация схемы БД (если таблиц ещё нет).
@@ -461,7 +511,9 @@ async def init_db() -> None:
             await add_column_if_missing(conn, "subscriptions", "subscription_style_mode", "TEXT DEFAULT 'auto'")
             await add_column_if_missing(conn, "subscriptions", "visual_mode", "TEXT DEFAULT 'illustration'")
             await add_column_if_missing(conn, "subscriptions", "allowed_visual_modes_json", "TEXT")
+            await add_column_if_missing(conn, "subscriptions", "schedule_effective_at", "TEXT")
             await add_column_if_missing(conn, "users", "profile_preferences_json", "TEXT")
+            await conn.execute(_postgres_query(_BACKFILL_SCHEDULE_EFFECTIVE_AT_SQL), _utc_now_iso())
         finally:
             await conn.close()
         logger.info("Database initialized")
@@ -474,7 +526,9 @@ async def init_db() -> None:
         await add_column_if_missing(db, "subscriptions", "subscription_style_mode", "TEXT DEFAULT 'auto'")
         await add_column_if_missing(db, "subscriptions", "visual_mode", "TEXT DEFAULT 'illustration'")
         await add_column_if_missing(db, "subscriptions", "allowed_visual_modes_json", "TEXT")
+        await add_column_if_missing(db, "subscriptions", "schedule_effective_at", "TEXT")
         await add_column_if_missing(db, "users", "profile_preferences_json", "TEXT")
+        await db.execute(_BACKFILL_SCHEDULE_EFFECTIVE_AT_SQL, (_utc_now_iso(),))
         await db.commit()
     logger.info("Database initialized")
 
@@ -794,9 +848,9 @@ async def create_subscription(
         INSERT INTO subscriptions (
             user_id, sphere, subsphere, image_style, language, hour, minute, is_active,
             subscription_mode, subscription_sphere, subscription_style_mode, visual_mode,
-            allowed_visual_modes_json
+            allowed_visual_modes_json, schedule_effective_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -811,6 +865,7 @@ async def create_subscription(
             subscription_style_mode,
             visual_mode,
             _serialize_json(allowed_visual_modes),
+            _utc_now_iso(),
         ),
         id_column="id",
     )
@@ -835,7 +890,8 @@ async def update_subscription(
         UPDATE subscriptions
         SET sphere = ?, subsphere = ?, image_style = ?, language = ?, hour = ?, minute = ?,
             subscription_mode = ?, subscription_sphere = ?, subscription_style_mode = ?, visual_mode = ?,
-            allowed_visual_modes_json = ?
+            allowed_visual_modes_json = ?,
+            schedule_effective_at = CASE WHEN hour = ? AND minute = ? THEN schedule_effective_at ELSE ? END
         WHERE id = ? AND user_id = ? AND is_active = 1
     """
     params = (
@@ -850,6 +906,9 @@ async def update_subscription(
         subscription_style_mode,
         visual_mode,
         _serialize_json(allowed_visual_modes),
+        hour,
+        minute,
+        _utc_now_iso(),
         subscription_id,
         user_id,
     )
@@ -896,28 +955,199 @@ async def upsert_subscription(
 
 
 async def deactivate_subscription(user_id: int, subscription_id: Optional[int] = None) -> None:
+    """Soft-delete one subscription (or all of a user's) and drop its delivery ledger rows.
+
+    This is the actual "delete subscription" persistence helper the product uses
+    (handlers/subscribe.py's delete flow) - the subscription row itself is never hard-
+    deleted (its id can never be reactivated: get_subscription_by_id/get_subscription
+    only ever look at is_active = 1 rows), so its subscription_deliveries rows would
+    otherwise accumulate forever with no way to reach them again. Both statements run
+    in one transaction so a mid-way failure cannot leave the subscription inactive with
+    its ledger rows still present, or vice versa.
+    """
     if subscription_id is None:
-        await _execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user_id,))
+        deactivate_query = "UPDATE subscriptions SET is_active = 0 WHERE user_id = ?"
+        ledger_query = "DELETE FROM subscription_deliveries WHERE user_id = ?"
+        params: tuple[Any, ...] = (user_id,)
+    else:
+        deactivate_query = "UPDATE subscriptions SET is_active = 0 WHERE id = ? AND user_id = ?"
+        ledger_query = "DELETE FROM subscription_deliveries WHERE subscription_id = ? AND user_id = ?"
+        params = (subscription_id, user_id)
+
+    if get_database_backend_name() == "postgresql":
+        conn = await _connect_postgres()
+        try:
+            async with conn.transaction():
+                await conn.execute(_postgres_query(deactivate_query), *params)
+                await conn.execute(_postgres_query(ledger_query), *params)
+        finally:
+            await conn.close()
         return
-    await _execute(
-        "UPDATE subscriptions SET is_active = 0 WHERE id = ? AND user_id = ?",
-        (subscription_id, user_id),
-    )
+
+    async with aiosqlite.connect(_prepare_sqlite_db_path()) as db:
+        await db.execute(deactivate_query, params)
+        await db.execute(ledger_query, params)
+        await db.commit()
 
 
-async def get_due_subscriptions(now: dt.datetime) -> List[Dict[str, Any]]:
-    hour = now.hour
-    minute = now.minute
+async def get_active_subscriptions_for_delivery() -> List[Dict[str, Any]]:
+    """All active subscriptions with the user fields the scheduler needs.
+
+    Which of them are due is decided by services.delivery_schedule, not by SQL.
+    """
     rows = await _fetchall(
         """
         SELECT s.*, u.language AS user_language, u.gender AS user_gender, u.name AS user_name
         FROM subscriptions s
         JOIN users u ON u.user_id = s.user_id
-        WHERE s.is_active = 1 AND s.hour = ? AND s.minute = ?
+        WHERE s.is_active = 1
         """,
-        (hour, minute),
     )
     return [dict(r) for r in rows]
+
+
+# --- Subscription delivery ledger -------------------------------------------------
+# One row per logical delivery: (subscription_id, delivery_date). The UNIQUE constraint
+# plus the single-statement claims below are what stop duplicate processing; see
+# services.delivery_schedule for the state meanings.
+
+
+def _ledger_ts(moment: dt.datetime) -> str:
+    """Fixed-width UTC timestamp so that string comparison in SQL is chronological."""
+    if moment.tzinfo is None:
+        raise ValueError("ledger timestamps must be timezone-aware")
+    return moment.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+async def get_subscription_deliveries(delivery_dates: List[str]) -> List[Dict[str, Any]]:
+    if not delivery_dates:
+        return []
+    placeholders = ", ".join("?" for _ in delivery_dates)
+    rows = await _fetchall(
+        f"SELECT * FROM subscription_deliveries WHERE delivery_date IN ({placeholders})",
+        tuple(delivery_dates),
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_last_sent_visual_mode(subscription_id: int, before_date: str) -> Optional[str]:
+    """Visual mode of the latest confirmed delivery before ``before_date`` (anti-repeat input)."""
+    row = await _fetchone(
+        f"""
+        SELECT visual_mode
+        FROM subscription_deliveries
+        WHERE subscription_id = ? AND status = '{STATUS_SENT}' AND delivery_date < ?
+        ORDER BY delivery_date DESC
+        LIMIT 1
+        """,
+        (subscription_id, before_date),
+    )
+    return row[0] if row else None
+
+
+async def claim_subscription_delivery(
+    *,
+    subscription_id: int,
+    user_id: int,
+    delivery_date: str,
+    visual_mode: str,
+    now: dt.datetime,
+    max_attempts: int,
+    retry_backoff: dt.timedelta,
+    lease: dt.timedelta,
+) -> Optional[Dict[str, Any]]:
+    """Atomically claim the right to attempt one logical delivery; None if not claimable.
+
+    A claim succeeds when the delivery has no row yet, or its row is ``failed`` past the
+    retry backoff, or ``in_progress`` past the lease (its attempt died), and fewer than
+    ``max_attempts`` were made. Each branch is one statement, so concurrent claimers
+    (tasks, or an accidentally started second process) cannot both win. The returned row
+    carries the delivery's persisted ``visual_mode``.
+    """
+    now_ts = _ledger_ts(now)
+    inserted = await _update_query_changed(
+        f"""
+        INSERT INTO subscription_deliveries (
+            subscription_id, user_id, delivery_date, visual_mode, status, attempts,
+            claimed_at, updated_at, created_at
+        )
+        VALUES (?, ?, ?, ?, '{STATUS_IN_PROGRESS}', 1, ?, ?, ?)
+        ON CONFLICT (subscription_id, delivery_date) DO NOTHING
+        """,
+        (subscription_id, user_id, delivery_date, visual_mode, now_ts, now_ts, now_ts),
+    )
+    if not inserted:
+        reclaimed = await _update_query_changed(
+            f"""
+            UPDATE subscription_deliveries
+            SET status = '{STATUS_IN_PROGRESS}', attempts = attempts + 1, visual_mode = ?,
+                claimed_at = ?, updated_at = ?
+            WHERE subscription_id = ? AND delivery_date = ? AND attempts < ?
+              AND (
+                  (status = '{STATUS_FAILED}' AND updated_at <= ?)
+                  OR (status = '{STATUS_IN_PROGRESS}' AND claimed_at <= ?)
+              )
+            """,
+            (
+                visual_mode,
+                now_ts,
+                now_ts,
+                subscription_id,
+                delivery_date,
+                max_attempts,
+                _ledger_ts(now - retry_backoff),
+                _ledger_ts(now - lease),
+            ),
+        )
+        if not reclaimed:
+            return None
+    row = await _fetchone(
+        "SELECT * FROM subscription_deliveries WHERE subscription_id = ? AND delivery_date = ?",
+        (subscription_id, delivery_date),
+    )
+    return dict(row) if row else None
+
+
+async def mark_subscription_delivery_sent(delivery_id: int, now: dt.datetime) -> bool:
+    """Record confirmed delivery. Terminal, and truthful whichever attempt sent it."""
+    now_ts = _ledger_ts(now)
+    return await _update_query_changed(
+        f"""
+        UPDATE subscription_deliveries
+        SET status = '{STATUS_SENT}', sent_at = ?, updated_at = ?, last_error = NULL
+        WHERE id = ? AND status <> '{STATUS_SENT}'
+        """,
+        (now_ts, now_ts, delivery_id),
+    )
+
+
+async def mark_subscription_delivery_failed(
+    delivery_id: int,
+    attempt: int,
+    error: str,
+    *,
+    retryable: bool,
+    now: dt.datetime,
+) -> bool:
+    """Release an attempt that did not deliver: ``failed`` (retry later) or ``abandoned``.
+
+    Fenced by the attempt number, so a superseded attempt cannot overwrite a newer
+    attempt's claim or a completed delivery.
+    """
+    return await _update_query_changed(
+        f"""
+        UPDATE subscription_deliveries
+        SET status = ?, last_error = ?, updated_at = ?
+        WHERE id = ? AND status = '{STATUS_IN_PROGRESS}' AND attempts = ?
+        """,
+        (
+            STATUS_FAILED if retryable else STATUS_ABANDONED,
+            (error or "")[:500],
+            _ledger_ts(now),
+            delivery_id,
+            attempt,
+        ),
+    )
 
 
 async def delete_user_completely(user_id: int) -> None:
@@ -925,6 +1155,7 @@ async def delete_user_completely(user_id: int) -> None:
         conn = await _connect_postgres()
         try:
             async with conn.transaction():
+                await conn.execute(_postgres_query("DELETE FROM subscription_deliveries WHERE user_id = ?"), user_id)
                 await conn.execute(_postgres_query("DELETE FROM subscriptions WHERE user_id = ?"), user_id)
                 await conn.execute(_postgres_query("DELETE FROM users WHERE user_id = ?"), user_id)
         finally:
@@ -932,6 +1163,7 @@ async def delete_user_completely(user_id: int) -> None:
         return
 
     async with aiosqlite.connect(_resolve_sqlite_db_path()) as db:
+        await db.execute("DELETE FROM subscription_deliveries WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         await db.commit()

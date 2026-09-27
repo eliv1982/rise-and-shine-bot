@@ -33,6 +33,11 @@ def log_generation_fail(user_id: int, source: str, step: str, error: str) -> Non
     )
 
 
+def log_delivery_event(event: str, **fields: object) -> None:
+    """Scheduled-delivery lifecycle: tick, claimed, completed, failed, skipped."""
+    logger.info("metric=subscription_delivery %s", _fmt(event=event, **fields))
+
+
 def log_rate_limited(user_id: int, used: int, limit: int) -> None:
     logger.info(
         "metric=rate_limited %s",

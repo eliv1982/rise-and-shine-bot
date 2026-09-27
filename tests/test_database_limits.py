@@ -183,15 +183,67 @@ def test_update_subscription_changes_only_selected_subscription(monkeypatch, tmp
     asyncio.run(run())
 
 
-def test_due_subscriptions_returns_multiple_for_same_user(monkeypatch, tmp_path):
+def test_active_subscriptions_for_delivery_returns_multiple_for_same_user(monkeypatch, tmp_path):
     async def run():
         monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "due.db"))
         await db.init_db()
         await db.create_or_update_user(24, "u", name="Due")
         await db.create_subscription(24, "random", None, "auto", "ru", 9, 0)
         await db.create_subscription(24, "money", None, "auto", "ru", 9, 0)
-        due = await db.get_due_subscriptions(dt.datetime(2030, 1, 1, 9, 0))
-        assert len(due) == 2
-        assert {sub["user_id"] for sub in due} == {24}
+        subs = await db.get_active_subscriptions_for_delivery()
+        assert len(subs) == 2
+        assert {sub["user_id"] for sub in subs} == {24}
+
+    asyncio.run(run())
+
+
+def test_active_subscriptions_for_delivery_excludes_inactive(monkeypatch, tmp_path):
+    async def run():
+        monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "due_inactive.db"))
+        await db.init_db()
+        await db.create_or_update_user(26, "u", name="Due2")
+        keep_id = await db.create_subscription(26, "random", None, "auto", "ru", 9, 0)
+        drop_id = await db.create_subscription(26, "money", None, "auto", "ru", 9, 0)
+        await db.deactivate_subscription(26, drop_id)
+        subs = await db.get_active_subscriptions_for_delivery()
+        assert [sub["id"] for sub in subs] == [keep_id]
+
+    asyncio.run(run())
+
+
+def test_deactivate_subscription_deletes_its_ledger_rows_only(monkeypatch, tmp_path):
+    """Regression for the normal single-subscription delete flow (handlers/subscribe.py's
+    subdelok: callback -> deactivate_subscription). The deactivated subscription's id can
+    never be reactivated (get_subscription_by_id only ever sees is_active = 1 rows), so its
+    subscription_deliveries rows must be removed with it rather than left behind forever;
+    an unrelated, still-active subscription's ledger rows must be untouched.
+    """
+
+    async def run():
+        monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "deactivate_ledger.db"))
+        await db.init_db()
+        await db.create_or_update_user(27, "u", name="Ledger")
+        deleted_id = await db.create_subscription(27, "random", None, "auto", "ru", 8, 0)
+        kept_id = await db.create_subscription(27, "money", None, "auto", "ru", 9, 0)
+
+        now = dt.datetime.now(dt.timezone.utc)
+        claim_kwargs = dict(
+            user_id=27,
+            visual_mode="photo",
+            now=now,
+            max_attempts=3,
+            retry_backoff=dt.timedelta(minutes=15),
+            lease=dt.timedelta(minutes=15),
+        )
+        await db.claim_subscription_delivery(subscription_id=deleted_id, delivery_date="2030-02-01", **claim_kwargs)
+        await db.claim_subscription_delivery(subscription_id=kept_id, delivery_date="2030-02-01", **claim_kwargs)
+
+        await db.deactivate_subscription(27, deleted_id)
+
+        rows = await db.get_subscription_deliveries(["2030-02-01"])
+        assert [r["subscription_id"] for r in rows] == [kept_id]
+        assert await db.get_subscription_by_id(deleted_id, 27) is None
+        # The still-active subscription is untouched.
+        assert await db.get_subscription_by_id(kept_id, 27) is not None
 
     asyncio.run(run())

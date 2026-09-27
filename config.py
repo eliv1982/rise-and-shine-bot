@@ -136,6 +136,11 @@ def get_sqlite_db_path() -> str:
     return os.path.join(d, "bot.db") if d else "bot.db"
 
 
+def get_scheduler_max_concurrency() -> int:
+    """How many due subscriptions the scheduler processes at once (paid external APIs: keep low)."""
+    return max(1, _get_env_int("SCHEDULER_MAX_CONCURRENCY", 3))
+
+
 def get_outputs_dir() -> str:
     """Каталог для сгенерированных файлов (картинки, TTS)."""
     d = get_bot_data_dir()
