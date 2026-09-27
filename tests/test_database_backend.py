@@ -264,6 +264,101 @@ async def test_release_smalltalk_usage_postgres_executes_guarded_update(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_reserve_generation_usage_postgres_returns_true_when_reserved(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
+    db = _reload_database_module(monkeypatch)
+
+    captured = {}
+
+    class _FakeConn:
+        async def fetchrow(self, query, *params):
+            captured["query"] = query
+            captured["params"] = params
+            return (1,)
+
+        async def close(self):
+            return None
+
+    async def _fake_connect():
+        return _FakeConn()
+
+    monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+
+    reserved = await db.reserve_generation_usage(42, 5)
+
+    assert reserved is True
+    assert "RETURNING 1" in captured["query"]
+    assert "ON CONFLICT(user_id) DO UPDATE" in captured["query"]
+    assert "generation_limits" in captured["query"]
+    assert captured["params"][-1] == 5
+
+
+@pytest.mark.asyncio
+async def test_reserve_generation_usage_postgres_returns_false_when_limit_reached(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
+    db = _reload_database_module(monkeypatch)
+
+    class _FakeConn:
+        async def fetchrow(self, query, *params):
+            return None
+
+        async def close(self):
+            return None
+
+    async def _fake_connect():
+        return _FakeConn()
+
+    monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+
+    reserved = await db.reserve_generation_usage(42, 5)
+
+    assert reserved is False
+
+
+@pytest.mark.asyncio
+async def test_reserve_generation_usage_postgres_skips_db_when_unlimited(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
+    db = _reload_database_module(monkeypatch)
+
+    async def _fake_connect():
+        raise AssertionError("must not touch the DB when the daily limit is disabled")
+
+    monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+
+    reserved = await db.reserve_generation_usage(42, 0)
+
+    assert reserved is True
+
+
+@pytest.mark.asyncio
+async def test_release_generation_usage_postgres_executes_guarded_update(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
+    db = _reload_database_module(monkeypatch)
+
+    captured = {}
+
+    class _FakeConn:
+        async def execute(self, query, *params):
+            captured["query"] = query
+            captured["params"] = params
+            return "UPDATE 1"
+
+        async def close(self):
+            return None
+
+    async def _fake_connect():
+        return _FakeConn()
+
+    monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+
+    await db.release_generation_usage(42)
+
+    assert "count = count - 1" in captured["query"]
+    assert "count > 0" in captured["query"]
+    assert "generation_limits" in captured["query"]
+
+
+@pytest.mark.asyncio
 async def test_update_subscription_postgres_returns_false_when_no_row_updated(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
     db = _reload_database_module(monkeypatch)

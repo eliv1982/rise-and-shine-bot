@@ -16,9 +16,11 @@ from config import (
 )
 from database import (
     can_start_interactive_generation,
+    get_generation_usage_today,
     get_user,
     get_user_profile_preferences,
-    record_interactive_generation,
+    release_generation_usage,
+    reserve_generation_usage,
 )
 from handlers.common_guards import answer_menu_option_guard, answer_menu_style_guard, require_onboarded_user
 from handlers.common_messages import (
@@ -1104,439 +1106,446 @@ async def _run_generation(
 
     limit_enabled = not settings.disable_daily_generation_limit and settings.generation_daily_limit > 0
     if limit_enabled:
-        if await _check_generation_limit_and_handle(
-            message,
-            state,
-            uid=uid,
-            language=language,
-            settings=settings,
-        ):
+        reserved = await reserve_generation_usage(uid, settings.generation_daily_limit)
+        if not reserved:
+            used = await get_generation_usage_today(uid)
+            log_rate_limited(uid, used, settings.generation_daily_limit)
+            await _handle_generation_limit_reached(
+                message,
+                state,
+                language=language,
+                limit=settings.generation_daily_limit,
+            )
             return
 
-    gender_hint = gender_display(gender, language=language)
-    today = dt.datetime.now().date()
-    focus = get_focus_for_date(uid, sphere, today)
-    if theme_text and theme_text.strip():
-        focus_text = theme_text.strip()
-        micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
-    else:
-        focus_text = focus["en"] if language == "en" else focus["ru"]
-        micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
-    image_hint = focus.get("image_hint_en")
-    if is_gibberish_text(focus_text):
-        if theme_text and not is_gibberish_text(theme_text):
+    delivered = False
+    try:
+        gender_hint = gender_display(gender, language=language)
+        today = dt.datetime.now().date()
+        focus = get_focus_for_date(uid, sphere, today)
+        if theme_text and theme_text.strip():
             focus_text = theme_text.strip()
+            micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
         else:
-            await message.answer(_voice_unclear_text(language))
+            focus_text = focus["en"] if language == "en" else focus["ru"]
+            micro_step = focus["micro_step_en"] if language == "en" else focus["micro_step_ru"]
+        image_hint = focus.get("image_hint_en")
+        if is_gibberish_text(focus_text):
+            if theme_text and not is_gibberish_text(theme_text):
+                focus_text = theme_text.strip()
+            else:
+                await message.answer(_voice_unclear_text(language))
+                await state.set_state(GenerationState.choosing_style)
+                return
+        resolved_style = resolve_style(
+            style,
+            sphere,
+            user_id=uid,
+            day=today,
+            focus_key=focus["key"],
+            visual_mode=visual_mode,
+            recent_styles=recent_styles,
+            recent_archetypes=recent_archetypes,
+        )
+        if normalize_visual_mode(visual_mode) == "photo" and style == "auto" and has_coastal_intent(theme_text):
+            resolved_style = "sea_coast_photo"
+        effective_visual_mode = visual_mode_for_style(visual_mode, resolved_style)
+        text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
+            sphere=sphere,
+            subsphere=subsphere,
+            focus_title=focus_text,
+            user_custom_topic=theme_text,
+            language=language,
+            recent_text_context=None,
+            settings=settings,
+        )
+        text_plan = None
+        text_memory_context = None
+        if is_text_planner_controlled_enabled(settings):
+            if isinstance(text_plan_shadow_payload, dict):
+                candidate_text_plan = text_plan_shadow_payload.get("text_plan")
+                if isinstance(candidate_text_plan, dict):
+                    text_plan = candidate_text_plan
+            if text_plan is None:
+                text_plan = build_fallback_text_plan(
+                    sphere=sphere,
+                    subsphere=subsphere,
+                    focus_title=focus_text,
+                    user_custom_topic=theme_text,
+                    language=language,
+                    recent_text_context=None,
+                )
+            if getattr(settings, "text_memory_context_enabled", False):
+                text_memory_context = await get_text_memory_context(uid, limit=10)
+        text_plan_guidance = build_text_generation_guidance(
+            text_plan=text_plan,
+            language=language,
+            gender_hint=gender_hint,
+            text_memory_context=text_memory_context,
+        )
+        profile_text_guidance = build_profile_text_guidance(
+            preferences=profile_preferences if use_profile_preferences else None,
+            language=language,
+        )
+        combined_text_guidance = "\n\n".join(
+            part for part in [text_plan_guidance, profile_text_guidance] if part
+        ) or None
+        text_prompt_controlled_meta = None
+        if text_plan_guidance:
+            text_prompt_controlled_meta = {
+                "enabled": True,
+                "source": "text_plan_local_fallback",
+                "theme_category": (text_plan or {}).get("theme_category"),
+                "tone": (text_plan or {}).get("tone"),
+                "guidance_used": True,
+            }
+        profile_guidance_meta = None
+        if use_profile_preferences:
+            profile_preferences_count = len([key for key, value in profile_preferences.items() if value])
+            profile_avoid_constraints_count = len(profile_preferences.get("avoid_topics") or []) + len(
+                profile_preferences.get("avoid_words") or []
+            )
+            profile_guidance_meta = {
+                "profile_used": True,
+                "profile_preferences_count": profile_preferences_count,
+                "profile_current_focus_used": bool(str(profile_preferences.get("current_focus") or "").strip()),
+                "profile_avoid_constraints_count": profile_avoid_constraints_count,
+                "guidance_used": bool(profile_text_guidance),
+            }
+        text_memory_context_meta = None
+        if isinstance(text_memory_context, dict) and text_memory_context:
+            text_memory_context_meta = {
+                "enabled": True,
+                "limit": text_memory_context.get("limit", 10),
+                "overused_text_patterns": list(text_memory_context.get("overused_text_patterns") or []),
+                "recent_focus_titles_count": len(text_memory_context.get("recent_focus_titles") or []),
+                "avoid_soft_actions_count": len(text_memory_context.get("avoid_soft_actions") or []),
+            }
+
+        try:
+            affirmations = await generate_affirmations(
+                sphere=sphere,
+                language=language,
+                user_text=theme_text,
+                subsphere=subsphere,
+                gender_hint=gender_hint,
+                gender=gender,
+                focus=focus_text,
+                micro_theme=micro_step,
+                sphere_label=get_sphere_label(sphere, language),
+                text_plan_guidance=combined_text_guidance,
+            )
+        except Exception as exc:
+            logger.exception("Affirmations generation failed: %s", exc)
+            log_generation_fail(uid, "interactive", "affirmations", str(exc))
+            await message.answer(
+                "Не удалось собрать текст настроя дня. Попробуй ещё раз — выбери стиль ниже или /new."
+                if language == "ru"
+                else "Could not create the daily focus text. Try again — pick a style below or use /new.",
+                reply_markup=style_keyboard(language, visual_mode=visual_mode),
+            )
             await state.set_state(GenerationState.choosing_style)
             return
-    resolved_style = resolve_style(
-        style,
-        sphere,
-        user_id=uid,
-        day=today,
-        focus_key=focus["key"],
-        visual_mode=visual_mode,
-        recent_styles=recent_styles,
-        recent_archetypes=recent_archetypes,
-    )
-    if normalize_visual_mode(visual_mode) == "photo" and style == "auto" and has_coastal_intent(theme_text):
-        resolved_style = "sea_coast_photo"
-    effective_visual_mode = visual_mode_for_style(visual_mode, resolved_style)
-    text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
-        sphere=sphere,
-        subsphere=subsphere,
-        focus_title=focus_text,
-        user_custom_topic=theme_text,
-        language=language,
-        recent_text_context=None,
-        settings=settings,
-    )
-    text_plan = None
-    text_memory_context = None
-    if is_text_planner_controlled_enabled(settings):
-        if isinstance(text_plan_shadow_payload, dict):
-            candidate_text_plan = text_plan_shadow_payload.get("text_plan")
-            if isinstance(candidate_text_plan, dict):
-                text_plan = candidate_text_plan
-        if text_plan is None:
-            text_plan = build_fallback_text_plan(
-                sphere=sphere,
-                subsphere=subsphere,
-                focus_title=focus_text,
-                user_custom_topic=theme_text,
-                language=language,
-                recent_text_context=None,
-            )
-        if getattr(settings, "text_memory_context_enabled", False):
-            text_memory_context = await get_text_memory_context(uid, limit=10)
-    text_plan_guidance = build_text_generation_guidance(
-        text_plan=text_plan,
-        language=language,
-        gender_hint=gender_hint,
-        text_memory_context=text_memory_context,
-    )
-    profile_text_guidance = build_profile_text_guidance(
-        preferences=profile_preferences if use_profile_preferences else None,
-        language=language,
-    )
-    combined_text_guidance = "\n\n".join(
-        part for part in [text_plan_guidance, profile_text_guidance] if part
-    ) or None
-    text_prompt_controlled_meta = None
-    if text_plan_guidance:
-        text_prompt_controlled_meta = {
-            "enabled": True,
-            "source": "text_plan_local_fallback",
-            "theme_category": (text_plan or {}).get("theme_category"),
-            "tone": (text_plan or {}).get("tone"),
-            "guidance_used": True,
-        }
-    profile_guidance_meta = None
-    if use_profile_preferences:
-        profile_preferences_count = len([key for key, value in profile_preferences.items() if value])
-        profile_avoid_constraints_count = len(profile_preferences.get("avoid_topics") or []) + len(
-            profile_preferences.get("avoid_words") or []
-        )
-        profile_guidance_meta = {
-            "profile_used": True,
-            "profile_preferences_count": profile_preferences_count,
-            "profile_current_focus_used": bool(str(profile_preferences.get("current_focus") or "").strip()),
-            "profile_avoid_constraints_count": profile_avoid_constraints_count,
-            "guidance_used": bool(profile_text_guidance),
-        }
-    text_memory_context_meta = None
-    if isinstance(text_memory_context, dict) and text_memory_context:
-        text_memory_context_meta = {
-            "enabled": True,
-            "limit": text_memory_context.get("limit", 10),
-            "overused_text_patterns": list(text_memory_context.get("overused_text_patterns") or []),
-            "recent_focus_titles_count": len(text_memory_context.get("recent_focus_titles") or []),
-            "avoid_soft_actions_count": len(text_memory_context.get("avoid_soft_actions") or []),
-        }
 
-    try:
-        affirmations = await generate_affirmations(
-            sphere=sphere,
+        text_reviewer_shadow_payload = build_text_reviewer_shadow_best_effort(
+            affirmations=affirmations,
+            soft_action=micro_step,
+            focus_title=focus_text,
             language=language,
-            user_text=theme_text,
-            subsphere=subsphere,
             gender_hint=gender_hint,
-            gender=gender,
-            focus=focus_text,
-            micro_theme=micro_step,
-            sphere_label=get_sphere_label(sphere, language),
-            text_plan_guidance=combined_text_guidance,
+            text_plan=text_plan,
+            text_memory_context=text_memory_context,
+            profile_preferences=profile_preferences if use_profile_preferences else None,
+            settings=settings,
         )
-    except Exception as exc:
-        logger.exception("Affirmations generation failed: %s", exc)
-        log_generation_fail(uid, "interactive", "affirmations", str(exc))
-        await message.answer(
-            "Не удалось собрать текст настроя дня. Попробуй ещё раз — выбери стиль ниже или /new."
-            if language == "ru"
-            else "Could not create the daily focus text. Try again — pick a style below or use /new.",
-            reply_markup=style_keyboard(language, visual_mode=visual_mode),
+
+        scene_plan_shadow_payload = await build_scene_plan_shadow_best_effort(
+            telegram_user_id=uid,
+            focus_title=focus_text,
+            affirmations=affirmations,
+            soft_action=micro_step,
+            language=language,
+            settings=settings,
+            selected_style=style,
+            resolved_style=resolved_style,
+            visual_mode=effective_visual_mode,
+            style_mode=style,
+            sphere=sphere,
+            subsphere=subsphere,
         )
-        await state.set_state(GenerationState.choosing_style)
-        return
+        color_mood = random.choice(_COLOR_MOODS)
+        composition_hint = random.choice(_COMPOSITION_HINTS)
+        photo_scene_preset_override = None
+        scene_prompt_controlled_meta = None
+        prompt_trace = "template"
+        prompt_final = None
 
-    text_reviewer_shadow_payload = build_text_reviewer_shadow_best_effort(
-        affirmations=affirmations,
-        soft_action=micro_step,
-        focus_title=focus_text,
-        language=language,
-        gender_hint=gender_hint,
-        text_plan=text_plan,
-        text_memory_context=text_memory_context,
-        profile_preferences=profile_preferences if use_profile_preferences else None,
-        settings=settings,
-    )
-
-    scene_plan_shadow_payload = await build_scene_plan_shadow_best_effort(
-        telegram_user_id=uid,
-        focus_title=focus_text,
-        affirmations=affirmations,
-        soft_action=micro_step,
-        language=language,
-        settings=settings,
-        selected_style=style,
-        resolved_style=resolved_style,
-        visual_mode=effective_visual_mode,
-        style_mode=style,
-        sphere=sphere,
-        subsphere=subsphere,
-    )
-    color_mood = random.choice(_COLOR_MOODS)
-    composition_hint = random.choice(_COMPOSITION_HINTS)
-    photo_scene_preset_override = None
-    scene_prompt_controlled_meta = None
-    prompt_trace = "template"
-    prompt_final = None
-
-    if effective_visual_mode != "symbolic" and is_scene_planner_image_prompt_enabled(settings):
-        try:
-            scene_plan = None
-            if isinstance(scene_plan_shadow_payload, dict):
-                candidate_scene_plan = scene_plan_shadow_payload.get("scene_plan")
-                if isinstance(candidate_scene_plan, dict):
-                    scene_plan = candidate_scene_plan
-            if scene_plan is None:
-                visual_memory_context = await get_visual_memory_context(uid, limit=10)
-                scene_plan = normalize_scene_plan(
-                    build_fallback_scene_plan(
-                        focus_title=focus_text,
+        if effective_visual_mode != "symbolic" and is_scene_planner_image_prompt_enabled(settings):
+            try:
+                scene_plan = None
+                if isinstance(scene_plan_shadow_payload, dict):
+                    candidate_scene_plan = scene_plan_shadow_payload.get("scene_plan")
+                    if isinstance(candidate_scene_plan, dict):
+                        scene_plan = candidate_scene_plan
+                if scene_plan is None:
+                    visual_memory_context = await get_visual_memory_context(uid, limit=10)
+                    scene_plan = normalize_scene_plan(
+                        build_fallback_scene_plan(
+                            focus_title=focus_text,
+                            visual_memory_context=visual_memory_context,
+                            selected_style=style,
+                            resolved_style=resolved_style,
+                            visual_mode=effective_visual_mode,
+                            style_mode=style,
+                            sphere=sphere,
+                            subsphere=subsphere,
+                        ),
                         visual_memory_context=visual_memory_context,
+                    )
+                prompt_final = build_controlled_scene_prompt(
+                    scene_plan=scene_plan,
+                    focus_title=focus_text,
+                    visual_mode=effective_visual_mode,
+                    selected_style=style,
+                    resolved_style=resolved_style,
+                    color_palette=color_mood,
+                    composition_hint=composition_hint,
+                    sphere=sphere,
+                    subsphere=subsphere,
+                    language=language,
+                )
+                if prompt_final:
+                    prompt_trace = "scene_planner_local"
+                    photo_scene_preset_override = select_photo_scene_preset_override(
+                        scene_plan=scene_plan,
                         selected_style=style,
                         resolved_style=resolved_style,
                         visual_mode=effective_visual_mode,
-                        style_mode=style,
-                        sphere=sphere,
-                        subsphere=subsphere,
+                    )
+                    scene_prompt_controlled_meta = {
+                        "enabled": True,
+                        "photo_scene_preset_override": photo_scene_preset_override,
+                        "prompt_source": "scene_planner_local",
+                        "used_scene_type": scene_plan.get("scene_type"),
+                        "used_scene_family": normalize_scene_family(scene_plan.get("scene_type")),
+                        "style_family": resolve_scene_style_family(
+                            selected_style=style,
+                            resolved_style=resolved_style,
+                            visual_mode=effective_visual_mode,
+                            style_mode=style,
+                            sphere=sphere,
+                            subsphere=subsphere,
+                            focus_title=focus_text,
+                        ),
+                        "candidate_pool_name": resolve_scene_style_family(
+                            selected_style=style,
+                            resolved_style=resolved_style,
+                            visual_mode=effective_visual_mode,
+                            style_mode=style,
+                            sphere=sphere,
+                            subsphere=subsphere,
+                            focus_title=focus_text,
+                        ),
+                        "living_nature_constraints_applied": is_living_nature_style(
+                            selected_style=style,
+                            resolved_style=resolved_style,
+                            visual_mode=effective_visual_mode,
+                        ),
+                    }
+            except Exception:
+                logger.exception("Controlled scene prompt build failed for user %s", uid)
+                prompt_final = None
+
+        try:
+            if effective_visual_mode == "symbolic":
+                prompt_final = None
+                prompt_trace = "template"
+            elif not prompt_final:
+                prompt_final, prompt_trace = await build_enriched_image_prompt(
+                    style=style,
+                    sphere=sphere,
+                    subsphere=subsphere,
+                    user_text=theme_text,
+                    custom_style_description=custom_style_description,
+                    affirmations=affirmations,
+                    color_mood=color_mood,
+                    composition_hint=composition_hint,
+                    use_llm=should_use_llm_image_prompt_for_fallback(
+                        scene_planner_image_prompt_enabled=is_scene_planner_image_prompt_enabled(settings),
+                        llm_image_prompt_enabled=settings.llm_image_prompt_enabled,
                     ),
-                    visual_memory_context=visual_memory_context,
-                )
-            prompt_final = build_controlled_scene_prompt(
-                scene_plan=scene_plan,
-                focus_title=focus_text,
-                visual_mode=effective_visual_mode,
-                selected_style=style,
-                resolved_style=resolved_style,
-                color_palette=color_mood,
-                composition_hint=composition_hint,
-                sphere=sphere,
-                subsphere=subsphere,
-                language=language,
-            )
-            if prompt_final:
-                prompt_trace = "scene_planner_local"
-                photo_scene_preset_override = select_photo_scene_preset_override(
-                    scene_plan=scene_plan,
-                    selected_style=style,
+                    image_hint=image_hint,
+                    focus=focus_text,
                     resolved_style=resolved_style,
                     visual_mode=effective_visual_mode,
                 )
-                scene_prompt_controlled_meta = {
-                    "enabled": True,
-                    "photo_scene_preset_override": photo_scene_preset_override,
-                    "prompt_source": "scene_planner_local",
-                    "used_scene_type": scene_plan.get("scene_type"),
-                    "used_scene_family": normalize_scene_family(scene_plan.get("scene_type")),
-                    "style_family": resolve_scene_style_family(
-                        selected_style=style,
-                        resolved_style=resolved_style,
-                        visual_mode=effective_visual_mode,
-                        style_mode=style,
-                        sphere=sphere,
-                        subsphere=subsphere,
-                        focus_title=focus_text,
-                    ),
-                    "candidate_pool_name": resolve_scene_style_family(
-                        selected_style=style,
-                        resolved_style=resolved_style,
-                        visual_mode=effective_visual_mode,
-                        style_mode=style,
-                        sphere=sphere,
-                        subsphere=subsphere,
-                        focus_title=focus_text,
-                    ),
-                    "living_nature_constraints_applied": is_living_nature_style(
-                        selected_style=style,
-                        resolved_style=resolved_style,
-                        visual_mode=effective_visual_mode,
-                    ),
-                }
-        except Exception:
-            logger.exception("Controlled scene prompt build failed for user %s", uid)
-            prompt_final = None
-
-    try:
-        if effective_visual_mode == "symbolic":
-            prompt_final = None
-            prompt_trace = "template"
-        elif not prompt_final:
-            prompt_final, prompt_trace = await build_enriched_image_prompt(
+                if prompt_trace == "template_fallback":
+                    log_image_prompt_llm_fallback("llm_unavailable_or_bad_json")
+            image_path = await generate_image(
                 style=style,
                 sphere=sphere,
-                subsphere=subsphere,
                 user_text=theme_text,
+                subsphere=subsphere,
                 custom_style_description=custom_style_description,
-                affirmations=affirmations,
+                prompt_override=prompt_final,
+                image_prompt_trace=prompt_trace,
+                image_hint=image_hint,
+                resolved_style_override=resolved_style,
+                visual_mode=effective_visual_mode,
+                focus_key=focus["key"],
                 color_mood=color_mood,
                 composition_hint=composition_hint,
-                use_llm=should_use_llm_image_prompt_for_fallback(
-                    scene_planner_image_prompt_enabled=is_scene_planner_image_prompt_enabled(settings),
-                    llm_image_prompt_enabled=settings.llm_image_prompt_enabled,
-                ),
-                image_hint=image_hint,
-                focus=focus_text,
-                resolved_style=resolved_style,
-                visual_mode=effective_visual_mode,
+                recent_scene_presets=recent_scenes,
+                recent_archetypes=recent_archetypes,
+                photo_scene_preset_override=photo_scene_preset_override,
             )
-            if prompt_trace == "template_fallback":
-                log_image_prompt_llm_fallback("llm_unavailable_or_bad_json")
-        image_path = await generate_image(
+        except Exception as exc:
+            logger.exception("Image generation failed: %s", exc)
+            log_generation_fail(uid, "interactive", "image", str(exc))
+            err_text = str(exc)
+            if language == "ru":
+                if "Генерация изображения" in err_text or "времени" in err_text:
+                    msg = err_text + " Попробуй ещё раз — выбери стиль ниже или /new."
+                else:
+                    msg = "Не удалось сгенерировать изображение. Попробуй ещё раз — выбери стиль ниже или /new."
+            else:
+                if "took too long" in err_text.lower() or "timeout" in err_text.lower():
+                    msg = err_text + " Try again — pick a style below or /new."
+                else:
+                    msg = "Could not generate the image. Try again — pick a style below or /new."
+            await message.answer(msg, reply_markup=style_keyboard(language, visual_mode=visual_mode))
+            await state.set_state(GenerationState.choosing_style)
+            return
+
+        caption = build_generation_caption(
+            user=user,
+            language=language,
+            focus_text=focus_text,
+            affirmations=affirmations,
+            micro_step=micro_step,
+        )
+
+        image_meta = update_image_meta(
+            image_path=image_path,
+            affirmations=affirmations,
+            theme_text=theme_text,
+            gender=gender,
+            focus=focus,
+            micro_step=micro_step,
+            effective_visual_mode=effective_visual_mode,
             style=style,
-            sphere=sphere,
-            user_text=theme_text,
-            subsphere=subsphere,
-            custom_style_description=custom_style_description,
-            prompt_override=prompt_final,
-            image_prompt_trace=prompt_trace,
-            image_hint=image_hint,
-            resolved_style_override=resolved_style,
-            visual_mode=effective_visual_mode,
-            focus_key=focus["key"],
+            resolved_style=resolved_style,
             color_mood=color_mood,
             composition_hint=composition_hint,
-            recent_scene_presets=recent_scenes,
-            recent_archetypes=recent_archetypes,
-            photo_scene_preset_override=photo_scene_preset_override,
+            text_provider=text_provider,
+            image_provider=image_provider,
+            tts_provider=tts_provider,
+            last_stt_meta=last_stt_meta,
+            data=data,
+            custom_style_description=custom_style_description,
+            logger=logger,
         )
-    except Exception as exc:
-        logger.exception("Image generation failed: %s", exc)
-        log_generation_fail(uid, "interactive", "image", str(exc))
-        err_text = str(exc)
-        if language == "ru":
-            if "Генерация изображения" in err_text or "времени" in err_text:
-                msg = err_text + " Попробуй ещё раз — выбери стиль ниже или /new."
-            else:
-                msg = "Не удалось сгенерировать изображение. Попробуй ещё раз — выбери стиль ниже или /new."
-        else:
-            if "took too long" in err_text.lower() or "timeout" in err_text.lower():
-                msg = err_text + " Try again — pick a style below or /new."
-            else:
-                msg = "Could not generate the image. Try again — pick a style below or /new."
-        await message.answer(msg, reply_markup=style_keyboard(language, visual_mode=visual_mode))
-        await state.set_state(GenerationState.choosing_style)
-        return
+        prompt_final = prompt_final or image_meta.get("final_prompt") or image_meta.get("prompt")
 
-    caption = build_generation_caption(
-        user=user,
-        language=language,
-        focus_text=focus_text,
-        affirmations=affirmations,
-        micro_step=micro_step,
-    )
+        if settings.show_image_debug:
+            caption = f"{caption}\n\n{_build_image_debug_block(image_meta, model=settings.image_model, image_size=settings.image_size)}"
 
-    image_meta = update_image_meta(
-        image_path=image_path,
-        affirmations=affirmations,
-        theme_text=theme_text,
-        gender=gender,
-        focus=focus,
-        micro_step=micro_step,
-        effective_visual_mode=effective_visual_mode,
-        style=style,
-        resolved_style=resolved_style,
-        color_mood=color_mood,
-        composition_hint=composition_hint,
-        text_provider=text_provider,
-        image_provider=image_provider,
-        tts_provider=tts_provider,
-        last_stt_meta=last_stt_meta,
-        data=data,
-        custom_style_description=custom_style_description,
-        logger=logger,
-    )
-    prompt_final = prompt_final or image_meta.get("final_prompt") or image_meta.get("prompt")
+        photo = FSInputFile(image_path)
+        sent_message = await message.answer_photo(photo=photo, caption=caption, reply_markup=after_generation_keyboard(language))
+        delivered = True
 
-    if settings.show_image_debug:
-        caption = f"{caption}\n\n{_build_image_debug_block(image_meta, model=settings.image_model, image_size=settings.image_size)}"
+        log_generation_ok(uid, "interactive", prompt_trace)
 
-    photo = FSInputFile(image_path)
-    sent_message = await message.answer_photo(photo=photo, caption=caption, reply_markup=after_generation_keyboard(language))
+        request_type = str(data.get("generation_request_type") or "manual")
+        scene_type = image_meta.get("scene_preset") or image_meta.get("photo_scene_preset")
+        telegram_image_file_id = extract_telegram_photo_file_id(sent_message)
+        visual_motifs = build_visual_motifs(
+            image_meta=image_meta,
+            visual_mode=effective_visual_mode,
+            selected_style=resolved_style,
+            color_palette=color_mood,
+            composition_hint=composition_hint,
+            sphere=sphere,
+            subsphere=subsphere,
+        )
+        visual_motifs = attach_scene_plan_shadow_to_visual_motifs(
+            visual_motifs,
+            scene_plan_shadow_payload,
+        )
+        visual_motifs = attach_text_plan_shadow_to_metadata(
+            visual_motifs,
+            text_plan_shadow_payload,
+        )
+        visual_motifs = attach_text_reviewer_shadow_to_metadata(
+            visual_motifs,
+            text_reviewer_shadow_payload,
+        )
+        if scene_prompt_controlled_meta is not None:
+            visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
+        if text_prompt_controlled_meta is not None:
+            visual_motifs["text_prompt_controlled"] = text_prompt_controlled_meta
+        if profile_guidance_meta is not None:
+            visual_motifs["profile_text_guidance"] = profile_guidance_meta
+        if text_memory_context_meta is not None:
+            visual_motifs["text_memory_context"] = text_memory_context_meta
+        orchestrator_shadow_payload = build_orchestrator_shadow_best_effort(
+            settings=settings,
+            language=language,
+            sphere=sphere,
+            subsphere=subsphere,
+            focus_title=focus_text,
+            selected_style=resolved_style,
+            visual_mode=effective_visual_mode,
+            text_plan_shadow=text_plan_shadow_payload,
+            text_prompt_controlled=text_prompt_controlled_meta,
+            text_memory_context=text_memory_context,
+            text_reviewer_shadow=text_reviewer_shadow_payload,
+            scene_plan_shadow=scene_plan_shadow_payload,
+            scene_prompt_controlled=scene_prompt_controlled_meta,
+            profile_guidance_meta=profile_guidance_meta,
+        )
+        visual_motifs = attach_orchestrator_shadow_to_metadata(visual_motifs, orchestrator_shadow_payload)
+        await record_generation_history_best_effort(
+            telegram_user_id=uid,
+            request_type=request_type,
+            focus_title=focus_text,
+            affirmations=affirmations,
+            soft_action=micro_step,
+            text_model=getattr(text_provider, "model", None),
+            image_model=getattr(image_provider, "model", None),
+            image_prompt=prompt_final,
+            telegram_image_file_id=telegram_image_file_id,
+            scene_type=scene_type,
+            visual_motifs=visual_motifs,
+        )
 
-    if limit_enabled:
-        await record_interactive_generation(uid)
-    log_generation_ok(uid, "interactive", prompt_trace)
-
-    request_type = str(data.get("generation_request_type") or "manual")
-    scene_type = image_meta.get("scene_preset") or image_meta.get("photo_scene_preset")
-    telegram_image_file_id = extract_telegram_photo_file_id(sent_message)
-    visual_motifs = build_visual_motifs(
-        image_meta=image_meta,
-        visual_mode=effective_visual_mode,
-        selected_style=resolved_style,
-        color_palette=color_mood,
-        composition_hint=composition_hint,
-        sphere=sphere,
-        subsphere=subsphere,
-    )
-    visual_motifs = attach_scene_plan_shadow_to_visual_motifs(
-        visual_motifs,
-        scene_plan_shadow_payload,
-    )
-    visual_motifs = attach_text_plan_shadow_to_metadata(
-        visual_motifs,
-        text_plan_shadow_payload,
-    )
-    visual_motifs = attach_text_reviewer_shadow_to_metadata(
-        visual_motifs,
-        text_reviewer_shadow_payload,
-    )
-    if scene_prompt_controlled_meta is not None:
-        visual_motifs["scene_prompt_controlled"] = scene_prompt_controlled_meta
-    if text_prompt_controlled_meta is not None:
-        visual_motifs["text_prompt_controlled"] = text_prompt_controlled_meta
-    if profile_guidance_meta is not None:
-        visual_motifs["profile_text_guidance"] = profile_guidance_meta
-    if text_memory_context_meta is not None:
-        visual_motifs["text_memory_context"] = text_memory_context_meta
-    orchestrator_shadow_payload = build_orchestrator_shadow_best_effort(
-        settings=settings,
-        language=language,
-        sphere=sphere,
-        subsphere=subsphere,
-        focus_title=focus_text,
-        selected_style=resolved_style,
-        visual_mode=effective_visual_mode,
-        text_plan_shadow=text_plan_shadow_payload,
-        text_prompt_controlled=text_prompt_controlled_meta,
-        text_memory_context=text_memory_context,
-        text_reviewer_shadow=text_reviewer_shadow_payload,
-        scene_plan_shadow=scene_plan_shadow_payload,
-        scene_prompt_controlled=scene_prompt_controlled_meta,
-        profile_guidance_meta=profile_guidance_meta,
-    )
-    visual_motifs = attach_orchestrator_shadow_to_metadata(visual_motifs, orchestrator_shadow_payload)
-    await record_generation_history_best_effort(
-        telegram_user_id=uid,
-        request_type=request_type,
-        focus_title=focus_text,
-        affirmations=affirmations,
-        soft_action=micro_step,
-        text_model=getattr(text_provider, "model", None),
-        image_model=getattr(image_provider, "model", None),
-        image_prompt=prompt_final,
-        telegram_image_file_id=telegram_image_file_id,
-        scene_type=scene_type,
-        visual_motifs=visual_motifs,
-    )
-
-    history.append(
-        {
-            "selected_style": resolved_style,
-            "scene_preset": image_meta.get("scene_preset") or image_meta.get("photo_scene_preset"),
-            "visual_archetype": image_meta.get("visual_archetype"),
-        }
-    )
-    await state.clear()
-    await state.update_data(
-        last_generation={
-            "sphere": sphere,
-            "subsphere": subsphere,
-            "style": style,
-            "resolved_style": resolved_style,
-            "visual_mode": visual_mode,
-            "theme_text": theme_text,
-            "custom_style_description": custom_style_description,
-            "affirmations": affirmations,
-            "focus_key": focus["key"],
-        },
-        generation_request_type=None,
-        use_profile_preferences=None,
-        recent_generation_history=history[-7:],
-    )
+        history.append(
+            {
+                "selected_style": resolved_style,
+                "scene_preset": image_meta.get("scene_preset") or image_meta.get("photo_scene_preset"),
+                "visual_archetype": image_meta.get("visual_archetype"),
+            }
+        )
+        await state.clear()
+        await state.update_data(
+            last_generation={
+                "sphere": sphere,
+                "subsphere": subsphere,
+                "style": style,
+                "resolved_style": resolved_style,
+                "visual_mode": visual_mode,
+                "theme_text": theme_text,
+                "custom_style_description": custom_style_description,
+                "affirmations": affirmations,
+                "focus_key": focus["key"],
+            },
+            generation_request_type=None,
+            use_profile_preferences=None,
+            recent_generation_history=history[-7:],
+        )
+    finally:
+        if limit_enabled and not delivered:
+            await release_generation_usage(uid)
 
 
 @router.callback_query(F.data == "again:yes")
