@@ -24,6 +24,8 @@ outputs/
 bot.db
 data/*.db
 data/outputs/
+heartbeat
+backups/
 
 # IDE и ОС
 .idea/

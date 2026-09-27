@@ -36,6 +36,22 @@ def setup_logging() -> None:
     logger.addHandler(console_handler)
 
 
+async def stop_scheduler_on_shutdown() -> None:
+    """Registered as a dp.shutdown hook: aiogram already handles SIGTERM/SIGINT
+    (loop.add_signal_handler) and runs shutdown hooks as soon as polling stops,
+    before closing the bot session - earlier than main()'s own finally block.
+
+    The scheduler is told to stop here too, without waiting for an in-flight
+    delivery to finish: Stage 2's durable claim lease (scheduler.CLAIM_LEASE)
+    already reclaims and retries an interrupted delivery after restart with its
+    persisted visual mode intact (see tests/test_scheduler_delivery.py), so
+    cancelling keeps deploys fast instead of blocking up to
+    ATTEMPT_TIMEOUT_SECONDS (600s) for whatever happened to be running.
+    """
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+
+
 async def main() -> None:
     setup_logging()
     settings = get_settings()
@@ -52,6 +68,8 @@ async def main() -> None:
     dp.include_router(smalltalk.router)
 
     setup_scheduler(bot)
+    dp.shutdown.register(stop_scheduler_on_shutdown)
+
     try:
         await dp.start_polling(bot)
     finally:

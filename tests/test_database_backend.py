@@ -79,6 +79,41 @@ def test_postgres_placeholder_conversion_ignores_double_quoted_identifiers(monke
     assert converted == 'SELECT "weird?column" FROM "table?" WHERE user_id = $1 AND language = $2'
 
 
+@pytest.mark.asyncio
+async def test_init_db_rejects_malformed_database_url(monkeypatch):
+    """Stage 5 item N: a typo'd DATABASE_URL must fail startup loudly, not
+    silently fall back to an empty local SQLite database."""
+    monkeypatch.setenv("DATABASE_URL", "postgres-server.example.com:5432/rise_bot")
+    db = _reload_database_module(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="DATABASE_URL"):
+        await db.init_db()
+
+
+@pytest.mark.asyncio
+async def test_init_db_accepts_valid_postgres_url(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
+    db = _reload_database_module(monkeypatch)
+
+    class _FakeConn:
+        async def execute(self, query, *params):
+            return None
+
+        async def close(self):
+            return None
+
+    async def _fake_connect():
+        return _FakeConn()
+
+    async def _fake_add_column_if_missing(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+    monkeypatch.setattr(db, "add_column_if_missing", _fake_add_column_if_missing)
+
+    await db.init_db()  # must not raise
+
+
 def test_sqlite_path_falls_back_to_default_db_path(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("SQLITE_DB_PATH", raising=False)
