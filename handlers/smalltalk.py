@@ -6,14 +6,39 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
 from aiogram.types import Message
 
-from database import get_user
+from config import get_settings
+from database import (
+    get_smalltalk_usage_today,
+    get_user,
+    release_smalltalk_usage,
+    reserve_smalltalk_usage,
+)
 from keyboards.inline import new_affirmation_keyboard
+from monitoring import log_smalltalk_rate_limited, log_smalltalk_unregistered_rejected
 from services.language_policy import is_input_language_compatible
 from services.main_menu_intents import detect_main_menu_intent
 from services.yandex_gpt import generate_smalltalk_reply
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+
+def _registration_required_text(language: str) -> str:
+    if language == "ru":
+        return "Давай сначала познакомимся 🌿\nНапиши /start, чтобы начать."
+    return "Let's get you set up first 🌿\nSend /start to begin."
+
+
+def _smalltalk_limit_reached_text(language: str, limit: int) -> str:
+    if language == "ru":
+        return (
+            f"Сегодня уже {limit} сообщений в свободном чате — это дневной лимит. "
+            "Продолжим завтра! А пока можешь создать новый настрой дня."
+        )
+    return (
+        f"You've reached today's limit of {limit} chat messages. "
+        "Let's continue tomorrow! Meanwhile, you can create a new daily focus."
+    )
 
 
 @router.message(Command("help"))
@@ -58,6 +83,12 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
         return
 
     user = await get_user(message.from_user.id)
+    if user is None:
+        # Anonymous/unregistered users must not reach the paid LLM path at all.
+        log_smalltalk_unregistered_rejected(message.from_user.id)
+        await message.answer(_registration_required_text("ru"))
+        return
+
     language = (user or {}).get("language", "ru")
     text = message.text or ""
     if is_input_language_compatible(text, language) and detect_main_menu_intent(text, language):
@@ -66,10 +97,27 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
         if await route_main_menu_intent(message, state, text, language):
             return
 
+    settings = get_settings()
+    limit = settings.smalltalk_daily_limit
+    limit_enabled = limit > 0
+    if limit_enabled:
+        reserved = await reserve_smalltalk_usage(message.from_user.id, limit)
+        if not reserved:
+            used = await get_smalltalk_usage_today(message.from_user.id)
+            log_smalltalk_rate_limited(message.from_user.id, used, limit)
+            await message.answer(
+                _smalltalk_limit_reached_text(language, limit),
+                reply_markup=new_affirmation_keyboard(language),
+            )
+            return
+
     try:
         reply = await generate_smalltalk_reply(text, language=language)
     except Exception as exc:
         logger.exception("Smalltalk failed: %s", exc)
+        if limit_enabled:
+            # The reservation was made before the call; release it since no reply was produced.
+            await release_smalltalk_usage(message.from_user.id)
         if language == "ru":
             await message.answer(
                 "Я здесь, чтобы помогать с ежедневным настроем. Хочешь создать новый?",
@@ -82,5 +130,12 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
             )
         return
 
-    await message.answer(reply, reply_markup=new_affirmation_keyboard(language))
+    try:
+        await message.answer(reply, reply_markup=new_affirmation_keyboard(language))
+    except Exception:
+        if limit_enabled:
+            # The LLM produced a reply, but Telegram never delivered it to the user;
+            # release the reservation rather than charge them for a message they never saw.
+            await release_smalltalk_usage(message.from_user.id)
+        raise
 
