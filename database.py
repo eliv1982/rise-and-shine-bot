@@ -93,6 +93,14 @@ _SQLITE_SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS smalltalk_limits (
+        user_id   INTEGER PRIMARY KEY,
+        day_utc   TEXT NOT NULL,
+        count     INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS generation_history (
         id                      INTEGER PRIMARY KEY AUTOINCREMENT,
         telegram_user_id        INTEGER NOT NULL,
@@ -183,6 +191,14 @@ _POSTGRES_SCHEMA_STATEMENTS = [
     """,
     """
     CREATE TABLE IF NOT EXISTS generation_limits (
+        user_id   BIGINT PRIMARY KEY,
+        day_utc   TEXT NOT NULL,
+        count     INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS smalltalk_limits (
         user_id   BIGINT PRIMARY KEY,
         day_utc   TEXT NOT NULL,
         count     INTEGER NOT NULL DEFAULT 0,
@@ -707,6 +723,56 @@ async def record_interactive_generation(user_id: int) -> None:
         await db.commit()
 
 
+async def get_smalltalk_usage_today(user_id: int) -> int:
+    today = _utc_today_iso()
+    row = await _fetchone(
+        "SELECT count FROM smalltalk_limits WHERE user_id = ? AND day_utc = ?",
+        (user_id, today),
+    )
+    return int(row[0]) if row else 0
+
+
+async def reserve_smalltalk_usage(user_id: int, daily_limit: int) -> bool:
+    """Atomically claim one smalltalk use for today, iff today's count is under ``daily_limit``.
+
+    One upsert statement, so two concurrent messages from the same user cannot both read
+    "under limit" and both proceed (see ``claim_subscription_delivery`` for the same guarded-
+    write pattern applied to the delivery ledger). A day rollover resets the counter to 1 in
+    the same statement. Returns whether the reservation succeeded; callers should call
+    ``release_smalltalk_usage`` if the reserved use ends up not being consumed.
+    """
+    if daily_limit <= 0:
+        return True
+    today = _utc_today_iso()
+    return await _update_query_changed(
+        """
+        INSERT INTO smalltalk_limits (user_id, day_utc, count)
+        VALUES (?, ?, 1)
+        ON CONFLICT(user_id) DO UPDATE SET
+            day_utc = excluded.day_utc,
+            count = CASE
+                WHEN smalltalk_limits.day_utc <> excluded.day_utc THEN 1
+                ELSE smalltalk_limits.count + 1
+            END
+        WHERE smalltalk_limits.day_utc <> excluded.day_utc OR smalltalk_limits.count < ?
+        """,
+        (user_id, today, daily_limit),
+    )
+
+
+async def release_smalltalk_usage(user_id: int) -> None:
+    """Undo one reservation for today when the provider call failed before a reply was produced.
+
+    Scoped to today's row only: if the day rolled over between reserve and release (a rare,
+    low-stakes race), the release is a no-op and the user is simply out one use for the new day.
+    """
+    today = _utc_today_iso()
+    await _execute(
+        "UPDATE smalltalk_limits SET count = count - 1 WHERE user_id = ? AND day_utc = ? AND count > 0",
+        (user_id, today),
+    )
+
+
 async def get_user(user_id: int) -> Optional[Dict[str, Any]]:
     row = await _fetchone("SELECT * FROM users WHERE user_id = ?", (user_id,))
     return dict(row) if row else None
@@ -1157,6 +1223,7 @@ async def delete_user_completely(user_id: int) -> None:
             async with conn.transaction():
                 await conn.execute(_postgres_query("DELETE FROM subscription_deliveries WHERE user_id = ?"), user_id)
                 await conn.execute(_postgres_query("DELETE FROM subscriptions WHERE user_id = ?"), user_id)
+                await conn.execute(_postgres_query("DELETE FROM smalltalk_limits WHERE user_id = ?"), user_id)
                 await conn.execute(_postgres_query("DELETE FROM users WHERE user_id = ?"), user_id)
         finally:
             await conn.close()
@@ -1165,5 +1232,6 @@ async def delete_user_completely(user_id: int) -> None:
     async with aiosqlite.connect(_resolve_sqlite_db_path()) as db:
         await db.execute("DELETE FROM subscription_deliveries WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+        await db.execute("DELETE FROM smalltalk_limits WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         await db.commit()

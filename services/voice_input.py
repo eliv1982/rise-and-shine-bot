@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from config import get_outputs_dir
+from monitoring import log_voice_cleanup_failed
 from services.language_policy import is_input_language_compatible
 from services.speechkit_stt import transcribe_audio_with_meta
 from services.text_quality import is_gibberish_text
@@ -61,33 +62,40 @@ class VoiceInputProcessor:
         await message.bot.download_file(file.file_path, destination=local_path)
 
         try:
-            stt_meta = await self._stt_transcriber(local_path, language=language)
-            recognized = str(stt_meta.get("recognized_text_final") or "")
-        except Exception as exc:
-            logger.exception("STT failed for %s voice: %s", pending_kind, exc)
+            try:
+                stt_meta = await self._stt_transcriber(local_path, language=language)
+                recognized = str(stt_meta.get("recognized_text_final") or "")
+            except Exception as exc:
+                logger.exception("STT failed for %s voice: %s", pending_kind, exc)
+                await state.update_data(
+                    recognized_text_pending=None,
+                    recognized_text_pending_kind=None,
+                )
+                return VoiceProcessingResult(status="stt_failed")
+
+            await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
+
+            if is_gibberish_text(recognized):
+                await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+                return VoiceProcessingResult(status="unclear", text=recognized, stt_meta=stt_meta)
+
+            if not is_input_language_compatible(recognized, language):
+                await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
+                return VoiceProcessingResult(status="language_mismatch", text=recognized, stt_meta=stt_meta)
+
+            pending_update = {
+                "recognized_text_pending": recognized if store_pending else None,
+                "recognized_text_pending_kind": pending_kind if store_pending else None,
+            }
             await state.update_data(
-                recognized_text_pending=None,
-                recognized_text_pending_kind=None,
+                **pending_update,
+                last_recognized_text=recognized,
+                last_stt_meta=stt_meta,
             )
-            return VoiceProcessingResult(status="stt_failed")
-
-        await state.update_data(last_stt_meta=stt_meta, last_recognized_text=recognized)
-
-        if is_gibberish_text(recognized):
-            await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
-            return VoiceProcessingResult(status="unclear", text=recognized, stt_meta=stt_meta)
-
-        if not is_input_language_compatible(recognized, language):
-            await state.update_data(recognized_text_pending=None, recognized_text_pending_kind=None)
-            return VoiceProcessingResult(status="language_mismatch", text=recognized, stt_meta=stt_meta)
-
-        pending_update = {
-            "recognized_text_pending": recognized if store_pending else None,
-            "recognized_text_pending_kind": pending_kind if store_pending else None,
-        }
-        await state.update_data(
-            **pending_update,
-            last_recognized_text=recognized,
-            last_stt_meta=stt_meta,
-        )
-        return VoiceProcessingResult(status="ok", text=recognized, stt_meta=stt_meta)
+            return VoiceProcessingResult(status="ok", text=recognized, stt_meta=stt_meta)
+        finally:
+            try:
+                if os.path.exists(local_path):
+                    os.remove(local_path)
+            except OSError as exc:
+                log_voice_cleanup_failed(local_path, str(exc))

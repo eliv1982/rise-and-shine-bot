@@ -42,6 +42,7 @@ from handlers.common_messages import (
     voice_recognized_echo_text as _voice_recognized_echo_text,
     voice_unclear_text as _voice_unclear_text,
 )
+from monitoring import log_voice_cleanup_failed
 from services.subscription_ui import build_subscription_summary, build_subscriptions_summary, gender_profile_label
 from services.main_menu_intents import _normalize_intent_text, detect_main_menu_intent
 from services.speechkit_stt import transcribe_audio_with_meta
@@ -312,12 +313,19 @@ async def process_name_voice(message: Message, state: FSMContext) -> None:
     os.makedirs(dest_dir, exist_ok=True)
     local_path = f"{dest_dir}/voice_name_{message.from_user.id}_{voice.file_unique_id}.ogg"
     try:
-        await message.bot.download_file(file.file_path, destination=local_path)
-        stt_meta = await transcribe_audio_with_meta(local_path, language="ru")
-        recognized = str(stt_meta.get("recognized_text_final") or "")
-    except Exception:
-        await message.answer(_voice_recognition_failed_text("ru"))
-        return
+        try:
+            await message.bot.download_file(file.file_path, destination=local_path)
+            stt_meta = await transcribe_audio_with_meta(local_path, language="ru")
+            recognized = str(stt_meta.get("recognized_text_final") or "")
+        except Exception:
+            await message.answer(_voice_recognition_failed_text("ru"))
+            return
+    finally:
+        try:
+            if os.path.exists(local_path):
+                os.remove(local_path)
+        except OSError as exc:
+            log_voice_cleanup_failed(local_path, str(exc))
     await message.answer(_voice_recognized_echo_text("ru", recognized))
     raw = recognized.strip()
     if not raw:

@@ -41,6 +41,7 @@ class Settings:
     bot_token: str
     generation_daily_limit: int
     disable_daily_generation_limit: bool
+    smalltalk_daily_limit: int
     output_max_age_days: int
     llm_image_prompt_enabled: bool
     image_model: str
@@ -323,6 +324,7 @@ def get_settings() -> Settings:
         bot_token=_get_env_var("BOT_TOKEN"),
         generation_daily_limit=daily_limit,
         disable_daily_generation_limit=_get_env_bool("DISABLE_DAILY_GENERATION_LIMIT", False),
+        smalltalk_daily_limit=_get_env_int("SMALLTALK_DAILY_LIMIT", 20),
         output_max_age_days=_get_env_int("OUTPUT_MAX_AGE_DAYS", 7),
         llm_image_prompt_enabled=_get_env_bool("LLM_IMAGE_PROMPT_ENABLED", True),
         image_model=image_cfg.model,

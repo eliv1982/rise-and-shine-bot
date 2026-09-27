@@ -5,6 +5,7 @@ from logging.handlers import RotatingFileHandler
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
+from cleanup_outputs import run_outputs_cleanup
 from config import get_settings
 from database import init_db
 from handlers import generation, smalltalk, start, subscribe
@@ -40,6 +41,7 @@ async def main() -> None:
     settings = get_settings()
 
     await init_db()
+    await run_outputs_cleanup()
 
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher(storage=MemoryStorage())

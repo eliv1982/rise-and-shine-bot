@@ -170,6 +170,13 @@ SCHEDULER_MISFIRE_GRACE_SECONDS = 60
 _COMPLETION_WRITE_ATTEMPTS = 3
 _COMPLETION_WRITE_RETRY_DELAY_SECONDS = 0.5
 
+# Outputs cleanup: a background sweep of old generated/temp files (see cleanup_outputs.py),
+# unrelated to the delivery ledger above. Runs on this same scheduler as its own job with its
+# own id so it cannot collide with `daily_affirmations`. Hours/day cadence is plenty for a
+# retention window measured in days, so this is a plain constant rather than a new setting.
+OUTPUTS_CLEANUP_INTERVAL_HOURS = 6
+OUTPUTS_CLEANUP_MISFIRE_GRACE_SECONDS = 900
+
 _STAGE_GENERATION = "generation"
 _STAGE_SEND = "send"
 _STAGE_POST_SEND = "post_send"
@@ -768,6 +775,18 @@ async def _deliver_subscription(
         logger.exception("Post-send bookkeeping failed for user %s; the message was delivered", user_id)
 
 
+async def _run_outputs_cleanup_job() -> None:
+    """APScheduler job wrapper: cleanup_outputs.run_outputs_cleanup already isolates its own
+    errors and never raises, but a scheduled job must never be able to take the process down
+    regardless, so this stays defensive too."""
+    try:
+        from cleanup_outputs import run_outputs_cleanup
+
+        await run_outputs_cleanup()
+    except Exception:
+        logger.exception("Outputs cleanup job failed")
+
+
 def setup_scheduler(bot: Bot) -> None:
     scheduler.add_job(
         send_daily_affirmations,
@@ -779,5 +798,15 @@ def setup_scheduler(bot: Bot) -> None:
         max_instances=1,
         coalesce=True,
         misfire_grace_time=SCHEDULER_MISFIRE_GRACE_SECONDS,
+    )
+    scheduler.add_job(
+        _run_outputs_cleanup_job,
+        "interval",
+        hours=OUTPUTS_CLEANUP_INTERVAL_HOURS,
+        id="outputs_cleanup",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=OUTPUTS_CLEANUP_MISFIRE_GRACE_SECONDS,
     )
     scheduler.start()

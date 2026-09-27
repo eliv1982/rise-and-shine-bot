@@ -43,6 +43,7 @@ def isolate_generation_limit_env(monkeypatch):
     monkeypatch.setenv("DISABLE_DAILY_GENERATION_LIMIT", "false")
     monkeypatch.setenv("DAILY_GENERATION_LIMIT", "5")
     monkeypatch.delenv("GENERATION_DAILY_LIMIT", raising=False)
+    monkeypatch.setenv("SMALLTALK_DAILY_LIMIT", "20")
 
 
 @pytest.fixture(autouse=True)
