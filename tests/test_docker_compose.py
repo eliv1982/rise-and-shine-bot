@@ -107,16 +107,22 @@ def test_postgres_healthcheck_uses_container_env_not_hardcoded_credentials(rende
     assert _TEST_POSTGRES_ENV["POSTGRES_PASSWORD"] not in test_cmd
 
 
-def test_missing_postgres_env_fails_compose_config(tmp_path):
+@pytest.mark.parametrize("missing_var", ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"])
+def test_missing_postgres_env_fails_compose_config(tmp_path, missing_var):
+    """Compose interpolation stops at the first missing required variable and
+    does not necessarily report every missing one in a single invocation
+    (observed on GitHub Actions' Compose version - it reports only the first).
+    So each required var is tested in isolation, omitted from an otherwise
+    complete/valid env, rather than asserting all three appear when all three
+    are missing at once."""
     if not _docker_compose_available():
         pytest.skip("docker compose is not available in this environment")
-    result = _render(tmp_path, postgres_env={})
+    postgres_env = {k: v for k, v in _TEST_POSTGRES_ENV.items() if k != missing_var}
+    result = _render(tmp_path, postgres_env=postgres_env)
 
     assert result.returncode != 0
     combined = result.stdout + result.stderr
-    assert "POSTGRES_USER" in combined
-    assert "POSTGRES_PASSWORD" in combined
-    assert "POSTGRES_DB" in combined
+    assert missing_var in combined
 
 
 def test_production_env_example_uses_compose_hostname_for_database_url():
