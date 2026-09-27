@@ -709,6 +709,46 @@ async def can_start_interactive_generation(user_id: int, daily_limit: int) -> Tu
     return used < daily_limit, used
 
 
+async def reserve_generation_usage(user_id: int, daily_limit: int) -> bool:
+    """Atomically claim one interactive-generation use for today, iff today's count is under
+    ``daily_limit``. Mirrors ``reserve_smalltalk_usage``: one upsert statement, so concurrent
+    callback presses/messages from the same user cannot all read "under limit" and all launch
+    paid provider work before any one of them is accounted for. A day rollover resets the
+    counter to 1 in the same statement. Returns whether the reservation succeeded; callers must
+    call ``release_generation_usage`` if the reserved use does not end in a delivered result.
+    """
+    if daily_limit <= 0:
+        return True
+    today = _utc_today_iso()
+    return await _update_query_changed(
+        """
+        INSERT INTO generation_limits (user_id, day_utc, count)
+        VALUES (?, ?, 1)
+        ON CONFLICT(user_id) DO UPDATE SET
+            day_utc = excluded.day_utc,
+            count = CASE
+                WHEN generation_limits.day_utc <> excluded.day_utc THEN 1
+                ELSE generation_limits.count + 1
+            END
+        WHERE generation_limits.day_utc <> excluded.day_utc OR generation_limits.count < ?
+        """,
+        (user_id, today, daily_limit),
+    )
+
+
+async def release_generation_usage(user_id: int) -> None:
+    """Undo one reservation for today when no result was delivered to the user (provider
+    failure before delivery, or the Telegram send itself failing). Scoped to today's row only:
+    if the day rolled over between reserve and release (a rare, low-stakes race), the release is
+    a no-op and the user is simply out one use for the new day.
+    """
+    today = _utc_today_iso()
+    await _execute(
+        "UPDATE generation_limits SET count = count - 1 WHERE user_id = ? AND day_utc = ? AND count > 0",
+        (user_id, today),
+    )
+
+
 async def record_interactive_generation(user_id: int) -> None:
     today = _utc_today_iso()
     query = """

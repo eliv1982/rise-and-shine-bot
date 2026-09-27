@@ -474,7 +474,6 @@ def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
 
     state = _FakeState(
@@ -558,7 +557,6 @@ def test_run_generation_symbolic_bypasses_scene_planner_and_prompt_override(monk
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("symbolic mode must not use enriched prompt override")),
     )
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
 
     state = _FakeState(
@@ -623,7 +621,6 @@ def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkey
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
 
     state = _FakeState(
@@ -713,7 +710,6 @@ def test_run_generation_attaches_compact_text_memory_context_metadata_when_enabl
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
     monkeypatch.setattr(generation, "get_text_memory_context", _fake_text_memory_context)
@@ -805,7 +801,6 @@ def test_run_generation_uses_profile_preferences_guidance_and_attaches_profile_m
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
 
@@ -892,7 +887,6 @@ def test_run_generation_does_not_read_text_memory_or_attach_marker_when_disabled
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
     monkeypatch.setattr(generation, "get_text_memory_context", _unexpected_text_memory)
@@ -969,7 +963,6 @@ def test_run_generation_attaches_text_reviewer_shadow_metadata_when_enabled(monk
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
 
@@ -1038,7 +1031,6 @@ def test_run_generation_does_not_attach_text_reviewer_shadow_when_disabled(monke
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
 
@@ -1115,7 +1107,6 @@ def test_run_generation_attaches_orchestrator_shadow_when_enabled(monkeypatch):
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
     monkeypatch.setattr(generation, "get_text_memory_context", _fake_text_memory_context)
@@ -1188,7 +1179,6 @@ def test_run_generation_does_not_attach_orchestrator_shadow_when_disabled(monkey
     monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
-    monkeypatch.setattr(generation, "record_interactive_generation", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(generation, "record_generation_history_best_effort", _fake_history)
 
