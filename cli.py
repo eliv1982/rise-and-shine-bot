@@ -101,7 +101,7 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 async def async_main() -> None:
     """
-    Асинхронная точка входа: параллельный запрос YandexGPT и генерации изображения.
+    Асинхронная точка входа: параллельный запрос текстовой модели (OpenAI) и генерации изображения.
     """
     setup_logging()
     logger = logging.getLogger("cli")

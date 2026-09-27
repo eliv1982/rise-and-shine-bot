@@ -21,21 +21,10 @@ def _detect_mime_type(path: str) -> str:
     return mime
 
 
-def _map_language_to_stt_code(language: str) -> str:
-    """
-    Преобразует 'ru' / 'en' в коды, ожидаемые SpeechKit.
-    """
-    if language == "en":
-        return "en-US"
-    return "ru-RU"
-
-
 def _resolve_stt_language(provider_cfg: SttProviderConfig, language: str) -> str:
     if language == "auto":
         return ""
-    if provider_cfg.provider == "yandex":
-        return "en-US" if language == "en" else "ru-RU"
-    # OpenAI-compatible STT may auto-detect; explicit env language has priority.
+    # OpenAI STT may auto-detect; explicit env language has priority.
     if provider_cfg.language:
         return provider_cfg.language
     return ""
@@ -95,40 +84,21 @@ async def _transcribe_once(provider_cfg: SttProviderConfig, audio_path: str, lan
     with open(audio_path, "rb") as f:
         data = f.read()
     async with aiohttp.ClientSession() as session:
-        if provider_cfg.provider == "yandex":
-            url = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
-            params = {
-                "lang": lang_code or _map_language_to_stt_code(language_hint),
-                "folderId": str(provider_cfg.options.get("folder_id") or ""),
-            }
-            headers = {
-                "Authorization": f"Api-Key {provider_cfg.api_key}",
-                "Content-Type": mime_type,
-            }
-            async with session.post(url, params=params, headers=headers, data=data, timeout=provider_cfg.timeout_seconds) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    logger.error("Yandex STT error: status=%s, body=%s", resp.status, text)
-                    raise RuntimeError(f"Speech recognition failed with status {resp.status}")
-                result_json = await resp.json()
-            return (result_json.get("result") or "").strip()
-        if provider_cfg.provider == "openai":
-            base_url = (provider_cfg.base_url or "https://api.openai.com/v1").rstrip("/")
-            url = f"{base_url}/audio/transcriptions"
-            form = aiohttp.FormData()
-            form.add_field("file", data, filename=os.path.basename(audio_path), content_type=mime_type)
-            form.add_field("model", provider_cfg.model)
-            if lang_code:
-                form.add_field("language", lang_code)
-            headers = {"Authorization": f"Bearer {provider_cfg.api_key}"}
-            async with session.post(url, headers=headers, data=form, timeout=provider_cfg.timeout_seconds) as resp:
-                if resp.status != 200:
-                    body = await resp.text()
-                    logger.error("OpenAI STT error: status=%s, body=%s", resp.status, body)
-                    raise RuntimeError(f"Speech recognition failed with status {resp.status}")
-                result_json = await resp.json()
-            return (result_json.get("text") or "").strip()
-        raise RuntimeError(f"Unsupported STT provider: {provider_cfg.provider}")
+        base_url = (provider_cfg.base_url or "https://api.openai.com/v1").rstrip("/")
+        url = f"{base_url}/audio/transcriptions"
+        form = aiohttp.FormData()
+        form.add_field("file", data, filename=os.path.basename(audio_path), content_type=mime_type)
+        form.add_field("model", provider_cfg.model)
+        if lang_code:
+            form.add_field("language", lang_code)
+        headers = {"Authorization": f"Bearer {provider_cfg.api_key}"}
+        async with session.post(url, headers=headers, data=form, timeout=provider_cfg.timeout_seconds) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                logger.error("OpenAI STT error: status=%s, body=%s", resp.status, body)
+                raise RuntimeError(f"Speech recognition failed with status {resp.status}")
+            result_json = await resp.json()
+        return (result_json.get("text") or "").strip()
 
 
 async def transcribe_audio_with_meta(
@@ -139,32 +109,18 @@ async def transcribe_audio_with_meta(
     if not os.path.exists(audio_path):
         raise RuntimeError(f"Audio file not found: {audio_path}")
 
-    attempts = []
     allow_cross = bool(provider_cfg.options.get("allow_cross_language_stt_fallback", False))
-    if provider_cfg.provider == "yandex":
-        prefer_raw = str(provider_cfg.options.get("prefer_language") or "").strip().lower()
-        prefer = "ru" if prefer_raw.startswith("ru") else ("en" if prefer_raw.startswith("en") else "")
-        if prefer:
-            attempts.append(prefer)
-        ui_primary = "en" if language == "en" else "ru"
-        if ui_primary not in attempts:
-            attempts.append(ui_primary)
-        if allow_cross:
-            ui_fallback = "ru" if ui_primary == "en" else "en"
-            if ui_fallback not in attempts:
-                attempts.append(ui_fallback)
-    else:
-        attempts = [language]
-        if allow_cross:
-            alternate = "ru" if language == "en" else "en"
-            if alternate != language:
-                attempts.append(alternate)
+    attempts = [language]
+    if allow_cross:
+        alternate = "ru" if language == "en" else "en"
+        if alternate != language:
+            attempts.append(alternate)
 
     best_text = ""
     used_attempts = []
     for attempt_lang in attempts:
         used_attempts.append(attempt_lang)
-        if provider_cfg.provider == "openai" and not provider_cfg.language:
+        if not provider_cfg.language:
             # Attempt 1: auto language. Attempt 2: explicit alternate hint.
             lang_for_attempt = "auto" if len(used_attempts) == 1 else attempt_lang
         else:

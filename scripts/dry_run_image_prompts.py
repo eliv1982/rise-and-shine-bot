@@ -2,7 +2,7 @@
 
 Generates a batch of sample image prompts using the same prompt-building
 functions as the real generation flow, WITHOUT making any network/API calls
-(no OpenAI, no image API, no YandexGPT). Useful for reviewing prompt text,
+(no OpenAI, no image API). Useful for reviewing prompt text,
 length and motif diversity after changes to services/openai_image.py.
 
 Usage:
@@ -27,9 +27,6 @@ os.environ.setdefault("OPENAI_TEXT_MODEL", "gpt-4o-mini")
 os.environ.setdefault("OPENAI_IMAGE_MODEL", "gpt-image-1")
 os.environ.setdefault("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 os.environ.setdefault("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
-os.environ.setdefault("YANDEX_API_KEY", "dry-run-key")
-os.environ.setdefault("YANDEX_FOLDER_ID", "dry-run-folder")
-os.environ.setdefault("PROXI_API_KEY", "dry-run-key")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

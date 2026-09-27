@@ -38,13 +38,40 @@ def _env_int(env: Mapping[str, str], name: str, default: int) -> int:
         return default
 
 
-def _normalize_provider(raw_value: str, *, allowed: tuple[str, ...], default: str) -> str:
-    value = (raw_value or "").strip().lower()
-    if not value:
-        return default
-    if value in allowed:
-        return value
-    return default
+_LEGACY_ENV_NAMES = (
+    "TEXT_PROVIDER",
+    "IMAGE_PROVIDER",
+    "TTS_PROVIDER",
+    "STT_PROVIDER",
+    "PROXI_API_KEY",
+    "PROXI_BASE_URL",
+    "PROXI_TEXT_MODEL",
+    "PROXI_IMAGE_MODEL",
+    "PROXI_IMAGE_SIZE",
+    "PROXI_TEXT_TIMEOUT_SECONDS",
+    "PROXI_IMAGE_TIMEOUT_SECONDS",
+    "YANDEX_API_KEY",
+    "YANDEX_FOLDER_ID",
+    "YANDEX_SPEECHKIT_API_KEY",
+    "YANDEX_TEXT_MODEL",
+    "YANDEX_COMPLETION_MODEL",
+    "YANDEX_TTS_MODEL",
+    "YANDEX_TTS_VOICE",
+    "YANDEX_TTS_TIMEOUT_SECONDS",
+    "YANDEX_STT_MODEL",
+    "YANDEX_STT_LANGUAGE",
+    "YANDEX_STT_TIMEOUT_SECONDS",
+    "STT_PREFER_LANGUAGE",
+)
+
+
+def _ignored_legacy_env_present(env: Mapping[str, str]) -> list[str]:
+    """Names of pre-Stage-6 provider env vars still set but no longer read by the app.
+
+    Safe to leave in a live .env (see docs/production_env.md); listed here only so an
+    operator can clean them up later without guessing which old vars are dead.
+    """
+    return sorted(name for name in _LEGACY_ENV_NAMES if _env(env, name))
 
 
 def _mask_secret(value: str) -> str:
@@ -102,15 +129,14 @@ def _build_warnings(report: dict[str, Any], env: Mapping[str, str]) -> list[str]
             "running on the host. Point it at a docker-reachable host/IP or use extra_hosts."
         )
 
-    providers = report["providers"]
     openai = report["openai"]
     flags = report["flags"]
 
-    if providers["IMAGE_PROVIDER"] == "proxiapi":
-        warnings.append("IMAGE_PROVIDER=proxiapi while direct OpenAI image profile is expected.")
-
-    if providers["IMAGE_PROVIDER"] == "openai" and openai["OPENAI_BASE_URL"] != OFFICIAL_OPENAI_BASE_URL:
-        warnings.append("OPENAI_BASE_URL differs from https://api.openai.com/v1 while IMAGE_PROVIDER=openai.")
+    if openai["OPENAI_BASE_URL"] != OFFICIAL_OPENAI_BASE_URL:
+        warnings.append(
+            f"OPENAI_BASE_URL differs from the official {OFFICIAL_OPENAI_BASE_URL}; "
+            "this project's direction is official OpenAI endpoints only."
+        )
 
     if flags["SCENE_PLANNER_IMAGE_PROMPT_ENABLED"] and not flags["SCENE_PLANNER_SHADOW_ENABLED"]:
         warnings.append("SCENE_PLANNER_IMAGE_PROMPT_ENABLED=true while SCENE_PLANNER_SHADOW_ENABLED=false.")
@@ -129,9 +155,7 @@ def _build_warnings(report: dict[str, Any], env: Mapping[str, str]) -> list[str]
         if role_count <= 1:
             warnings.append("ORCHESTRATOR_SHADOW_ENABLED=true while most text/scene reviewer roles are disabled.")
 
-    production_like = bool(_env(env, "BOT_TOKEN")) and (
-        bool(_env(env, "OPENAI_API_KEY")) or providers["IMAGE_PROVIDER"] == "proxiapi"
-    )
+    production_like = bool(_env(env, "BOT_TOKEN")) and bool(_env(env, "OPENAI_API_KEY"))
     if flags["DISABLE_DAILY_GENERATION_LIMIT"] and production_like:
         warnings.append("DISABLE_DAILY_GENERATION_LIMIT=true in a production-like environment.")
 
@@ -141,34 +165,8 @@ def _build_warnings(report: dict[str, Any], env: Mapping[str, str]) -> list[str]
 def build_runtime_config_report(env: Mapping[str, str] | None = None) -> dict[str, Any]:
     safe_env = env or os.environ
 
-    text_provider = _normalize_provider(
-        _env(safe_env, "TEXT_PROVIDER"),
-        allowed=("proxiapi", "openai", "yandex"),
-        default="openai",
-    )
-    image_provider = _normalize_provider(
-        _env(safe_env, "IMAGE_PROVIDER"),
-        allowed=("proxiapi", "openai"),
-        default="openai",
-    )
-    tts_provider = _normalize_provider(
-        _env(safe_env, "TTS_PROVIDER"),
-        allowed=("yandex", "openai"),
-        default="openai",
-    )
-    stt_provider = _normalize_provider(
-        _env(safe_env, "STT_PROVIDER"),
-        allowed=("yandex", "openai"),
-        default="openai",
-    )
-
     report: dict[str, Any] = {
-        "providers": {
-            "TEXT_PROVIDER": text_provider,
-            "IMAGE_PROVIDER": image_provider,
-            "TTS_PROVIDER": tts_provider,
-            "STT_PROVIDER": stt_provider,
-        },
+        "provider": "openai",
         "openai": {
             "OPENAI_BASE_URL": _env(safe_env, "OPENAI_BASE_URL", OFFICIAL_OPENAI_BASE_URL),
             "OPENAI_TEXT_MODEL": _env(safe_env, "OPENAI_TEXT_MODEL", "gpt-4o-mini"),
@@ -178,11 +176,7 @@ def build_runtime_config_report(env: Mapping[str, str] | None = None) -> dict[st
             "OPENAI_STT_MODEL": _env(safe_env, "OPENAI_STT_MODEL", "gpt-4o-mini-transcribe"),
             "OPENAI_API_KEY": _mask_secret(_env(safe_env, "OPENAI_API_KEY")),
         },
-        "legacy": {
-            "PROXI_API_KEY": _mask_secret(_env(safe_env, "PROXI_API_KEY")),
-            "YANDEX_API_KEY": _mask_secret(_env(safe_env, "YANDEX_API_KEY")),
-            "YANDEX_FOLDER_ID": _mask_secret(_env(safe_env, "YANDEX_FOLDER_ID")),
-        },
+        "ignored_legacy_env": _ignored_legacy_env_present(safe_env),
         "flags": {
             "TEXT_PLANNER_SHADOW_ENABLED": _env_bool(safe_env, "TEXT_PLANNER_SHADOW_ENABLED", False),
             "TEXT_PLANNER_CONTROLLED_ENABLED": _env_bool(safe_env, "TEXT_PLANNER_CONTROLLED_ENABLED", False),
@@ -218,9 +212,7 @@ def build_runtime_config_report(env: Mapping[str, str] | None = None) -> dict[st
 def _format_human_report(report: dict[str, Any]) -> str:
     lines = [report["status"], ""]
 
-    lines.append("Provider profile:")
-    for key, value in report["providers"].items():
-        lines.append(f"- {key}: {value}")
+    lines.append(f"Provider: {report['provider']} (text/image/TTS/STT; fixed, not configurable)")
 
     lines.append("")
     lines.append("OpenAI direct:")
@@ -235,10 +227,11 @@ def _format_human_report(report: dict[str, Any]) -> str:
     ]:
         lines.append(f"- {key}: {report['openai'][key]}")
 
-    lines.append("")
-    lines.append("Legacy provider status:")
-    for key, value in report["legacy"].items():
-        lines.append(f"- {key}: {value}")
+    if report["ignored_legacy_env"]:
+        lines.append("")
+        lines.append("Ignored legacy env vars (pre-Stage-6 Yandex/Proxi/provider-selection; not read by the app, safe to remove):")
+        for name in report["ignored_legacy_env"]:
+            lines.append(f"- {name}")
 
     lines.append("")
     lines.append("Role flags:")

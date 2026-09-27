@@ -25,10 +25,6 @@ def _set_base_env(monkeypatch):
     monkeypatch.setenv("OPENAI_IMAGE_SIZE", "1024x1024")
     monkeypatch.setenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
     monkeypatch.setenv("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
-    monkeypatch.setenv("TEXT_PROVIDER", "openai")
-    monkeypatch.setenv("IMAGE_PROVIDER", "openai")
-    monkeypatch.setenv("TTS_PROVIDER", "openai")
-    monkeypatch.setenv("STT_PROVIDER", "openai")
     monkeypatch.setenv("TEXT_PLANNER_SHADOW_ENABLED", "true")
     monkeypatch.setenv("TEXT_PLANNER_CONTROLLED_ENABLED", "true")
     monkeypatch.setenv("TEXT_MEMORY_CONTEXT_ENABLED", "true")
@@ -39,16 +35,16 @@ def _set_base_env(monkeypatch):
     monkeypatch.setenv("GENERATION_DAILY_LIMIT", "5")
     monkeypatch.setenv("DISABLE_DAILY_GENERATION_LIMIT", "false")
     monkeypatch.setenv("SHOW_IMAGE_DEBUG", "false")
-    monkeypatch.delenv("PROXI_API_KEY", raising=False)
-    monkeypatch.delenv("YANDEX_API_KEY", raising=False)
-    monkeypatch.delenv("YANDEX_FOLDER_ID", raising=False)
+    for legacy_name in (
+        "TEXT_PROVIDER", "IMAGE_PROVIDER", "TTS_PROVIDER", "STT_PROVIDER",
+        "PROXI_API_KEY", "PROXI_BASE_URL", "YANDEX_API_KEY", "YANDEX_FOLDER_ID",
+    ):
+        monkeypatch.delenv(legacy_name, raising=False)
 
 
 def test_human_readable_output_masks_secrets(monkeypatch, capsys):
     module = _load_script_module()
     _set_base_env(monkeypatch)
-    monkeypatch.setenv("PROXI_API_KEY", "proxy-secret-value-9876")
-    monkeypatch.setenv("YANDEX_API_KEY", "yandex-secret-value-4321")
 
     exit_code = module.main([])
     out = capsys.readouterr().out
@@ -56,8 +52,6 @@ def test_human_readable_output_masks_secrets(monkeypatch, capsys):
     assert exit_code == 0
     assert "CONFIG OK" in out
     assert "sk-test-very-secret-value-1234" not in out
-    assert "proxy-secret-value-9876" not in out
-    assert "yandex-secret-value-4321" not in out
     assert "123456:telegram-secret" not in out
     assert "sk-t...1234" in out
 
@@ -70,7 +64,7 @@ def test_json_output_parses(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
-    assert payload["providers"]["IMAGE_PROVIDER"] == "openai"
+    assert payload["provider"] == "openai"
     assert payload["status"] == "CONFIG OK"
 
 
@@ -84,15 +78,49 @@ def test_openai_direct_profile_has_no_warnings(monkeypatch):
     assert report["status"] == "CONFIG OK"
 
 
-def test_proxiapi_image_provider_warning(monkeypatch):
+def test_custom_openai_base_url_warns(monkeypatch):
     module = _load_script_module()
     _set_base_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.proxyapi.ru/openai/v1")
+
+    report = module.build_runtime_config_report()
+
+    assert any("OPENAI_BASE_URL differs" in warning for warning in report["warnings"])
+
+
+def test_legacy_provider_env_vars_are_reported_as_ignored_not_active(monkeypatch, capsys):
+    module = _load_script_module()
+    _set_base_env(monkeypatch)
+    monkeypatch.setenv("TEXT_PROVIDER", "yandex")
     monkeypatch.setenv("IMAGE_PROVIDER", "proxiapi")
+    monkeypatch.setenv("YANDEX_API_KEY", "yandex-secret-value-4321")
     monkeypatch.setenv("PROXI_API_KEY", "proxy-secret-value-9876")
 
     report = module.build_runtime_config_report()
 
-    assert any("IMAGE_PROVIDER=proxiapi" in warning for warning in report["warnings"])
+    assert report["provider"] == "openai"
+    assert report["warnings"] == []
+    assert set(report["ignored_legacy_env"]) >= {
+        "TEXT_PROVIDER", "IMAGE_PROVIDER", "YANDEX_API_KEY", "PROXI_API_KEY",
+    }
+
+    module.main([])
+    out = capsys.readouterr().out
+    assert "yandex-secret-value-4321" not in out
+    assert "proxy-secret-value-9876" not in out
+    assert "Ignored legacy env vars" in out
+
+
+def test_no_legacy_env_present_omits_ignored_section(monkeypatch, capsys):
+    module = _load_script_module()
+    _set_base_env(monkeypatch)
+
+    report = module.build_runtime_config_report()
+    assert report["ignored_legacy_env"] == []
+
+    module.main([])
+    out = capsys.readouterr().out
+    assert "Ignored legacy env vars" not in out
 
 
 def test_role_dependency_warnings_appear(monkeypatch):
@@ -110,20 +138,6 @@ def test_role_dependency_warnings_appear(monkeypatch):
 
     assert any("TEXT_MEMORY_CONTEXT_ENABLED=true while TEXT_PLANNER_CONTROLLED_ENABLED=false" in warning for warning in report["warnings"])
     assert any("ORCHESTRATOR_SHADOW_ENABLED=true while most text/scene reviewer roles are disabled" in warning for warning in report["warnings"])
-
-
-def test_missing_optional_legacy_keys_does_not_fail(monkeypatch):
-    module = _load_script_module()
-    _set_base_env(monkeypatch)
-    monkeypatch.delenv("PROXI_API_KEY", raising=False)
-    monkeypatch.delenv("YANDEX_API_KEY", raising=False)
-    monkeypatch.delenv("YANDEX_FOLDER_ID", raising=False)
-
-    report = module.build_runtime_config_report()
-
-    assert report["legacy"]["PROXI_API_KEY"] == "unset"
-    assert report["legacy"]["YANDEX_API_KEY"] == "unset"
-    assert report["legacy"]["YANDEX_FOLDER_ID"] == "unset"
 
 
 def test_no_database_url_defaults_to_sqlite_backend(monkeypatch):
