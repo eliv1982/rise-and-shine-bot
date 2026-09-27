@@ -148,24 +148,44 @@ def test_one_due_subscription_is_delivered(initialized_db, monkeypatch, tmp_path
 
 def test_multiple_due_subscriptions_processed_concurrently(initialized_db, monkeypatch, tmp_path):
     async def run():
-        import time
-
         _install_common_stubs(monkeypatch)
-        calls: list[dict] = []
-        delay = 0.15
-        _install_generate_image(monkeypatch, tmp_path, calls, delay=delay)
-        for i in range(3):
+        concurrency = 3
+        monkeypatch.setattr(scheduler, "get_scheduler_max_concurrency", lambda: concurrency)
+
+        active = 0
+        max_active = 0
+        # Released only once `concurrency` deliveries are simultaneously inside
+        # generate_image. Until then every caller blocks here, so none of them can
+        # finish first - the only way this coroutine ever proceeds is if all
+        # `concurrency` deliveries were in flight at once. That is a deterministic
+        # fact about execution order, not an inference from wall-clock duration.
+        all_active = asyncio.Event()
+
+        async def fake_generate_image(**kwargs):
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            if active >= concurrency:
+                all_active.set()
+            await all_active.wait()
+            active -= 1
+            path = tmp_path / f"{uuid.uuid4().hex}.png"
+            path.write_bytes(b"fake-png-bytes")
+            return str(path)
+
+        monkeypatch.setattr(scheduler, "generate_image", fake_generate_image)
+        for i in range(concurrency):
             await _make_subscription(10 + i, 8, 0, ["photo"], sphere="money")
         bot = _FakeBot()
 
-        started = time.monotonic()
-        await scheduler.send_daily_affirmations(bot, now=_at(2, 8, 0))
-        elapsed = time.monotonic() - started
+        # A generous fixed ceiling, not a threshold being measured against: if the
+        # barrier above is ever wrong this fails fast instead of hanging on
+        # scheduler.py's own 600s ATTEMPT_TIMEOUT_SECONDS.
+        await asyncio.wait_for(scheduler.send_daily_affirmations(bot, now=_at(2, 8, 0)), timeout=5)
 
         assert len(bot.sent) == 3
-        # Serial processing would take >= 3 * delay; concurrent processing (default
-        # bound of 3) takes roughly one delay plus overhead.
-        assert elapsed < delay * 2
+        # All `concurrency` deliveries were inside generate_image at the same time.
+        assert max_active == concurrency
 
     asyncio.run(run())
 
