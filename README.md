@@ -30,7 +30,7 @@ Telegram-бот для ежедневных аффирмаций: генерац
 - Python 3.11 (версия в CI и продакшене; локальная разработка на другой совместимой версии допустима)
 - [aiogram](https://docs.aiogram.dev/) 3.x
 - OpenAI — единственный провайдер: текст, изображения, TTS, STT (прямые официальные эндпоинты `api.openai.com`)
-- PostgreSQL в проде (self-managed на том же сервере, вне docker-compose бота); SQLite — локальный/dev-фолбэк
+- PostgreSQL в проде — сервис `postgres` в том же Docker Compose проекте, что и бот; SQLite — фолбэк для локальной разработки без Docker Compose
 - APScheduler, Docker
 
 ## Требования
@@ -85,7 +85,8 @@ docker compose up -d --build
 | `BOT_TOKEN` | Токен Telegram-бота |
 | `OPENAI_API_KEY` | Ключ OpenAI API |
 | `OPENAI_BASE_URL` | Официальный эндпоинт OpenAI (по умолчанию `https://api.openai.com/v1`) |
-| `DATABASE_URL` | `postgresql://...` для PostgreSQL в проде; если не задано — SQLite |
+| `DATABASE_URL` | `postgresql://...@postgres:5432/...` для PostgreSQL (сервис `postgres` в docker-compose.yml); если не задано — SQLite |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Обязательны для `docker compose up` (сервис `postgres`) |
 
 Опционально: `FFMPEG_PATH` — путь к ffmpeg, если не в PATH.
 
@@ -120,7 +121,7 @@ GitHub Actions запускает `python -m pytest` на Python 3.11 при к�
 ├── services/           # OpenAI (текст, изображения, TTS, STT)
 ├── scripts/            # preflight, backup/restore, healthcheck и т.д.
 ├── Dockerfile
-└── docker-compose.yml  # локальная сборка и прод с Docker Hub (DOCKERHUB_IMAGE в .env)
+└── docker-compose.yml  # bot + postgres services; локальная сборка и прод с Docker Hub (DOCKERHUB_IMAGE в .env)
 ```
 
 ## Лицензия

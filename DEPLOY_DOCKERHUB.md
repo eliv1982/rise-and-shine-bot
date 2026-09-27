@@ -64,10 +64,13 @@ nano .env
 DOCKERHUB_IMAGE=DOCKERHUB_USERNAME/rise-and-shine-bot:latest
 BOT_TOKEN=токен_от_BotFather
 OPENAI_API_KEY=твой_openai_ключ
-DATABASE_URL=postgresql://user:password@db-host:5432/dbname
+POSTGRES_USER=rise_bot
+POSTGRES_PASSWORD=надёжный_пароль
+POSTGRES_DB=rise_bot
+DATABASE_URL=postgresql://rise_bot:надёжный_пароль@postgres:5432/rise_bot
 ```
 
-`DATABASE_URL` указывает на self-managed PostgreSQL на этом же сервере (отдельно от этого compose-стека) — см. [DEPLOY.md](DEPLOY.md#архитектура-production-бд) и [docs/production_env.md](docs/production_env.md). Без `DATABASE_URL` бот использует SQLite — это только для локальной/dev-проверки, не для прода.
+PostgreSQL — сервис `postgres` в этом же `docker-compose.yml` (не отдельный внешний сервис); `DATABASE_URL` указывает на него по Compose-хосту `postgres` — см. [DEPLOY.md](DEPLOY.md#архитектура-production-бд) и [docs/production_env.md](docs/production_env.md). `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` обязательны — без них `docker compose up` откажется стартовать. Без `DATABASE_URL` бот использует SQLite — это только для локальной разработки без Docker Compose, не для прода.
 
 Остальные переменные — по необходимости из `.env.example` в репозитории.
 

@@ -23,27 +23,27 @@
 
 ### Архитектура production-БД
 
-Бот работает в Docker (`docker-compose.yml` в этом репозитории). PostgreSQL в проде — **отдельный, самостоятельно администрируемый сервис на том же сервере**, вне этого compose-стека (не контейнер из `docker-compose.yml`, не поднимается автоматически этим репозиторием). Бот подключается к нему через `DATABASE_URL`.
+Бот работает в Docker Compose (`docker-compose.yml` в этом репозитории) — один проект (`rise-and-shine-bot`, по имени каталога) с двумя сервисами: `bot` и `postgres`. PostgreSQL в проде — **сервис `postgres` в этом же compose-стеке**, не отдельный внешний сервис. Данные PostgreSQL хранятся в named volume `postgres_data` (реальное имя Docker-volume — `rise-and-shine-bot_postgres_data`). Бот ждёт, пока `postgres` станет healthy (`depends_on: condition: service_healthy`), и подключается к нему через `DATABASE_URL` по Compose-хосту `postgres`.
 
-Важно про сетевую доступность: `localhost`/`127.0.0.1` внутри контейнера бота указывает на сам контейнер, а не на хост — так Postgres на хосте не увидеть. Укажи в `DATABASE_URL` docker-доступный хост/IP (например, IP докер-моста, `host.docker.internal` там, где он поддерживается, или `extra_hosts` в compose). `scripts/check_runtime_config.py` (см. ниже) предупреждает, если `DATABASE_URL` указывает на `localhost`.
+Важно про сетевую доступность: `localhost`/`127.0.0.1` внутри контейнера бота указывает на сам контейнер, а не на сервис `postgres` — так Postgres не увидеть. В `DATABASE_URL` используй Compose DNS-имя `postgres` (как в `.env.example`), а не `localhost`/IP хоста. `scripts/check_runtime_config.py` (см. ниже) предупреждает, если `DATABASE_URL` указывает на `localhost`. Порт PostgreSQL наружу (на хост) не публикуется — это не нужно для работы бота.
 
-Если `DATABASE_URL` не задан, бот использует SQLite (`bot.db`) — это локальный/dev-фолбэк, не production-конфигурация.
+Если `DATABASE_URL` не задан, бот использует SQLite (`bot.db`) — это фолбэк для локальной разработки без Docker Compose, не production-конфигурация; сам `docker-compose.yml` всегда поднимает `postgres` (сервис не опционален).
 
 Подробнее: [docs/production_env.md](docs/production_env.md).
 
 ### Первый запуск на сервере
 
-1. Клонируй репозиторий (или скопируй проект):
+1. Клонируй репозиторий (или скопируй проект). Имя каталога определяет имя Compose-проекта (и, следовательно, префикс имён volume) — на живом сервере это `rise-and-shine-bot`:
    ```bash
-   git clone <url-репозитория> /opt/rise-and-shine
-   cd /opt/rise-and-shine
+   git clone <url-репозитория> /opt/rise-and-shine-bot
+   cd /opt/rise-and-shine-bot
    ```
-2. Создай `.env` с реальными значениями (`BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL` и т.д. — см. `.env.example`).
+2. Создай `.env` с реальными значениями (`BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`, `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` и т.д. — см. `.env.example`).
 3. Если volume `bot_data` уже существовал и заполнялся контейнером, работавшим от root (до Stage 5), один раз поправь владельца перед первым запуском нового образа:
    ```bash
-   docker run --rm -v rise-and-shine_bot_data:/data alpine chown -R 1000:1000 /data
+   docker run --rm -v rise-and-shine-bot_bot_data:/data alpine chown -R 1000:1000 /data
    ```
-   Для полностью нового volume это не требуется — Dockerfile создаёт `/app/data` от имени непривилегированного пользователя.
+   Для полностью нового volume это не требуется — Dockerfile создаёт `/app/data` от имени непривилегированного пользователя. **Volume `postgres_data` (владение управляется образом `postgres:16`) трогать `chown` нельзя** — не относится к non-root-хардненингу бота.
 4. Прогони префлайт и запусти:
    ```bash
    ./scripts/preflight.sh
@@ -55,8 +55,8 @@
 ### Префлайт, бэкап и smoke-check
 
 - `./scripts/preflight.sh` — перед деплоем проверяет чистое рабочее дерево, наличие `.env`, доступность Docker и корректность runtime-конфигурации (`scripts/preflight_check.py` + `scripts/check_runtime_config.py`). Без сетевых запросов.
-- `./scripts/backup.sh [каталог]` — бэкап БД перед деплоем: `pg_dump` для PostgreSQL, безопасный онлайн-бэкап для SQLite (автоопределение по `DATABASE_URL`).
-- `./scripts/restore.sh <файл-бэкапа>` — восстановление из бэкапа (`pg_restore` для `.dump`, копирование файла для `.db`); интерактивное подтверждение, не запускается автоматически.
+- `./scripts/backup.sh [каталог]` — бэкап БД перед деплоем: `pg_dump` для PostgreSQL (через `docker compose exec postgres`, т.к. хост `postgres` в `DATABASE_URL` доступен только внутри Compose-сети), безопасный онлайн-бэкап для SQLite (автоопределение по `DATABASE_URL`).
+- `./scripts/restore.sh <файл-бэкапа>` — восстановление из бэкапа (`pg_restore` для `.dump` через `docker compose exec postgres`, копирование файла для `.db`); интерактивное подтверждение, не запускается автоматически.
 - `./scripts/smoke_check.sh` — после `docker compose up -d` читает `docker compose ps`/`logs` и проверяет, что контейнер поднялся, БД инициализирована, задачи планировщика зарегистрированы и в логах нет traceback. Не делает сетевых вызовов к Telegram/OpenAI.
 - `./scripts/deploy.sh` уже вызывает `preflight.sh` перед `git pull`/пересборкой — см. ниже.
 

@@ -26,37 +26,55 @@ the official URL.
 
 ## Database: architecture and truthfulness
 
-The live bot runs in Docker (this repo's `docker-compose.yml`). **PostgreSQL in
-production is a separate, self-managed service on the same server** — it is not a
-service inside `docker-compose.yml`, and this repo does not provision or manage it.
-The bot only talks to it through `DATABASE_URL`.
+The live bot runs in Docker Compose (this repo's `docker-compose.yml`), one project
+(`rise-and-shine-bot`, named after this directory) with two services: `bot` and
+`postgres`. **PostgreSQL in production is the `postgres` service in this same
+Compose project** — not a separate, self-managed service outside it. Data persists
+in the named volume `postgres_data` (the actual Docker volume name under this
+project is `rise-and-shine-bot_postgres_data`); the bot's own data (SQLite fallback
+file, logs, outputs) persists separately in `bot_data`
+(`rise-and-shine-bot_bot_data`). The bot reaches Postgres over the Compose network
+at hostname `postgres`, and only talks to it through `DATABASE_URL`.
 
 Concretely, this means:
 
-- Production does **not** use `bot.db` (SQLite). SQLite is a local/dev fallback only,
-  used automatically when `DATABASE_URL` is unset.
-- Production PostgreSQL is **not** started or managed by `docker compose up` in this
-  repo — it must already be running on the server before the bot starts.
-- Inside the bot's container, `localhost`/`127.0.0.1` in `DATABASE_URL` resolves to the
-  *container itself*, not the host — it will not reach a Postgres running directly on
-  the host. Point `DATABASE_URL` at a container-reachable host/IP (the Docker bridge
-  gateway IP, an `extra_hosts` entry, or a hostname resolvable from inside the
-  container). `scripts/check_runtime_config.py` warns when `DATABASE_URL`'s host is
-  `localhost`/`127.0.0.1`/`::1`.
+- Production does **not** use `bot.db` (SQLite). SQLite is the fallback for direct
+  local Python development (running `bot.py` outside Docker Compose) only.
+- Production PostgreSQL **is** started and managed by `docker compose up` in this
+  repo, as the `postgres` service — `bot` waits for it to report healthy
+  (`depends_on: postgres: condition: service_healthy`) before starting.
+- Inside the bot's container, `localhost`/`127.0.0.1` in `DATABASE_URL` resolves to
+  the *container itself*, not the `postgres` service — it will not reach Postgres.
+  Point `DATABASE_URL` at the Compose DNS hostname `postgres` (the service name in
+  `docker-compose.yml`). `scripts/check_runtime_config.py` warns when
+  `DATABASE_URL`'s host is `localhost`/`127.0.0.1`/`::1`.
+- No Postgres port is published to the host — nothing outside the Compose project
+  needs to reach it directly, and there is no demonstrated operational need for one.
 
 ```env
-# Production PostgreSQL (self-managed on the same server, outside docker-compose.yml)
-DATABASE_URL=postgresql://user:password@db-host:5432/dbname
+# Production PostgreSQL (the `postgres` service in this repo's docker-compose.yml)
+POSTGRES_USER=rise_bot
+POSTGRES_PASSWORD=...
+POSTGRES_DB=rise_bot
+DATABASE_URL=postgresql://rise_bot:...@postgres:5432/rise_bot
 
-# Local/dev SQLite fallback (only used when DATABASE_URL is unset)
+# SQLite fallback for direct local Python development (only used when
+# DATABASE_URL is absent, e.g. running bot.py outside Docker Compose)
 SQLITE_DB_PATH=bot.db
 ```
 
-- If `DATABASE_URL` is absent, the bot uses SQLite.
+- If `DATABASE_URL` is absent, the bot uses SQLite. Docker Compose always starts
+  `postgres` regardless (it is not optional/profile-gated) — direct local Python
+  development without Compose is the only path that stays SQLite-only.
 - If `DATABASE_URL` starts with `postgres://` or `postgresql://`, the bot uses
   PostgreSQL; anything else is a blocking configuration error (see
   `scripts/preflight_check.py`), because a malformed value would otherwise silently
   fall back to SQLite in production.
+- `docker-compose.yml` requires `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB`
+  (`${VAR:?...}` interpolation) — `docker compose config`/`up` fails fast with a
+  clear message instead of starting Postgres with blank credentials if any is
+  missing. `scripts/preflight.sh` already runs `docker compose config --quiet`
+  before every deploy, so this is caught pre-deploy.
 
 ## Backup and restore
 
@@ -66,12 +84,21 @@ SQLITE_DB_PATH=bot.db
 - `scripts/restore.sh <backup-file>` — restores a backup made by `backup.sh`
   (`pg_restore` for `.dump`, file copy for `.db`). Interactive, requires typed
   confirmation, never runs automatically.
+- **PostgreSQL via Docker Compose**: when `DATABASE_URL`'s host is `postgres` (the
+  Compose service), both scripts run `pg_dump`/`pg_restore` through
+  `docker compose exec postgres` rather than directly against `DATABASE_URL` from the
+  host shell — that hostname is Compose-internal DNS and does not resolve outside the
+  Compose network, so this is required, not just convenient. It also keeps the
+  `pg_dump`/`pg_restore` version matched to the `postgres:16` server without a host
+  install. A `DATABASE_URL` pointing anywhere else (e.g. a host-reachable Postgres used
+  for local/alternative testing) still uses host-installed `pg_dump`/`pg_restore`
+  directly.
 - `scripts/backup_sqlite.py` — the SQLite-specific backup helper `backup.sh` and
   `DEPLOY.md`'s Docker note call into; relevant to the local/dev SQLite fallback, not
   to production.
 - **Not yet verified**: an actual PostgreSQL backup → restore dry run has not been
   performed against a real production-shaped database. Do this once before relying on
-  it for Stage 7.
+  it for Stage 7B.
 
 ## Runtime config checks
 

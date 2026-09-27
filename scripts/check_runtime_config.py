@@ -125,8 +125,9 @@ def _build_warnings(report: dict[str, Any], env: Mapping[str, str]) -> list[str]
     if database["backend"] == "postgresql" and database["database_url_host"] in _CONTAINER_UNREACHABLE_DB_HOSTS:
         warnings.append(
             f"DATABASE_URL host is {database['database_url_host']!r}; inside a Docker container "
-            "(without network_mode: host) this resolves to the container itself, not a Postgres "
-            "running on the host. Point it at a docker-reachable host/IP or use extra_hosts."
+            "(without network_mode: host) this resolves to the container itself, not a reachable "
+            "Postgres. With docker-compose.yml's postgres service, use hostname 'postgres' "
+            "(Compose DNS); otherwise point it at a docker-reachable host/IP or use extra_hosts."
         )
 
     openai = report["openai"]
