@@ -513,10 +513,25 @@ _BACKFILL_SCHEDULE_EFFECTIVE_AT_SQL = (
 )
 
 
+def _check_database_url_is_valid() -> None:
+    """A DATABASE_URL that is set but malformed must not silently fall back to
+    SQLite: get_database_backend_name() only recognizes postgres(ql):// as
+    PostgreSQL, so a typo'd scheme would otherwise start the app against an
+    empty local SQLite file instead of the intended production database,
+    without so much as a warning."""
+    raw = get_database_url()
+    if raw and not _is_postgres_url(raw):
+        raise RuntimeError(
+            "DATABASE_URL is set but does not start with postgres:// or postgresql://; "
+            "refusing to silently fall back to SQLite. Fix DATABASE_URL or unset it."
+        )
+
+
 async def init_db() -> None:
     """
     Инициализация схемы БД (если таблиц ещё нет).
     """
+    _check_database_url_is_valid()
     if get_database_backend_name() == "postgresql":
         conn = await _connect_postgres()
         try:

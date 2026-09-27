@@ -1650,16 +1650,3 @@ async def new_request_from_result(callback: CallbackQuery, state: FSMContext) ->
         _new_flow_text(language),
         reply_markup=sphere_keyboard(language),
     )
-
-
-@router.callback_query(F.data == "sub:open")
-async def open_subscription_from_result(callback: CallbackQuery, state: FSMContext) -> None:
-    """Открыть настройку подписки из результата."""
-    await callback.answer()
-    # Импортируем здесь, чтобы избежать циклических импортов
-    from handlers.subscribe import cmd_subscribe
-
-    await cmd_subscribe(callback.message, state)
-
-
-

@@ -624,6 +624,107 @@ def test_in_progress_claim_past_lease_can_be_reclaimed(initialized_db):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Stage 5 item M: every tick touches the heartbeat file Docker's HEALTHCHECK
+# (scripts/healthcheck.py) reads, whether or not anything is due.
+# ---------------------------------------------------------------------------
+
+
+def test_tick_touches_heartbeat_even_with_nothing_due(initialized_db, monkeypatch):
+    async def run():
+        import os
+
+        import config
+
+        heartbeat_path = config.get_heartbeat_path()
+        assert not os.path.exists(heartbeat_path)
+
+        bot = _FakeBot()
+        await scheduler.send_daily_affirmations(bot, now=_at(1, 8, 0))  # nothing due
+
+        assert os.path.isfile(heartbeat_path)
+
+    asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Stage 5 item D: shutdown cancelling an in-flight attempt must not corrupt the
+# ledger. A cancelled attempt is never released (asyncio.CancelledError is a
+# BaseException, not caught by _process_due_delivery's `except Exception`), so the
+# claim is simply left `in_progress` - exactly like a process that died mid-attempt -
+# and is reclaimed once CLAIM_LEASE elapses, the same recovery path already proven
+# for a crash. This is deliberate (see scheduler.py's ATTEMPT_TIMEOUT_SECONDS/
+# CLAIM_LEASE comments and bot.py's shutdown hook): shutdown cancels rather than
+# waiting for in-flight work to finish.
+# ---------------------------------------------------------------------------
+
+
+def test_cancelled_attempt_is_not_marked_sent_and_stays_in_progress(initialized_db, monkeypatch, tmp_path):
+    async def run():
+        _install_common_stubs(monkeypatch)
+        calls: list[dict] = []
+
+        async def fake_generate_image(**kwargs):
+            calls.append(kwargs)
+            raise asyncio.CancelledError()
+
+        monkeypatch.setattr(scheduler, "generate_image", fake_generate_image)
+        await _make_subscription(150, 8, 0, ["photo"])
+        bot = _FakeBot()
+
+        scheduled_at = _at(12, 8, 0)
+        await scheduler.send_daily_affirmations(bot, now=scheduled_at)
+
+        assert len(bot.sent) == 0
+        rows = await db.get_subscription_deliveries(["2030-03-12"])
+        assert len(rows) == 1
+        assert rows[0]["status"] == "in_progress"  # neither sent nor failed/abandoned
+        assert rows[0]["attempts"] == 1
+
+    asyncio.run(run())
+
+
+def test_cancelled_attempt_is_reclaimed_after_lease_and_keeps_visual_mode(initialized_db, monkeypatch, tmp_path):
+    async def run():
+        random.seed(4343)
+        _install_common_stubs(monkeypatch)
+        calls: list[dict] = []
+
+        async def fake_generate_image_cancels_once(**kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise asyncio.CancelledError()
+            path = tmp_path / f"{uuid.uuid4().hex}.png"
+            path.write_bytes(b"fake-png-bytes")
+            return str(path)
+
+        monkeypatch.setattr(scheduler, "generate_image", fake_generate_image_cancels_once)
+        await _make_subscription(151, 8, 0, ["photo", "symbolic", "illustration"])
+        bot = _FakeBot()
+
+        scheduled_at = _at(13, 8, 0)
+        await scheduler.send_daily_affirmations(bot, now=scheduled_at)  # cancelled, left in_progress
+
+        # Still within the lease: presumed alive, must not be reclaimed yet.
+        still_within_lease = _plus(scheduled_at, seconds=CLAIM_LEASE.total_seconds() - 60)
+        await scheduler.send_daily_affirmations(bot, now=still_within_lease)
+        assert len(calls) == 1
+        assert len(bot.sent) == 0
+
+        # Past the lease: the abandoned claim is reclaimed and this attempt succeeds.
+        past_lease = _plus(scheduled_at, seconds=CLAIM_LEASE.total_seconds() + 60)
+        await scheduler.send_daily_affirmations(bot, now=past_lease)
+
+        assert len(bot.sent) == 1
+        assert len(calls) == 2
+        assert calls[0]["visual_mode"] == calls[1]["visual_mode"]  # persisted mode survives
+        rows = await db.get_subscription_deliveries(["2030-03-13"])
+        assert rows[0]["status"] == "sent"
+        assert rows[0]["attempts"] == 2
+
+    asyncio.run(run())
+
+
 def test_relationship_subscription_delivery_uses_persisted_subsphere(initialized_db, monkeypatch, tmp_path):
     async def run():
         _install_common_stubs(monkeypatch)

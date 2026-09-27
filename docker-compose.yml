@@ -7,6 +7,13 @@ services:
     build: .
     container_name: rise-and-shine-bot
     restart: unless-stopped
+    # SIGTERM stops polling and the scheduler without waiting for an in-flight
+    # scheduled delivery to finish (see bot.py's shutdown hook / scheduler.py's
+    # module docstring): the durable claim lease reclaims and retries it after
+    # restart instead. 30s is margin for that orderly-but-not-waiting teardown
+    # to complete without being cut off by SIGKILL - not a wait for the 600s
+    # per-attempt timeout.
+    stop_grace_period: 30s
     env_file: .env
     volumes:
       - bot_data:/app/data

@@ -46,6 +46,7 @@ from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import FSInputFile
 
 from config import (
+    get_heartbeat_path,
     get_image_provider_config,
     get_scheduler_max_concurrency,
     get_settings,
@@ -189,8 +190,25 @@ class _Attempt:
     stage: str = _STAGE_GENERATION
 
 
+def _touch_heartbeat() -> None:
+    """Cheap liveness signal for Docker's HEALTHCHECK (scripts/healthcheck.py): proves
+    the event loop is still turning and APScheduler's cron job is still firing, without
+    depending on whether any subscription happens to be due this minute. Best-effort:
+    a filesystem hiccup here must never break the actual delivery tick."""
+    try:
+        path = get_heartbeat_path()
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(dt.datetime.now(dt.timezone.utc).isoformat())
+    except OSError:
+        logger.warning("Could not write heartbeat file", exc_info=True)
+
+
 async def send_daily_affirmations(bot: Bot, now: dt.datetime | None = None) -> None:
     """One scheduler tick: attempt every subscription delivery that is due at ``now``."""
+    _touch_heartbeat()
     now = now or dt.datetime.now(MOSCOW)
     try:
         due = await _find_due_deliveries(now)
@@ -810,3 +828,7 @@ def setup_scheduler(bot: Bot) -> None:
         misfire_grace_time=OUTPUTS_CLEANUP_MISFIRE_GRACE_SECONDS,
     )
     scheduler.start()
+    logger.info(
+        "Scheduler started with jobs: %s",
+        ", ".join(sorted(job.id for job in scheduler.get_jobs())),
+    )

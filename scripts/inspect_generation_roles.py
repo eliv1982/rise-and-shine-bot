@@ -7,6 +7,10 @@ import sqlite3
 import sys
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 ROLE_KEYS = [
     "text_plan_shadow",
@@ -230,11 +234,24 @@ def _format_human_report(report: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Inspect latest generation role metadata from SQLite history.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Inspect latest generation role metadata from a SQLite generation-history file. "
+            "SQLite only: it does not read PostgreSQL, regardless of the runtime DATABASE_URL."
+        ),
+    )
     parser.add_argument("--db", required=True, help="Path to SQLite database, e.g. bot.db")
     parser.add_argument("--limit", type=int, default=5, help="Number of latest visual_history rows to inspect")
     parser.add_argument("--json", action="store_true", help="Print JSON instead of human-readable report")
     args = parser.parse_args(argv)
+
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if database_url.startswith(("postgres://", "postgresql://")):
+        print(
+            "Warning: DATABASE_URL is set to PostgreSQL, but this tool only reads the SQLite "
+            f"file passed via --db ({args.db}) - it will not reflect production data.",
+            file=sys.stderr,
+        )
 
     db_path = args.db
     if not os.path.exists(db_path):

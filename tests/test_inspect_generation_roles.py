@@ -178,3 +178,31 @@ def test_inspect_generation_roles_missing_db_returns_non_zero(tmp_path, capsys):
 
     assert exit_code == 1
     assert "Database not found" in captured.err
+
+
+def test_inspect_generation_roles_warns_when_production_uses_postgres(monkeypatch, tmp_path, capsys):
+    """Stage 5 item K: this tool only ever reads SQLite - if the runtime is
+    actually configured for PostgreSQL, an operator pointing it at a local
+    bot.db must be told it will not reflect production data."""
+    db_path = tmp_path / "roles.db"
+    _init_test_db(db_path)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@db.internal:5432/rise_bot")
+
+    exit_code = main(["--db", str(db_path), "--limit", "5"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "DATABASE_URL is set to PostgreSQL" in captured.err
+    assert "user:pass" not in captured.err  # never echo the connection string / credentials
+
+
+def test_inspect_generation_roles_no_warning_for_sqlite_backend(monkeypatch, tmp_path, capsys):
+    db_path = tmp_path / "roles.db"
+    _init_test_db(db_path)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    exit_code = main(["--db", str(db_path), "--limit", "5"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.err == ""

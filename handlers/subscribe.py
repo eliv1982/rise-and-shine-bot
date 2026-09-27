@@ -185,9 +185,26 @@ async def cmd_subscribe(message: Message, state: FSMContext) -> None:
     await _show_dashboard_message(message, message.from_user.id, language)
 
 
-@router.callback_query(F.data.in_({"sub:dash", "sub:open", "sub:change"}))
+@router.callback_query(F.data == "sub:dash")
 async def sub_dashboard_callback(callback: CallbackQuery, state: FSMContext) -> None:
     await _show_dashboard_callback(callback, state)
+
+
+@router.callback_query(F.data.in_({"sub:open", "sub:change"}))
+async def sub_open_from_result(callback: CallbackQuery, state: FSMContext) -> None:
+    """Open subscription dashboard from a photo-based result message.
+
+    Both ``sub:open`` (generation/delivery result) and ``sub:change``
+    (``subscription_after_keyboard``, attached to the daily-delivery photo
+    sent from ``scheduler.py``) originate on photo messages, so their
+    captions cannot be edited in place (Telegram rejects edit_text on media
+    messages) - a new message is sent instead, the same way /subscribe does.
+    """
+    user = await get_user(callback.from_user.id)
+    language = (user or {}).get("language", "ru")
+    await state.clear()
+    await _show_dashboard_message(callback.message, callback.from_user.id, language)
+    await callback.answer()
 
 
 @router.callback_query(F.data == "sub:cancel_dash")

@@ -10,6 +10,8 @@ bot.log
 bot.log.*
 outputs
 *.db
+heartbeat
+backups
 .idea
 .cursor
 *.md

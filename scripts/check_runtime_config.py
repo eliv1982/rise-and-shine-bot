@@ -5,9 +5,12 @@ import json
 import os
 import sys
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 
 OFFICIAL_OPENAI_BASE_URL = "https://api.openai.com/v1"
+_POSTGRES_URL_PREFIXES = ("postgres://", "postgresql://")
+_CONTAINER_UNREACHABLE_DB_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def _env(env: Mapping[str, str], name: str, default: str = "") -> str:
@@ -57,8 +60,47 @@ def _count_enabled(flags: list[bool]) -> int:
     return sum(1 for flag in flags if flag)
 
 
+def _database_backend_report(env: Mapping[str, str]) -> dict[str, Any]:
+    database_url = _env(env, "DATABASE_URL")
+    looks_postgres = database_url.startswith(_POSTGRES_URL_PREFIXES)
+    backend = "postgresql" if looks_postgres else "sqlite"
+    host = None
+    if looks_postgres:
+        try:
+            host = urlsplit(database_url).hostname
+        except ValueError:
+            host = None
+    return {
+        "backend": backend,
+        "database_url_set": bool(database_url),
+        "database_url_looks_valid": (not database_url) or looks_postgres,
+        "database_url_host": host,
+        "sqlite_db_path": _env(env, "SQLITE_DB_PATH") or "(default)",
+    }
+
+
+def _build_errors(report: dict[str, Any], env: Mapping[str, str]) -> list[str]:
+    """Problems severe enough that a deploy preflight should refuse to proceed."""
+    errors: list[str] = []
+    database = report["database"]
+    if database["database_url_set"] and not database["database_url_looks_valid"]:
+        errors.append(
+            "DATABASE_URL is set but does not start with postgres:// or postgresql://; "
+            "the bot will silently fall back to SQLite instead of the intended PostgreSQL database."
+        )
+    return errors
+
+
 def _build_warnings(report: dict[str, Any], env: Mapping[str, str]) -> list[str]:
     warnings: list[str] = []
+
+    database = report["database"]
+    if database["backend"] == "postgresql" and database["database_url_host"] in _CONTAINER_UNREACHABLE_DB_HOSTS:
+        warnings.append(
+            f"DATABASE_URL host is {database['database_url_host']!r}; inside a Docker container "
+            "(without network_mode: host) this resolves to the container itself, not a Postgres "
+            "running on the host. Point it at a docker-reachable host/IP or use extra_hosts."
+        )
 
     providers = report["providers"]
     openai = report["openai"]
@@ -159,10 +201,17 @@ def build_runtime_config_report(env: Mapping[str, str] | None = None) -> dict[st
                 _env_int(safe_env, "GENERATION_DAILY_LIMIT", 5),
             ),
         },
+        "database": _database_backend_report(safe_env),
     }
 
+    report["errors"] = _build_errors(report, safe_env)
     report["warnings"] = _build_warnings(report, safe_env)
-    report["status"] = "CONFIG OK" if not report["warnings"] else f"CONFIG WARNINGS: {len(report['warnings'])}"
+    if report["errors"]:
+        report["status"] = f"CONFIG ERRORS: {len(report['errors'])}"
+    elif report["warnings"]:
+        report["status"] = f"CONFIG WARNINGS: {len(report['warnings'])}"
+    else:
+        report["status"] = "CONFIG OK"
     return report
 
 
@@ -210,6 +259,20 @@ def _format_human_report(report: dict[str, Any]) -> str:
     lines.append(f"- DISABLE_DAILY_GENERATION_LIMIT: {str(report['flags']['DISABLE_DAILY_GENERATION_LIMIT']).lower()}")
     lines.append(f"- SHOW_IMAGE_DEBUG: {str(report['flags']['SHOW_IMAGE_DEBUG']).lower()}")
 
+    lines.append("")
+    lines.append("Database:")
+    database = report["database"]
+    lines.append(f"- backend: {database['backend']}")
+    lines.append(f"- DATABASE_URL set: {str(database['database_url_set']).lower()}")
+    if database["backend"] == "sqlite":
+        lines.append(f"- SQLITE_DB_PATH: {database['sqlite_db_path']}")
+
+    if report["errors"]:
+        lines.append("")
+        lines.append("Errors:")
+        for error in report["errors"]:
+            lines.append(f"- {error}")
+
     if report["warnings"]:
         lines.append("")
         lines.append("Warnings:")
@@ -229,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
         print(_format_human_report(report))
-    return 0
+    return 1 if report["errors"] else 0
 
 
 if __name__ == "__main__":

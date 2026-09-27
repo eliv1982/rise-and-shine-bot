@@ -185,12 +185,15 @@ def test_run_outputs_cleanup_survives_unexpected_exception(monkeypatch):
     asyncio.run(run())
 
 
-def test_setup_scheduler_registers_outputs_cleanup_job_alongside_delivery_job():
+def test_setup_scheduler_registers_outputs_cleanup_job_alongside_delivery_job(caplog):
+    import logging
+
     import scheduler as scheduler_mod
 
     async def run():
         fake_bot = object()
-        scheduler_mod.setup_scheduler(fake_bot)
+        with caplog.at_level(logging.INFO, logger="scheduler"):
+            scheduler_mod.setup_scheduler(fake_bot)
         try:
             jobs = {job.id: job for job in scheduler_mod.scheduler.get_jobs()}
             assert "daily_affirmations" in jobs
@@ -200,6 +203,12 @@ def test_setup_scheduler_registers_outputs_cleanup_job_alongside_delivery_job():
             assert cleanup_job.max_instances == 1
             # A distinct id and its own interval trigger, independent of the delivery cron job.
             assert cleanup_job.trigger.__class__.__name__ == "IntervalTrigger"
+
+            # Stage 5 item P: deployment smoke checks grep logs for this line to
+            # confirm both jobs actually registered, not just that setup_scheduler
+            # didn't raise.
+            startup_messages = [r.message for r in caplog.records]
+            assert any("daily_affirmations" in m and "outputs_cleanup" in m for m in startup_messages)
         finally:
             scheduler_mod.scheduler.shutdown(wait=False)
 

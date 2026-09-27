@@ -124,3 +124,56 @@ def test_missing_optional_legacy_keys_does_not_fail(monkeypatch):
     assert report["legacy"]["PROXI_API_KEY"] == "unset"
     assert report["legacy"]["YANDEX_API_KEY"] == "unset"
     assert report["legacy"]["YANDEX_FOLDER_ID"] == "unset"
+
+
+def test_no_database_url_defaults_to_sqlite_backend(monkeypatch):
+    module = _load_script_module()
+    _set_base_env(monkeypatch)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    report = module.build_runtime_config_report()
+
+    assert report["database"]["backend"] == "sqlite"
+    assert report["database"]["database_url_set"] is False
+    assert report["errors"] == []
+    assert report["status"] == "CONFIG OK"
+
+
+def test_malformed_database_url_is_a_blocking_error(monkeypatch, capsys):
+    module = _load_script_module()
+    _set_base_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgres-server:5432/rise_bot")
+
+    report = module.build_runtime_config_report()
+
+    assert report["database"]["backend"] == "sqlite"  # what the app would silently fall back to
+    assert any("silently fall back to SQLite" in error for error in report["errors"])
+    assert report["status"].startswith("CONFIG ERRORS")
+
+    exit_code = module.main([])
+    assert exit_code == 1
+    assert "CONFIG ERRORS" in capsys.readouterr().out
+
+
+def test_postgres_localhost_host_warns_about_container_networking(monkeypatch):
+    module = _load_script_module()
+    _set_base_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://rise:rise@localhost:5434/rise_bot")
+
+    report = module.build_runtime_config_report()
+
+    assert report["database"]["backend"] == "postgresql"
+    assert report["errors"] == []
+    assert any("DATABASE_URL host is" in warning for warning in report["warnings"])
+
+
+def test_postgres_with_reachable_host_has_no_database_warning(monkeypatch):
+    module = _load_script_module()
+    _set_base_env(monkeypatch)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://rise:rise@db.internal:5432/rise_bot")
+
+    report = module.build_runtime_config_report()
+
+    assert report["database"]["backend"] == "postgresql"
+    assert report["errors"] == []
+    assert report["warnings"] == []

@@ -148,6 +148,13 @@ def get_outputs_dir() -> str:
     return os.path.join(d, "outputs") if d else "outputs"
 
 
+def get_heartbeat_path() -> str:
+    """File touched on every scheduler tick; Docker's HEALTHCHECK (scripts/healthcheck.py)
+    checks its age as a cheap liveness signal that the event loop/scheduler isn't wedged."""
+    d = get_bot_data_dir()
+    return os.path.join(d, "heartbeat") if d else "heartbeat"
+
+
 def _normalize_provider(raw_value: str, *, allowed: tuple[str, ...], default: str, env_name: str) -> str:
     value = (raw_value or "").strip().lower()
     if not value:
