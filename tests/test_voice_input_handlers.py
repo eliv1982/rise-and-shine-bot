@@ -227,6 +227,7 @@ def test_voice_language_mismatch_clears_stale_pending_text(monkeypatch):
     assert state.data["last_recognized_text"] == "достоинство и вера"
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_confirm_recognized_theme_proceeds_to_visual_mode(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru"}
@@ -289,6 +290,7 @@ def test_theme_voice_recovery_retry_and_type_clear_stale_voice_data(monkeypatch,
     assert cb.message.answers[-1][0] == expected
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_confirm_recognized_style_starts_generation(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
