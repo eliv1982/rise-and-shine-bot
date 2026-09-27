@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from handlers import generation
 from services.generation_context import build_generation_context_snapshot
 
@@ -109,6 +111,7 @@ def test_generation_context_copies_recent_generation_history():
     assert snapshot.recent_generation_history == [{"selected_style": "sea_coast_photo"}]
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_choose_style_clears_custom_style_description_without_overwriting_theme(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
@@ -148,6 +151,7 @@ def test_choose_style_clears_custom_style_description_without_overwriting_theme(
     assert callback.message.answers[0][0] == "🌿 Creating your daily focus..."
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_cancel_custom_style_clears_style_notes_and_preserves_generation_context(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
@@ -228,6 +232,7 @@ def test_safe_confirm_callback_choice_falls_back_to_answer_when_edit_fails():
     assert callback.message.answers == [("✅ Selected", None)]
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_choose_sphere_confirms_selection_and_shows_visual_menu(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru"}
@@ -248,6 +253,7 @@ def test_choose_sphere_confirms_selection_and_shows_visual_menu(monkeypatch):
     assert callback.answered is True
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_choose_visual_mode_confirms_selection_and_shows_style_menu(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru"}
@@ -430,6 +436,7 @@ def test_new_request_from_result_clears_inline_keyboard_and_returns_to_main_menu
     assert callback.message.answers[0][1] == "main:ru"
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last_generation(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en", "gender": "female"}
@@ -505,6 +512,7 @@ def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last
     assert state.data["recent_generation_history"]
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_run_generation_symbolic_bypasses_scene_planner_and_prompt_override(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en", "gender": "female"}
@@ -579,6 +587,7 @@ def test_run_generation_symbolic_bypasses_scene_planner_and_prompt_override(monk
     assert captured["image_kwargs"]["image_prompt_trace"] == "template"
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru", "gender": "female"}
@@ -1056,6 +1065,7 @@ def test_run_generation_does_not_attach_text_reviewer_shadow_when_disabled(monke
     assert "text_reviewer_shadow" not in captured["history_kwargs"]["visual_motifs"]
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_run_generation_attaches_orchestrator_shadow_when_enabled(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "ru", "gender": "female"}
@@ -1205,6 +1215,7 @@ def test_run_generation_does_not_attach_orchestrator_shadow_when_disabled(monkey
     assert "orchestrator_shadow" not in captured["history_kwargs"]["visual_motifs"]
 
 
+@pytest.mark.usefixtures("initialized_db")
 def test_again_affirmation_restores_context_and_passes_theme_text(monkeypatch):
     async def _fake_get_user(_uid):
         return {"language": "en"}
