@@ -15,7 +15,7 @@ docker push DOCKERHUB_USERNAME/rise-and-shine-bot:latest
 **2. На сервере по SSH:** обновить образ и перезапустить контейнер:
 
 ```bash
-cd /opt/rise-and-shine
+cd /home/elvi/apps/rise-and-shine-bot
 docker compose pull
 docker compose up -d
 ```
@@ -39,7 +39,7 @@ git push origin main
 **На сервере** (по SSH):
 
 ```bash
-cd /opt/rise-and-shine
+cd /home/elvi/apps/rise-and-shine-bot
 ./scripts/deploy.sh
 ```
 
@@ -54,16 +54,16 @@ cd /opt/rise-and-shine
 **Из PowerShell (Windows)** — через SCP:
 
 ```powershell
-scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\handlers" user@server:/opt/rise-and-shine/
-scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\keyboards" user@server:/opt/rise-and-shine/
-scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\services" user@server:/opt/rise-and-shine/
-scp "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\scheduler.py" user@server:/opt/rise-and-shine/
+scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\handlers" user@server:/home/elvi/apps/rise-and-shine-bot/
+scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\keyboards" user@server:/home/elvi/apps/rise-and-shine-bot/
+scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\services" user@server:/home/elvi/apps/rise-and-shine-bot/
+scp "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\scheduler.py" user@server:/home/elvi/apps/rise-and-shine-bot/
 ```
 
 **Или одной папкой** (если на сервере нет важных локальных правок):
 
 ```powershell
-scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\*" user@server:/opt/rise-and-shine/
+scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shine-bot\*" user@server:/home/elvi/apps/rise-and-shine-bot/
 ```
 
 Не копируй на сервер файл `.env` с сервера — на сервере должен остаться свой `.env` с ключами.
@@ -71,7 +71,7 @@ scp -r "c:\Users\eliv\Cursor_Projects\Promt engineering\Multimodal\rise-and-shin
 **На сервере** после копирования:
 
 ```bash
-cd /opt/rise-and-shine
+cd /home/elvi/apps/rise-and-shine-bot
 docker compose build --no-cache
 docker compose up -d
 ```

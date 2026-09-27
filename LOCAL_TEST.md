@@ -5,7 +5,7 @@
 Подключись к серверу по SSH и в каталоге проекта выполни:
 
 ```bash
-cd /opt/rise-and-shine   # или путь, где у тебя развёрнут бот
+cd /home/elvi/apps/rise-and-shine-bot   # канонический production-путь; не используй другой каталог — это изменит имя Compose-проекта и volumes
 docker compose down
 ```
 
@@ -48,7 +48,7 @@ docker compose down
 После проверки на локальной машине останови локальный контейнер (`docker compose down`), затем на сервере:
 
 ```bash
-cd /opt/rise-and-shine
+cd /home/elvi/apps/rise-and-shine-bot
 docker compose up -d
 ```
 

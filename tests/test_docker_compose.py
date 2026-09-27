@@ -11,6 +11,7 @@ repo `.env`.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -21,6 +22,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 DOCKERFILE = REPO_ROOT / "Dockerfile"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
+
+PRODUCTION_DEPLOY_DOCS = [
+    REPO_ROOT / "DEPLOY.md",
+    REPO_ROOT / "DEPLOY_DOCKERHUB.md",
+    REPO_ROOT / "DEPLOY_UPDATE.md",
+]
+CANONICAL_PRODUCTION_PATH = "/home/elvi/apps/rise-and-shine-bot"
 
 _TEST_POSTGRES_ENV = {
     "POSTGRES_USER": "test_user",
@@ -144,3 +152,75 @@ def test_dockerfile_still_runs_bot_as_non_root_with_healthcheck():
     text = DOCKERFILE.read_text(encoding="utf-8")
     assert "USER appuser" in text
     assert "HEALTHCHECK" in text
+
+
+# --- Finding 1: deployment path / Compose project identity -----------------
+#
+# Compose derives its project name (and therefore volume name prefix) from the
+# deployment directory's basename. Production already runs under
+# `rise-and-shine-bot_bot_data` / `rise-and-shine-bot_postgres_data`, which
+# requires the directory basename to stay `rise-and-shine-bot`. Docs that
+# instruct `/opt/rise-and-shine` (missing the `-bot` suffix) would silently
+# start the bot against a different, empty set of volumes.
+
+
+def test_production_docs_do_not_instruct_wrong_compose_project_path():
+    """Remaining `/opt/rise-and-shine` mentions are allowed only inside a
+    "don't use this" warning, never as an actual command to run."""
+    for doc in PRODUCTION_DEPLOY_DOCS:
+        text = doc.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if "/opt/rise-and-shine" not in line:
+                continue
+            assert not re.match(r"^\s*(cd|mkdir|git clone)\s+/opt/rise-and-shine", line), (
+                f"{doc.name} still instructs a command against /opt/rise-and-shine: "
+                f"{line!r}"
+            )
+
+
+def test_production_docs_reference_canonical_production_path():
+    for doc in PRODUCTION_DEPLOY_DOCS:
+        text = doc.read_text(encoding="utf-8")
+        assert CANONICAL_PRODUCTION_PATH in text, (
+            f"{doc.name} does not reference the canonical production path "
+            f"{CANONICAL_PRODUCTION_PATH!r}"
+        )
+
+
+def test_deploy_md_documents_project_name_invariant():
+    text = (REPO_ROOT / "DEPLOY.md").read_text(encoding="utf-8")
+    assert "COMPOSE_PROJECT_NAME" in text
+    assert "--project-name" in text
+    assert "rise-and-shine-bot_bot_data" in text
+    assert "rise-and-shine-bot_postgres_data" in text
+
+
+def test_scripts_deploy_sh_cron_example_uses_canonical_path():
+    text = (REPO_ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    assert "/opt/rise-and-shine" not in text
+    assert CANONICAL_PRODUCTION_PATH in text
+
+
+# --- Finding 2: Docker Hub push scope ---------------------------------------
+#
+# `docker-compose.yml` now has two services (`bot`, `postgres`). An unscoped
+# `docker compose push` is ambiguous about which image(s) it targets; only the
+# bot image should ever be pushed to the operator's Docker Hub account.
+
+_UNSCOPED_COMPOSE_PUSH = re.compile(r"docker compose push(?!\s+bot)\b")
+
+
+@pytest.mark.parametrize("doc_name", ["DEPLOY_DOCKERHUB.md", "README.md"])
+def test_docker_hub_docs_scope_push_to_bot_service(doc_name):
+    text = (REPO_ROOT / doc_name).read_text(encoding="utf-8")
+    assert _UNSCOPED_COMPOSE_PUSH.search(text) is None, (
+        f"{doc_name} contains an unscoped `docker compose push` "
+        "(must be `docker compose push bot`)"
+    )
+    assert "docker compose push bot" in text
+
+
+def test_docker_hub_docs_do_not_instruct_pushing_postgres():
+    text = (REPO_ROOT / "DEPLOY_DOCKERHUB.md").read_text(encoding="utf-8")
+    assert "push postgres" not in text.lower()
+    assert re.search(r"docker\s+push\s+.*postgres", text) is None

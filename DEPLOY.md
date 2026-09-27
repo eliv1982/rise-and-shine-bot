@@ -31,12 +31,23 @@
 
 Подробнее: [docs/production_env.md](docs/production_env.md).
 
+### Инвариант: каталог и имя Compose-проекта
+
+Живой production-бот развёрнут в каталоге **`/home/elvi/apps/rise-and-shine-bot`**. Обычные production-команды (`docker compose up/down/restart/pull/...`) должны выполняться из этого каталога и **не должны** задавать:
+
+- `COMPOSE_PROJECT_NAME`;
+- `docker compose -p <имя>`;
+- `--project-name <имя>`;
+- каталог с другим базовым именем (например `/opt/rise-and-shine`).
+
+Compose определяет имя проекта по базовому имени каталога — `rise-and-shine-bot` даёт проект `rise-and-shine-bot` и, соответственно, имена существующих production-volumes: `rise-and-shine-bot_bot_data` и `rise-and-shine-bot_postgres_data`. Каталог с другим базовым именем (в т.ч. `/opt/rise-and-shine` без суффикса `-bot`) создаст **новый** Compose-проект с собственными пустыми volumes вместо продолжения работы с существующими production-данными. Явно указывать имя проекта допустимо только если оператор намеренно передаёт существующее имя `rise-and-shine-bot` (например при восстановлении после случайного переименования каталога).
+
 ### Первый запуск на сервере
 
-1. Клонируй репозиторий (или скопируй проект). Имя каталога определяет имя Compose-проекта (и, следовательно, префикс имён volume) — на живом сервере это `rise-and-shine-bot`:
+1. Клонируй репозиторий (или скопируй проект) в канонический каталог `/home/elvi/apps/rise-and-shine-bot`. Имя каталога определяет имя Compose-проекта (и, следовательно, префикс имён volume) — на живом сервере это `rise-and-shine-bot`:
    ```bash
-   git clone <url-репозитория> /opt/rise-and-shine-bot
-   cd /opt/rise-and-shine-bot
+   git clone <url-репозитория> /home/elvi/apps/rise-and-shine-bot
+   cd /home/elvi/apps/rise-and-shine-bot
    ```
 2. Создай `.env` с реальными значениями (`BOT_TOKEN`, `OPENAI_API_KEY`, `DATABASE_URL`, `POSTGRES_USER`/`POSTGRES_PASSWORD`/`POSTGRES_DB` и т.д. — см. `.env.example`).
 3. Если volume `bot_data` уже существовал и заполнялся контейнером, работавшим от root (до Stage 5), один раз поправь владельца перед первым запуском нового образа:
@@ -66,14 +77,14 @@
 
 Вариант **A — вручную**: после `git push` зайди на сервер и выполни:
 ```bash
-cd /opt/rise-and-shine
+cd /home/elvi/apps/rise-and-shine-bot
 ./scripts/deploy.sh
 ```
 Скрипт сделает `git pull`, пересоберёт образ и перезапустит контейнер.
 
 Вариант **B — автоматически по расписанию**: добавь cron (crontab -e), например каждые 5 минут:
 ```cron
-*/5 * * * * cd /opt/rise-and-shine && ./scripts/deploy.sh >> /var/log/rise-and-shine-deploy.log 2>&1
+*/5 * * * * cd /home/elvi/apps/rise-and-shine-bot && ./scripts/deploy.sh >> /var/log/rise-and-shine-deploy.log 2>&1
 ```
 Тогда после `git push` в течение нескольких минут на сервере подтянется новый код и бот перезапустится.
 

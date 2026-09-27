@@ -4,7 +4,7 @@
 
 Используется **один** файл [docker-compose.yml](docker-compose.yml): локально он собирает образ (`build`), на сервере с тем же файлом и переменной `DOCKERHUB_IMAGE` в `.env` выполняется `pull` готового образа (сборка на сервере не нужна).
 
-**Кратко (обновление после изменений в коде):** локально `docker build` + `docker push` (или `docker compose build && docker compose push` при заданном `DOCKERHUB_IMAGE` в `.env`), на сервере `docker compose pull && docker compose up -d`.
+**Кратко (обновление после изменений в коде):** локально `docker build` + `docker push` (или `docker compose build bot && docker compose push bot` при заданном `DOCKERHUB_IMAGE` в `.env`), на сервере `docker compose pull && docker compose up -d`.
 
 ---
 
@@ -25,9 +25,10 @@ docker push DOCKERHUB_USERNAME/rise-and-shine-bot:latest
 
 **Вариант Б — через Compose** (в `.env` должна быть строка `DOCKERHUB_IMAGE=DOCKERHUB_USERNAME/rise-and-shine-bot:latest`):
 ```bash
-docker compose build
-docker compose push
+docker compose build bot
+docker compose push bot
 ```
+Компоуз-файл включает и сервис `postgres` (образ `postgres:16` с Docker Hub, не собирается локально) — публикуй только `bot`; не пересобирай и не пушь `postgres` под свой логин.
 
 После каждого изменения кода снова собери и запушь образ, затем на сервере подтяни образ и перезапусти контейнер (раздел 4).
 
@@ -45,10 +46,10 @@ ssh root@SERVER_HOST
 
 ## 3. Первый раз на сервере: каталог, .env и compose
 
-**Создать каталог:**
+**Создать каталог** — используй канонический production-путь `/home/elvi/apps/rise-and-shine-bot` (имя каталога определяет имя Compose-проекта и, следовательно, имена volumes с данными — см. [DEPLOY.md](DEPLOY.md#инвариант-каталог-и-имя-compose-проекта); не используй `/opt/rise-and-shine`):
 ```bash
-mkdir -p /opt/rise-and-shine
-cd /opt/rise-and-shine
+mkdir -p /home/elvi/apps/rise-and-shine-bot
+cd /home/elvi/apps/rise-and-shine-bot
 ```
 
 **Положить в каталог файл `docker-compose.yml`** из репозитория (scp, git clone или скопировать содержимое с GitHub) — тот же файл, что в проекте.
@@ -86,7 +87,7 @@ Compose подставит `DOCKERHUB_IMAGE` в поле `image:` сервиса
 
 **Первый запуск:**
 ```bash
-cd /opt/rise-and-shine
+cd /home/elvi/apps/rise-and-shine-bot
 docker compose pull
 docker compose up -d
 ```
@@ -101,7 +102,7 @@ docker compose logs -f bot
 
 **После `docker push` с локальной машины — обновить бота:**
 ```bash
-cd /opt/rise-and-shine
+cd /home/elvi/apps/rise-and-shine-bot
 docker compose pull
 docker compose up -d
 ```
@@ -122,7 +123,7 @@ crontab -e
 
 Пример (раз в 10 минут):
 ```
-*/10 * * * * cd /opt/rise-and-shine && docker compose pull -q && docker compose up -d >> /var/log/rise-and-shine-deploy.log 2>&1
+*/10 * * * * cd /home/elvi/apps/rise-and-shine-bot && docker compose pull -q && docker compose up -d >> /var/log/rise-and-shine-deploy.log 2>&1
 ```
 
 ---
@@ -131,10 +132,10 @@ crontab -e
 
 | Действие | Команда |
 |----------|---------|
-| Логи бота | `cd /opt/rise-and-shine && docker compose logs -f bot` |
-| Остановить | `cd /opt/rise-and-shine && docker compose down` |
-| Запустить | `cd /opt/rise-and-shine && docker compose up -d` |
-| Перезапустить | `cd /opt/rise-and-shine && docker compose restart bot` |
-| Подтянуть образ и перезапустить | `cd /opt/rise-and-shine && docker compose pull && docker compose up -d` |
+| Логи бота | `cd /home/elvi/apps/rise-and-shine-bot && docker compose logs -f bot` |
+| Остановить | `cd /home/elvi/apps/rise-and-shine-bot && docker compose down` |
+| Запустить | `cd /home/elvi/apps/rise-and-shine-bot && docker compose up -d` |
+| Перезапустить | `cd /home/elvi/apps/rise-and-shine-bot && docker compose restart bot` |
+| Подтянуть образ и перезапустить | `cd /home/elvi/apps/rise-and-shine-bot && docker compose pull && docker compose up -d` |
 
 Все команды выполнять **на сервере** после SSH.

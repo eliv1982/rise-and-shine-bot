@@ -74,7 +74,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Локально имя образа по умолчанию — `rise-and-shine-bot:latest`. Для публикации в Docker Hub задай в `.env` переменную `DOCKERHUB_IMAGE=логин/rise-and-shine-bot:latest`, затем `docker compose build && docker compose push`.
+Локально имя образа по умолчанию — `rise-and-shine-bot:latest`. Для публикации в Docker Hub задай в `.env` переменную `DOCKERHUB_IMAGE=логин/rise-and-shine-bot:latest`, затем `docker compose build bot && docker compose push bot` (только `bot` — `docker-compose.yml` включает и `postgres:16`, который не нужно и не следует пушить под свой логин; см. [DEPLOY_DOCKERHUB.md](DEPLOY_DOCKERHUB.md)).
 
 Логи: `docker compose logs -f bot`
 
