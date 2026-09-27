@@ -191,9 +191,10 @@ async def test_reserve_smalltalk_usage_postgres_returns_true_when_reserved(monke
 
     monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
 
-    reserved = await db.reserve_smalltalk_usage(42, 5)
+    reserved, day_utc = await db.reserve_smalltalk_usage(42, 5)
 
     assert reserved is True
+    assert day_utc == captured["params"][1]
     assert "RETURNING 1" in captured["query"]
     assert "ON CONFLICT(user_id) DO UPDATE" in captured["query"]
     assert captured["params"][-1] == 5
@@ -216,9 +217,12 @@ async def test_reserve_smalltalk_usage_postgres_returns_false_when_limit_reached
 
     monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
 
-    reserved = await db.reserve_smalltalk_usage(42, 5)
+    reserved, day_utc = await db.reserve_smalltalk_usage(42, 5)
 
     assert reserved is False
+    # Even on a rejected reservation, the caller still learns which UTC day was computed
+    # (there is nothing to release in this case, but the contract is uniform).
+    assert day_utc
 
 
 @pytest.mark.asyncio
@@ -231,13 +235,18 @@ async def test_reserve_smalltalk_usage_postgres_skips_db_when_unlimited(monkeypa
 
     monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
 
-    reserved = await db.reserve_smalltalk_usage(42, 0)
+    reserved, day_utc = await db.reserve_smalltalk_usage(42, 0)
 
     assert reserved is True
+    assert day_utc
 
 
 @pytest.mark.asyncio
 async def test_release_smalltalk_usage_postgres_executes_guarded_update(monkeypatch):
+    """Requirement 8: the PostgreSQL release query shape includes the reservation-day
+    guard, and release must never recompute "today" itself - the day_utc value used in the
+    query must be exactly the caller-supplied value, not something release derives on its
+    own (there is no call to any "today" helper inside this function at all)."""
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
     db = _reload_database_module(monkeypatch)
 
@@ -257,10 +266,14 @@ async def test_release_smalltalk_usage_postgres_executes_guarded_update(monkeypa
 
     monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
 
-    await db.release_smalltalk_usage(42)
+    caller_supplied_day = "2030-01-01"
+    await db.release_smalltalk_usage(42, caller_supplied_day)
 
     assert "count = count - 1" in captured["query"]
     assert "count > 0" in captured["query"]
+    assert "day_utc = " in captured["query"]
+    # The exact caller-supplied reservation day must reach the query params unchanged.
+    assert caller_supplied_day in captured["params"]
 
 
 @pytest.mark.asyncio
@@ -283,10 +296,13 @@ async def test_reserve_generation_usage_postgres_returns_true_when_reserved(monk
         return _FakeConn()
 
     monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+    monkeypatch.setattr(db, "_utc_today_iso", lambda: "2030-01-01")
 
-    reserved = await db.reserve_generation_usage(42, 5)
+    reserved, day_utc = await db.reserve_generation_usage(42, 5)
 
     assert reserved is True
+    assert day_utc == "2030-01-01"
+    assert day_utc == captured["params"][1]
     assert "RETURNING 1" in captured["query"]
     assert "ON CONFLICT(user_id) DO UPDATE" in captured["query"]
     assert "generation_limits" in captured["query"]
@@ -309,10 +325,12 @@ async def test_reserve_generation_usage_postgres_returns_false_when_limit_reache
         return _FakeConn()
 
     monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+    monkeypatch.setattr(db, "_utc_today_iso", lambda: "2030-01-01")
 
-    reserved = await db.reserve_generation_usage(42, 5)
+    reserved, day_utc = await db.reserve_generation_usage(42, 5)
 
     assert reserved is False
+    assert day_utc == "2030-01-01"
 
 
 @pytest.mark.asyncio
@@ -324,14 +342,20 @@ async def test_reserve_generation_usage_postgres_skips_db_when_unlimited(monkeyp
         raise AssertionError("must not touch the DB when the daily limit is disabled")
 
     monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+    monkeypatch.setattr(db, "_utc_today_iso", lambda: "2030-01-01")
 
-    reserved = await db.reserve_generation_usage(42, 0)
+    reserved, day_utc = await db.reserve_generation_usage(42, 0)
 
     assert reserved is True
+    assert day_utc == "2030-01-01"
 
 
 @pytest.mark.asyncio
 async def test_release_generation_usage_postgres_executes_guarded_update(monkeypatch):
+    """Requirement 8: the PostgreSQL release query shape includes the reservation-day
+    guard, and release must never recompute "today" itself - the day_utc value used in the
+    query must be exactly the caller-supplied value, not something release derives on its
+    own (there is no call to any "today" helper inside this function at all)."""
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
     db = _reload_database_module(monkeypatch)
 
@@ -349,13 +373,19 @@ async def test_release_generation_usage_postgres_executes_guarded_update(monkeyp
     async def _fake_connect():
         return _FakeConn()
 
-    monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+    def _unexpected_utc_today():
+        raise AssertionError("release must not recompute the UTC day")
 
-    await db.release_generation_usage(42)
+    monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+    monkeypatch.setattr(db, "_utc_today_iso", _unexpected_utc_today)
+
+    caller_supplied_day = "2030-01-01"
+    await db.release_generation_usage(42, caller_supplied_day)
 
     assert "count = count - 1" in captured["query"]
-    assert "count > 0" in captured["query"]
     assert "generation_limits" in captured["query"]
+    assert "WHERE user_id = $1 AND day_utc = $2 AND count > 0" in captured["query"]
+    assert captured["params"] == (42, caller_supplied_day)
 
 
 @pytest.mark.asyncio

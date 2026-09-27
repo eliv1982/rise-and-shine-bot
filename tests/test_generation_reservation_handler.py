@@ -118,7 +118,8 @@ def test_at_limit_generation_performs_zero_paid_provider_calls(monkeypatch):
         monkeypatch.setattr(db, "_utc_today_iso", lambda: "2030-01-01")
         # Exhaust the quota before the handler ever runs.
         for _ in range(2):
-            assert await db.reserve_generation_usage(301, 2) is True
+            reserved, _day = await db.reserve_generation_usage(301, 2)
+            assert reserved is True
 
         monkeypatch.setattr(generation, "get_user", _fake_get_user)
         monkeypatch.setattr(generation, "get_settings", lambda: _settings(generation_daily_limit=2))
@@ -283,5 +284,47 @@ def test_disabled_daily_limit_skips_reservation_entirely(monkeypatch):
         assert len(message.photos) == 1
         # Unlimited generation never writes a generation_limits row.
         assert await db.get_generation_usage_today(307) == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.usefixtures("initialized_db")
+def test_cross_midnight_rollover_during_request_does_not_erase_next_day_reservation(monkeypatch):
+    """Handler-level integration proof for the Stage 7A cross-midnight release blocker.
+
+    If the UTC day rolls over *during* this request's paid provider work (i.e. between its
+    own reserve and its own later release), and a second, independent request already
+    reserved on the new day before this one gets to release, this request's release - which
+    threads through the exact day it reserved on, per `reserve_generation_usage` /
+    `release_generation_usage` in database.py - must not erase that other reservation.
+    """
+
+    async def _affirmations_that_cross_midnight_then_fail(**_kwargs):
+        # Simulate the UTC day rolling over mid-request, and an independent Request B
+        # reserving on the new day before this request (Request A) reaches its release.
+        monkeypatch.setattr(db, "_utc_today_iso", lambda: "2030-01-02")
+        reserved_b, _day_b = await db.reserve_generation_usage(308, 5)
+        assert reserved_b is True
+        raise RuntimeError("provider down")
+
+    async def run():
+        await db.create_or_update_user(308, "u", name="Test", gender="female")
+        monkeypatch.setattr(db, "_utc_today_iso", lambda: "2030-01-01")
+
+        monkeypatch.setattr(generation, "get_user", _fake_get_user)
+        monkeypatch.setattr(generation, "get_settings", lambda: _settings(generation_daily_limit=5))
+        monkeypatch.setattr(generation, "generate_affirmations", _affirmations_that_cross_midnight_then_fail)
+
+        message = _FakeMessage(user_id=308)
+        state = _state()
+
+        # Request A reserves on day 1, then the mocked provider call above flips "today" to
+        # day 2 and has Request B reserve there, before Request A's own failure/release.
+        await generation._run_generation(message, state, theme_text="Dignity and self-trust", user_telegram_id=308)
+
+        assert message.photos == []
+        # "Today" is now day 2, where Request B holds a valid reservation of 1. Request A's
+        # release (keyed on its own captured day-1 reservation) must not have erased it.
+        assert await db.get_generation_usage_today(308) == 1
 
     asyncio.run(run())

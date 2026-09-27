@@ -307,6 +307,75 @@ def test_smalltalk_usage_does_not_consume_generation_quota(monkeypatch):
 
 
 @pytest.mark.usefixtures("initialized_db")
+def test_cross_midnight_rollover_during_request_does_not_erase_next_day_reservation(monkeypatch):
+    """Handler-level integration proof for the Stage 7A cross-midnight release blocker,
+    mirrored onto the smalltalk quota path (see the identical
+    test_generation_reservation_handler.test_cross_midnight_rollover_during_request_does_not_erase_next_day_reservation
+    for the interactive-generation counterpart).
+
+    If the UTC day rolls over *during* this request's paid LLM call (between its own
+    reserve and its own later release), and a second, independent request already
+    reserved on the new day before this one reaches its release, this request's release -
+    which threads through the exact day it reserved on, per `reserve_smalltalk_usage` /
+    `release_smalltalk_usage` in database.py - must not erase that other reservation.
+    """
+
+    async def _reply_that_crosses_midnight_then_fails(*_args, **_kwargs):
+        # Simulate the UTC day rolling over mid-request, and an independent Request B
+        # reserving on the new day before this request (Request A) reaches its release.
+        monkeypatch.setattr(db, "_utc_today_iso", lambda: "2030-01-02")
+        reserved_b, _day_b = await db.reserve_smalltalk_usage(1012, 5)
+        assert reserved_b is True
+        raise RuntimeError("provider down")
+
+    async def run():
+        await db.create_or_update_user(1012, "u", name="Jo", gender="male")
+        monkeypatch.setattr(db, "_utc_today_iso", lambda: "2030-01-01")
+        monkeypatch.setattr(smalltalk, "get_settings", lambda: _fake_settings(5))
+        monkeypatch.setattr(smalltalk, "generate_smalltalk_reply", _reply_that_crosses_midnight_then_fails)
+
+        msg = _FakeMessage("привет", user_id=1012)
+        # Request A reserves on day 1, then the mocked LLM call above flips "today" to
+        # day 2 and has Request B reserve there, before Request A's own failure/release.
+        await smalltalk.smalltalk(msg, _FakeState())
+
+        # "Today" is now day 2, where Request B holds a valid reservation of 1. Request A's
+        # release (keyed on its own captured day-1 reservation) must not have erased it.
+        assert await db.get_smalltalk_usage_today(1012) == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.usefixtures("initialized_db")
+def test_cancellation_before_reply_does_not_release_reservation(monkeypatch):
+    """Requirement 7 (cancellation-safe lifecycle, "if currently supported"): unlike the
+    interactive-generation handler (which wraps its paid work in try/finally), the
+    smalltalk handler only wraps the LLM call in `except Exception`, and
+    `asyncio.CancelledError` is not an `Exception` subclass (Python 3.8+), so it is not
+    caught here. This fix only changes which UTC day a release keys off, not this
+    exception-handling shape, so a cancellation still propagates without releasing the
+    reservation - exactly the same, unaltered behavior as before this fix.
+    """
+
+    async def _cancelled_reply(*_args, **_kwargs):
+        raise asyncio.CancelledError()
+
+    async def run():
+        await db.create_or_update_user(1011, "u", name="Ivy", gender="female")
+        monkeypatch.setattr(smalltalk, "get_settings", lambda: _fake_settings(5))
+        monkeypatch.setattr(smalltalk, "generate_smalltalk_reply", _cancelled_reply)
+
+        msg = _FakeMessage("привет", user_id=1011)
+        with pytest.raises(asyncio.CancelledError):
+            await smalltalk.smalltalk(msg, _FakeState())
+
+        # Matches the pre-existing (unaltered) contract: the reservation is not released.
+        assert await db.get_smalltalk_usage_today(1011) == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.usefixtures("initialized_db")
 def test_main_menu_intent_routes_without_calling_llm_or_quota(monkeypatch):
     async def run():
         await db.create_or_update_user(1008, "u", name="Gia", gender="female")

@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -103,8 +104,9 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
     settings = get_settings()
     limit = settings.smalltalk_daily_limit
     limit_enabled = limit > 0
+    reservation_day: Optional[str] = None
     if limit_enabled:
-        reserved = await reserve_smalltalk_usage(message.from_user.id, limit)
+        reserved, reservation_day = await reserve_smalltalk_usage(message.from_user.id, limit)
         if not reserved:
             used = await get_smalltalk_usage_today(message.from_user.id)
             log_smalltalk_rate_limited(message.from_user.id, used, limit)
@@ -120,7 +122,9 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
         logger.exception("Smalltalk failed: %s", exc)
         if limit_enabled:
             # The reservation was made before the call; release it since no reply was produced.
-            await release_smalltalk_usage(message.from_user.id)
+            # Uses the exact day captured at reservation time, never a recomputed "today"
+            # (see release_smalltalk_usage in database.py for why).
+            await release_smalltalk_usage(message.from_user.id, reservation_day)
         if language == "ru":
             await message.answer(
                 "Я здесь, чтобы помогать с ежедневным настроем. Хочешь создать новый?",
@@ -139,6 +143,7 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
         if limit_enabled:
             # The LLM produced a reply, but Telegram never delivered it to the user;
             # release the reservation rather than charge them for a message they never saw.
-            await release_smalltalk_usage(message.from_user.id)
+            # Uses the exact day captured at reservation time, never a recomputed "today".
+            await release_smalltalk_usage(message.from_user.id, reservation_day)
         raise
 

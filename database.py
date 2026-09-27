@@ -709,18 +709,23 @@ async def can_start_interactive_generation(user_id: int, daily_limit: int) -> Tu
     return used < daily_limit, used
 
 
-async def reserve_generation_usage(user_id: int, daily_limit: int) -> bool:
+async def reserve_generation_usage(user_id: int, daily_limit: int) -> Tuple[bool, str]:
     """Atomically claim one interactive-generation use for today, iff today's count is under
     ``daily_limit``. Mirrors ``reserve_smalltalk_usage``: one upsert statement, so concurrent
     callback presses/messages from the same user cannot all read "under limit" and all launch
     paid provider work before any one of them is accounted for. A day rollover resets the
-    counter to 1 in the same statement. Returns whether the reservation succeeded; callers must
-    call ``release_generation_usage`` if the reserved use does not end in a delivered result.
+    counter to 1 in the same statement.
+
+    Returns ``(reserved, day_utc)``: ``day_utc`` is the exact UTC calendar day this attempt
+    computed and used for the upsert. Callers must retain that value for the lifetime of the
+    request and pass it back to ``release_generation_usage`` if the reserved use does not end
+    in a delivered result - release must key off this captured day, never a freshly
+    recomputed "today" (see ``release_generation_usage`` for why).
     """
+    day_utc = _utc_today_iso()
     if daily_limit <= 0:
-        return True
-    today = _utc_today_iso()
-    return await _update_query_changed(
+        return True, day_utc
+    reserved = await _update_query_changed(
         """
         INSERT INTO generation_limits (user_id, day_utc, count)
         VALUES (?, ?, 1)
@@ -732,20 +737,28 @@ async def reserve_generation_usage(user_id: int, daily_limit: int) -> bool:
             END
         WHERE generation_limits.day_utc <> excluded.day_utc OR generation_limits.count < ?
         """,
-        (user_id, today, daily_limit),
+        (user_id, day_utc, daily_limit),
     )
+    return reserved, day_utc
 
 
-async def release_generation_usage(user_id: int) -> None:
-    """Undo one reservation for today when no result was delivered to the user (provider
-    failure before delivery, or the Telegram send itself failing). Scoped to today's row only:
-    if the day rolled over between reserve and release (a rare, low-stakes race), the release is
-    a no-op and the user is simply out one use for the new day.
+async def release_generation_usage(user_id: int, day_utc: str) -> None:
+    """Undo one reservation when no result was delivered to the user (provider failure
+    before delivery, or the Telegram send itself failing).
+
+    ``day_utc`` must be the exact value returned by the ``reserve_generation_usage`` call
+    this release corresponds to - it is NOT recomputed here. Recomputing "today" at release
+    time is unsafe: if the UTC day rolls over between reserve and release, a *different*
+    request may have already reserved on the new day (resetting the row to
+    ``day_utc=new_day, count=1``), and a release keyed on a freshly recomputed "today" would
+    match that new row and erase the other request's valid reservation instead of the stale
+    one it actually owns. Keying strictly on the caller's captured ``day_utc`` makes a stale,
+    cross-midnight release a guaranteed no-op: it simply won't match a row that has already
+    rolled over to a newer day.
     """
-    today = _utc_today_iso()
     await _execute(
         "UPDATE generation_limits SET count = count - 1 WHERE user_id = ? AND day_utc = ? AND count > 0",
-        (user_id, today),
+        (user_id, day_utc),
     )
 
 
@@ -787,19 +800,25 @@ async def get_smalltalk_usage_today(user_id: int) -> int:
     return int(row[0]) if row else 0
 
 
-async def reserve_smalltalk_usage(user_id: int, daily_limit: int) -> bool:
+async def reserve_smalltalk_usage(user_id: int, daily_limit: int) -> Tuple[bool, str]:
     """Atomically claim one smalltalk use for today, iff today's count is under ``daily_limit``.
 
     One upsert statement, so two concurrent messages from the same user cannot both read
     "under limit" and both proceed (see ``claim_subscription_delivery`` for the same guarded-
     write pattern applied to the delivery ledger). A day rollover resets the counter to 1 in
-    the same statement. Returns whether the reservation succeeded; callers should call
-    ``release_smalltalk_usage`` if the reserved use ends up not being consumed.
+    the same statement.
+
+    Returns ``(reserved, day_utc)``: ``day_utc`` is the exact UTC calendar day this attempt
+    computed and used for the upsert. Callers must retain that value for the lifetime of the
+    request and pass it back to ``release_smalltalk_usage`` if the reserved use ends up not
+    being consumed - release must key off this captured day, never a freshly recomputed
+    "today" (see ``release_smalltalk_usage`` for why; mirrors the identical fix applied to
+    ``reserve_generation_usage`` / ``release_generation_usage``).
     """
+    day_utc = _utc_today_iso()
     if daily_limit <= 0:
-        return True
-    today = _utc_today_iso()
-    return await _update_query_changed(
+        return True, day_utc
+    reserved = await _update_query_changed(
         """
         INSERT INTO smalltalk_limits (user_id, day_utc, count)
         VALUES (?, ?, 1)
@@ -811,20 +830,28 @@ async def reserve_smalltalk_usage(user_id: int, daily_limit: int) -> bool:
             END
         WHERE smalltalk_limits.day_utc <> excluded.day_utc OR smalltalk_limits.count < ?
         """,
-        (user_id, today, daily_limit),
+        (user_id, day_utc, daily_limit),
     )
+    return reserved, day_utc
 
 
-async def release_smalltalk_usage(user_id: int) -> None:
-    """Undo one reservation for today when the provider call failed before a reply was produced.
+async def release_smalltalk_usage(user_id: int, day_utc: str) -> None:
+    """Undo one reservation when the provider call failed before a reply was produced, or
+    the reply was never delivered.
 
-    Scoped to today's row only: if the day rolled over between reserve and release (a rare,
-    low-stakes race), the release is a no-op and the user is simply out one use for the new day.
+    ``day_utc`` must be the exact value returned by the ``reserve_smalltalk_usage`` call
+    this release corresponds to - it is NOT recomputed here. Recomputing "today" at release
+    time is unsafe: if the UTC day rolls over between reserve and release, a *different*
+    request may have already reserved on the new day (resetting the row to
+    ``day_utc=new_day, count=1``), and a release keyed on a freshly recomputed "today" would
+    match that new row and erase the other request's valid reservation instead of the stale
+    one it actually owns. Keying strictly on the caller's captured ``day_utc`` makes a stale,
+    cross-midnight release a guaranteed no-op: it simply won't match a row that has already
+    rolled over to a newer day.
     """
-    today = _utc_today_iso()
     await _execute(
         "UPDATE smalltalk_limits SET count = count - 1 WHERE user_id = ? AND day_utc = ? AND count > 0",
-        (user_id, today),
+        (user_id, day_utc),
     )
 
 
