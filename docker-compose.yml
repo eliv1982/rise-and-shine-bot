@@ -1,6 +1,11 @@
 # Локально: docker compose up --build -d
 # Docker Hub: в .env задай DOCKERHUB_IMAGE=логин/rise-and-shine-bot:latest, затем на сервере:
 #   docker compose pull && docker compose up -d
+#
+# Production topology: PostgreSQL runs as the `postgres` service in this same
+# Compose project (not a separate, self-managed service outside this file -
+# see docs/production_env.md). The bot reaches it at Compose DNS hostname
+# `postgres`, never localhost/127.0.0.1 and never a host-published port.
 services:
   bot:
     image: ${DOCKERHUB_IMAGE:-rise-and-shine-bot:latest}
@@ -15,11 +20,40 @@ services:
     # per-attempt timeout.
     stop_grace_period: 30s
     env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - bot_data:/app/data
     environment:
       - BOT_DATA_DIR=/app/data
     working_dir: /app
 
+  postgres:
+    image: postgres:16
+    container_name: rise-and-shine-postgres
+    restart: unless-stopped
+    # Required, not defaulted: an empty/missing value here must fail
+    # `docker compose config`/`up` loudly instead of starting Postgres with
+    # blank credentials. See .env.example.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required in .env - see .env.example}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env - see .env.example}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required in .env - see .env.example}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # $$ (escaped) so the container's own shell substitutes these from its
+    # own environment (set above) at check time, instead of Compose baking a
+    # credential value into the healthcheck command itself.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    # No host port published: only the bot (same Compose network, hostname
+    # `postgres`) needs to reach this service.
+
 volumes:
   bot_data:
+  postgres_data:

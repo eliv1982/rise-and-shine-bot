@@ -10,6 +10,13 @@
 #   *.dump  -> pg_restore --clean into the configured DATABASE_URL
 #   *.db    -> replaces the configured SQLite database file
 #
+# Note (PostgreSQL via Docker Compose): when DATABASE_URL's host is `postgres`
+# (the Compose service in docker-compose.yml), pg_restore runs via
+# `docker compose exec postgres` instead of directly against DATABASE_URL, for
+# the same reason as backup.sh (that hostname isn't resolvable from this host
+# shell). A DATABASE_URL pointing anywhere else still uses a host-installed
+# pg_restore directly, as before.
+#
 # Note (SQLite + Docker): as with backup.sh, this resolves SQLITE_DB_PATH/
 # BOT_DATA_DIR the way the app does on the host it runs on. For a Dockerized
 # SQLite deployment, run the equivalent copy inside the container instead so
@@ -47,14 +54,23 @@ read -r -p "Type 'restore' to continue: " CONFIRM
 
 case "$BACKUP_FILE" in
     *.dump)
-        command -v pg_restore >/dev/null 2>&1 || { echo "[restore] FAIL: pg_restore not found on PATH." >&2; exit 1; }
         DATABASE_URL="$("$PYTHON_BIN" scripts/runtime_value.py database_url)"
         if [[ "$DATABASE_URL" != postgres://* && "$DATABASE_URL" != postgresql://* ]]; then
             echo "[restore] FAIL: DATABASE_URL is not set to a PostgreSQL URL; refusing to restore a Postgres dump into it." >&2
             exit 1
         fi
-        echo "[restore] pg_restore --clean --if-exists into the configured DATABASE_URL..."
-        pg_restore --clean --if-exists --no-owner --dbname="$DATABASE_URL" "$BACKUP_FILE"
+        DB_HOST="$("$PYTHON_BIN" scripts/runtime_value.py database_url_host)"
+        if [ "$DB_HOST" = "postgres" ]; then
+            command -v docker >/dev/null 2>&1 || { echo "[restore] FAIL: docker not found on PATH." >&2; exit 1; }
+            echo "[restore] pg_restore --clean --if-exists (docker compose exec postgres) into the configured database..."
+            docker compose exec -T postgres sh -c \
+                'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore --clean --if-exists --no-owner -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+                < "$BACKUP_FILE"
+        else
+            command -v pg_restore >/dev/null 2>&1 || { echo "[restore] FAIL: pg_restore not found on PATH." >&2; exit 1; }
+            echo "[restore] pg_restore --clean --if-exists into the configured DATABASE_URL..."
+            pg_restore --clean --if-exists --no-owner --dbname="$DATABASE_URL" "$BACKUP_FILE"
+        fi
         echo "[restore] OK."
         ;;
     *.db)

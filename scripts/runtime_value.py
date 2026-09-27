@@ -13,14 +13,25 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import get_database_url, get_sqlite_db_path  # noqa: E402  (import after sys.path setup)
 
+
+def _database_url_host() -> str:
+    """Hostname from DATABASE_URL, e.g. `postgres` for the Compose-managed
+    service - not a secret, used by backup.sh/restore.sh to decide whether
+    pg_dump/pg_restore must run inside the postgres container (a Compose
+    service hostname is not resolvable from the host shell)."""
+    return urlsplit(get_database_url() or "").hostname or ""
+
+
 _FIELDS = {
     "database_url": lambda: get_database_url() or "",
     "sqlite_db_path": get_sqlite_db_path,
+    "database_url_host": _database_url_host,
 }
 
 

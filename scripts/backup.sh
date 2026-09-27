@@ -7,6 +7,15 @@
 #
 # Usage: scripts/backup.sh [output-dir]   (default: ./backups)
 #
+# Note (PostgreSQL via Docker Compose): when DATABASE_URL's host is `postgres`
+# (the Compose service in docker-compose.yml), that hostname only resolves
+# inside the Compose network - not from this host shell - so pg_dump runs via
+# `docker compose exec postgres` instead of directly against DATABASE_URL.
+# This also keeps pg_dump's version matched to the postgres:16 server without
+# a host install. A DATABASE_URL pointing anywhere else (e.g. a host-reachable
+# Postgres used for local/alternative testing) still uses a host-installed
+# pg_dump directly, as before.
+#
 # Note (SQLite + Docker): this script reads SQLITE_DB_PATH/BOT_DATA_DIR from
 # .env the same way the app does. For a non-Docker SQLite deployment that
 # resolves directly to the right file. For a Dockerized SQLite deployment,
@@ -39,11 +48,20 @@ done
 DATABASE_URL="$("$PYTHON_BIN" scripts/runtime_value.py database_url)"
 
 if [[ "$DATABASE_URL" == postgres://* || "$DATABASE_URL" == postgresql://* ]]; then
-    command -v pg_dump >/dev/null 2>&1 || { echo "[backup] FAIL: pg_dump not found on PATH." >&2; exit 1; }
     DEST="$BACKUP_DIR/postgres_${TIMESTAMP}.dump"
     [ -e "$DEST" ] && { echo "[backup] FAIL: $DEST already exists." >&2; exit 1; }
-    echo "[backup] PostgreSQL -> $DEST"
-    pg_dump --format=custom --file="$DEST" "$DATABASE_URL"
+    DB_HOST="$("$PYTHON_BIN" scripts/runtime_value.py database_url_host)"
+    if [ "$DB_HOST" = "postgres" ]; then
+        command -v docker >/dev/null 2>&1 || { echo "[backup] FAIL: docker not found on PATH." >&2; exit 1; }
+        echo "[backup] PostgreSQL (docker compose exec postgres) -> $DEST"
+        docker compose exec -T postgres sh -c \
+            'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump --format=custom -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+            > "$DEST"
+    else
+        command -v pg_dump >/dev/null 2>&1 || { echo "[backup] FAIL: pg_dump not found on PATH." >&2; exit 1; }
+        echo "[backup] PostgreSQL -> $DEST"
+        pg_dump --format=custom --file="$DEST" "$DATABASE_URL"
+    fi
     echo "[backup] OK: $DEST ($(du -h "$DEST" | cut -f1))"
 else
     SQLITE_PATH="$("$PYTHON_BIN" scripts/runtime_value.py sqlite_db_path)"
