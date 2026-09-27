@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import json
 import random
 
@@ -247,16 +248,37 @@ def test_subscription_select_keyboard_shows_visual_mix_icon(allowed_visual_modes
 
 
 # ---------------------------------------------------------------------------
-# Scheduled generation: mode selection is constrained to allowed_visual_modes
+# Scheduled generation: mode selection is constrained to allowed_visual_modes.
+#
+# The mode is now chosen when a logical delivery (subscription_id, date) is first
+# claimed and persisted in the subscription_deliveries ledger (see
+# services/delivery_schedule.py and scheduler.py), so these tests drive
+# scheduler.send_daily_affirmations across several distinct logical days against a
+# real temporary database instead of looping the same day in memory - that in-memory
+# loop is exactly the pre-Stage-2 bug (mode chosen from a process-local dict, updated
+# before delivery was confirmed sent).
 # ---------------------------------------------------------------------------
 
 
+class _FakeSentMessage:
+    photo: list = []
+
+
 class _FakeBot:
+    def __init__(self):
+        self.sent: list[dict] = []
+
     async def send_photo(self, **kwargs):
-        raise AssertionError("send_photo should not be reached in this test")
+        self.sent.append(kwargs)
+        return _FakeSentMessage()
 
 
-def _patch_scheduler_dependencies(monkeypatch, captured_visual_modes, captured_calls=None):
+def _patch_scheduler_dependencies_for_success(monkeypatch, tmp_path, captured_calls):
+    """Stub every LLM/shadow call and let generation succeed, writing a real image file
+    so FSInputFile(image_path) and the send step both work without any network access.
+    """
+    counter = {"n": 0}
+
     async def fake_text_plan_shadow(**_kwargs):
         return None
 
@@ -273,10 +295,11 @@ def _patch_scheduler_dependencies(monkeypatch, captured_visual_modes, captured_c
         return "a calm scene", "template"
 
     async def fake_generate_image(**kwargs):
-        captured_visual_modes.append(kwargs["visual_mode"])
-        if captured_calls is not None:
-            captured_calls.append(kwargs)
-        raise RuntimeError("stop before sending - image generation not under test")
+        captured_calls.append(kwargs)
+        counter["n"] += 1
+        path = tmp_path / f"img_{counter['n']}.png"
+        path.write_bytes(b"fake-png-bytes")
+        return str(path)
 
     monkeypatch.setattr(scheduler, "build_text_plan_shadow_best_effort", fake_text_plan_shadow)
     monkeypatch.setattr(scheduler, "build_scene_plan_shadow_best_effort", fake_scene_plan_shadow)
@@ -288,24 +311,42 @@ def _patch_scheduler_dependencies(monkeypatch, captured_visual_modes, captured_c
     monkeypatch.setattr(scheduler, "is_scene_planner_image_prompt_enabled", lambda *_a, **_k: False)
 
 
-def _base_subscription(allowed_visual_modes, style="auto"):
-    return {
-        "id": 1,
-        "user_id": 100,
-        "sphere": "random",
-        "subsphere": None,
-        "image_style": style,
-        "language": "ru",
-        "hour": 8,
-        "minute": 0,
-        "subscription_mode": "weekly_balance",
-        "subscription_sphere": None,
-        "subscription_style_mode": style,
-        "visual_mode": allowed_visual_modes[0],
-        "allowed_visual_modes_json": json.dumps(allowed_visual_modes),
-        "user_gender": None,
-        "user_name": "Tester",
-    }
+def _run_scheduled_daily_deliveries(monkeypatch, tmp_path, allowed_visual_modes, style="auto", days=8):
+    """Create one subscription and run `days` consecutive daily 08:00 deliveries for it.
+
+    Each day is a distinct logical delivery (different delivery_date), so every call
+    to send_daily_affirmations is expected to generate and send exactly one message;
+    returns the kwargs captured from each generate_image call, oldest first.
+    """
+    captured_calls: list[dict] = []
+
+    async def run():
+        monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "sched.db"))
+        await db.init_db()
+        await db.create_or_update_user(500, "u", name="Tester")
+        await db.create_subscription(
+            500,
+            "random",
+            None,
+            style,
+            "ru",
+            8,
+            0,
+            subscription_mode="weekly_balance",
+            subscription_style_mode=style,
+            visual_mode=allowed_visual_modes[0],
+            allowed_visual_modes=allowed_visual_modes,
+        )
+        _patch_scheduler_dependencies_for_success(monkeypatch, tmp_path, captured_calls)
+        fake_bot = _FakeBot()
+        for day in range(1, days + 1):
+            now = dt.datetime(2030, 1, day, 8, 0, tzinfo=scheduler.MOSCOW)
+            await scheduler.send_daily_affirmations(fake_bot, now=now)
+        assert len(fake_bot.sent) == days, "every distinct day must be delivered exactly once"
+
+    asyncio.run(run())
+    assert len(captured_calls) == days
+    return captured_calls
 
 
 @pytest.mark.parametrize(
@@ -316,51 +357,23 @@ def _base_subscription(allowed_visual_modes, style="auto"):
         ["photo", "illustration", "symbolic"],
     ],
 )
-def test_scheduled_run_uses_only_allowed_visual_modes(monkeypatch, allowed_visual_modes):
-    async def run():
-        captured: list[str] = []
-        _patch_scheduler_dependencies(monkeypatch, captured)
-        scheduler._last_subscription_visual_mode.clear()
-
-        sub = _base_subscription(allowed_visual_modes)
-
-        async def fake_get_due_subscriptions(_now):
-            return [sub]
-
-        monkeypatch.setattr(scheduler, "get_due_subscriptions", fake_get_due_subscriptions)
-
-        for _ in range(10):
-            await scheduler.send_daily_affirmations(_FakeBot())
-
-        assert captured
-        assert all(mode in allowed_visual_modes for mode in captured)
-
-    asyncio.run(run())
+def test_scheduled_delivery_uses_only_allowed_visual_modes(monkeypatch, tmp_path, allowed_visual_modes):
+    random.seed(20240601)
+    calls = _run_scheduled_daily_deliveries(monkeypatch, tmp_path, allowed_visual_modes, days=10)
+    modes = [call["visual_mode"] for call in calls]
+    assert modes
+    assert all(mode in allowed_visual_modes for mode in modes)
 
 
-def test_scheduled_run_anti_repeat_prefers_alternative_mode(monkeypatch):
-    async def run():
-        captured: list[str] = []
-        _patch_scheduler_dependencies(monkeypatch, captured)
-        scheduler._last_subscription_visual_mode.clear()
-
-        allowed_visual_modes = ["photo", "symbolic"]
-        sub = _base_subscription(allowed_visual_modes)
-
-        async def fake_get_due_subscriptions(_now):
-            return [sub]
-
-        monkeypatch.setattr(scheduler, "get_due_subscriptions", fake_get_due_subscriptions)
-
-        for _ in range(6):
-            await scheduler.send_daily_affirmations(_FakeBot())
-
-        # With two allowed modes and anti-repeat, consecutive runs should not
-        # always pick the same mode.
-        assert len(set(captured)) == 2
-
-    asyncio.run(run())
-
+def test_scheduled_delivery_anti_repeat_alternates_across_days(monkeypatch, tmp_path):
+    # With exactly two allowed modes, avoiding the previous *confirmed* delivery's mode
+    # forces strict day-to-day alternation - deterministic, no seed needed.
+    random.seed(1)
+    allowed_visual_modes = ["photo", "symbolic"]
+    calls = _run_scheduled_daily_deliveries(monkeypatch, tmp_path, allowed_visual_modes, days=6)
+    modes = [call["visual_mode"] for call in calls]
+    assert len(set(modes)) == 2
+    assert all(modes[i] != modes[i + 1] for i in range(len(modes) - 1))
 
 
 # ---------------------------------------------------------------------------
@@ -481,28 +494,6 @@ def test_summary_reports_auto_for_legacy_mixed_row_with_concrete_style():
 # ---------------------------------------------------------------------------
 
 
-def _run_scheduled_runs(monkeypatch, allowed_visual_modes, style, runs=12):
-    """Run the scheduler `runs` times and return the kwargs passed to generate_image."""
-    captured_modes: list[str] = []
-    captured_calls: list[dict] = []
-
-    async def run():
-        _patch_scheduler_dependencies(monkeypatch, captured_modes, captured_calls)
-        scheduler._last_subscription_visual_mode.clear()
-        sub = _base_subscription(allowed_visual_modes, style=style)
-
-        async def fake_get_due_subscriptions(_now):
-            return [sub]
-
-        monkeypatch.setattr(scheduler, "get_due_subscriptions", fake_get_due_subscriptions)
-        for _ in range(runs):
-            await scheduler.send_daily_affirmations(_FakeBot())
-
-    asyncio.run(run())
-    assert len(captured_calls) == runs
-    return captured_calls
-
-
 @pytest.mark.parametrize(
     "allowed_visual_modes, persisted_style",
     [
@@ -513,9 +504,10 @@ def _run_scheduled_runs(monkeypatch, allowed_visual_modes, style, runs=12):
     ],
 )
 def test_scheduled_multi_mode_with_persisted_concrete_style_stays_multi_mode(
-    monkeypatch, allowed_visual_modes, persisted_style
+    monkeypatch, tmp_path, allowed_visual_modes, persisted_style
 ):
-    calls = _run_scheduled_runs(monkeypatch, allowed_visual_modes, persisted_style)
+    random.seed(20240602)
+    calls = _run_scheduled_daily_deliveries(monkeypatch, tmp_path, allowed_visual_modes, persisted_style, days=12)
 
     # The concrete style must not pin the mode: every allowed mode is used ...
     assert {call["visual_mode"] for call in calls} == set(allowed_visual_modes)
@@ -534,9 +526,9 @@ def test_scheduled_multi_mode_with_persisted_concrete_style_stays_multi_mode(
     ],
 )
 def test_scheduled_single_mode_drops_incompatible_style_to_auto(
-    monkeypatch, allowed_visual_modes, incompatible_style, mode_style_keys
+    monkeypatch, tmp_path, allowed_visual_modes, incompatible_style, mode_style_keys
 ):
-    calls = _run_scheduled_runs(monkeypatch, allowed_visual_modes, incompatible_style)
+    calls = _run_scheduled_daily_deliveries(monkeypatch, tmp_path, allowed_visual_modes, incompatible_style, days=4)
 
     for call in calls:
         assert call["visual_mode"] == allowed_visual_modes[0]
@@ -553,8 +545,10 @@ def test_scheduled_single_mode_drops_incompatible_style_to_auto(
         (["symbolic"], "botanical_mandala"),
     ],
 )
-def test_scheduled_single_mode_keeps_compatible_concrete_style(monkeypatch, allowed_visual_modes, concrete_style):
-    calls = _run_scheduled_runs(monkeypatch, allowed_visual_modes, concrete_style)
+def test_scheduled_single_mode_keeps_compatible_concrete_style(
+    monkeypatch, tmp_path, allowed_visual_modes, concrete_style
+):
+    calls = _run_scheduled_daily_deliveries(monkeypatch, tmp_path, allowed_visual_modes, concrete_style, days=4)
 
     for call in calls:
         assert call["visual_mode"] == allowed_visual_modes[0]
