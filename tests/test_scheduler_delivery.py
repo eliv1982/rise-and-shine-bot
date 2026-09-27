@@ -616,3 +616,48 @@ def test_in_progress_claim_past_lease_can_be_reclaimed(initialized_db):
         assert second["attempts"] == 2
 
     asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 item G: a relationship-sphere subscription's persisted subfocus must reach
+# generation, the same way handlers/generation.py's manual /new flow already does.
+# ---------------------------------------------------------------------------
+
+
+def test_relationship_subscription_delivery_uses_persisted_subsphere(initialized_db, monkeypatch, tmp_path):
+    async def run():
+        _install_common_stubs(monkeypatch)
+        captured: dict = {}
+
+        async def fake_generate_affirmations(**kwargs):
+            captured.update(kwargs)
+            return ["Affirmation one", "Affirmation two", "Affirmation three"]
+
+        monkeypatch.setattr(scheduler, "generate_affirmations", fake_generate_affirmations)
+        calls: list[dict] = []
+        _install_generate_image(monkeypatch, tmp_path, calls)
+
+        await db.create_or_update_user(1, "u1", name="User1")
+        await db.create_subscription(
+            user_id=1,
+            sphere="relationships",
+            subsphere="colleagues",
+            image_style="auto",
+            language="ru",
+            hour=8,
+            minute=0,
+            subscription_mode="sphere_focus",
+            subscription_sphere="relationships",
+            subscription_style_mode="auto",
+            visual_mode="illustration",
+            allowed_visual_modes=["illustration"],
+        )
+        bot = _FakeBot()
+
+        await scheduler.send_daily_affirmations(bot, now=_at(1, 8, 0))
+
+        assert len(bot.sent) == 1
+        assert captured.get("sphere") == "relationships"
+        assert captured.get("subsphere") == "colleagues"
+
+    asyncio.run(run())

@@ -276,7 +276,7 @@ def test_choose_visual_mode_confirms_selection_and_shows_style_menu(monkeypatch)
 
 def test_cmd_new_stops_early_when_daily_limit_is_reached(monkeypatch):
     async def _fake_get_user(_uid):
-        return {"language": "ru"}
+        return {"language": "ru", "name": "Test", "gender": "female"}
 
     async def _fake_can_start(_uid, _limit):
         return False, 3

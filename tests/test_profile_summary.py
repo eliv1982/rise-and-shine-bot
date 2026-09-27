@@ -37,9 +37,27 @@ def test_profile_summary_subscription_with_visual_mode_ru():
         "ru",
     )
     assert "🌿 Баланс недели" in summary
-    assert "⏰ Время: 09:00" in summary
+    # Stage 4: the scheduler runs on Moscow time only (no per-user timezone support), so
+    # the displayed time must say so rather than implying it is local to the user.
+    assert "⏰ Время: 09:00 МСК" in summary
     assert "🎨 Визуал: 📷 Фото-стиль" in summary
     assert "✨ Стиль: 🎨 Автоподбор" in summary
+
+
+def test_profile_summary_time_is_labeled_msk_in_english_too():
+    summary = build_subscription_summary(
+        {
+            "sphere": "random",
+            "image_style": "auto",
+            "hour": 9,
+            "minute": 0,
+            "subscription_mode": "weekly_balance",
+            "subscription_style_mode": "auto",
+            "visual_mode": "photo",
+        },
+        "en",
+    )
+    assert "⏰ Time: 09:00 MSK" in summary
 
 
 def test_profile_summary_missing_visual_mode_defaults_to_illustration():

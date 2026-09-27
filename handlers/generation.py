@@ -20,7 +20,7 @@ from database import (
     get_user_profile_preferences,
     record_interactive_generation,
 )
-from handlers.common_guards import answer_menu_option_guard, answer_menu_style_guard
+from handlers.common_guards import answer_menu_option_guard, answer_menu_style_guard, require_onboarded_user
 from handlers.common_messages import (
     menu_choose_option_text as _menu_choose_option_text,
     menu_choose_style_text as _menu_choose_style_text,
@@ -416,6 +416,8 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
 @router.message(Command("new"))
 async def cmd_new(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
+    if not await require_onboarded_user(message, user):
+        return
     language = (user or {}).get("language", "ru")
     if await _check_generation_limit_and_handle(
         message,

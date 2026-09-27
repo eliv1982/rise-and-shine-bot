@@ -778,6 +778,23 @@ async def get_user(user_id: int) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
+def is_onboarding_complete(user: Optional[Dict[str, Any]]) -> bool:
+    """True once registration collected both a display name and a gender.
+
+    A ``users`` row is created as soon as /start is first seen (states.RegistrationState.
+    waiting_for_name), before either field is known. The FSM state that tracks progress
+    through registration lives only in aiogram's in-memory storage (see bot.py), so a bot
+    restart or /cancel mid-registration can leave a row behind whose FSM state was reset to
+    None while name and/or gender are still unset. Callers must check this predicate rather
+    than "the row exists" before treating a user as ready for normal (non-onboarding) use.
+    """
+    if not user:
+        return False
+    name = str(user.get("name") or "").strip()
+    gender = str(user.get("gender") or "").strip()
+    return bool(name) and bool(gender)
+
+
 async def get_user_profile_preferences(user_id: int) -> dict[str, Any]:
     row = await _fetchone(
         "SELECT profile_preferences_json FROM users WHERE user_id = ?",
@@ -1217,12 +1234,25 @@ async def mark_subscription_delivery_failed(
 
 
 async def delete_user_completely(user_id: int) -> None:
+    """Full /reset contract: remove every row this Telegram user owns.
+
+    Order matters: visual_history.generation_id references generation_history(id), and
+    generation_limits.user_id references users(user_id) (see the schema above), so on
+    PostgreSQL - where those foreign keys are enforced - a child table must be cleared
+    before the table it references or the delete raises a foreign-key violation. Deleting
+    children-before-parents here (history rows, then limits/subscriptions, then the users
+    row last) is correct under that constraint regardless of backend, and keeps SQLite and
+    PostgreSQL doing the same thing even though SQLite does not enforce it by default.
+    """
     if get_database_backend_name() == "postgresql":
         conn = await _connect_postgres()
         try:
             async with conn.transaction():
+                await conn.execute(_postgres_query("DELETE FROM visual_history WHERE telegram_user_id = ?"), user_id)
+                await conn.execute(_postgres_query("DELETE FROM generation_history WHERE telegram_user_id = ?"), user_id)
                 await conn.execute(_postgres_query("DELETE FROM subscription_deliveries WHERE user_id = ?"), user_id)
                 await conn.execute(_postgres_query("DELETE FROM subscriptions WHERE user_id = ?"), user_id)
+                await conn.execute(_postgres_query("DELETE FROM generation_limits WHERE user_id = ?"), user_id)
                 await conn.execute(_postgres_query("DELETE FROM smalltalk_limits WHERE user_id = ?"), user_id)
                 await conn.execute(_postgres_query("DELETE FROM users WHERE user_id = ?"), user_id)
         finally:
@@ -1230,8 +1260,11 @@ async def delete_user_completely(user_id: int) -> None:
         return
 
     async with aiosqlite.connect(_resolve_sqlite_db_path()) as db:
+        await db.execute("DELETE FROM visual_history WHERE telegram_user_id = ?", (user_id,))
+        await db.execute("DELETE FROM generation_history WHERE telegram_user_id = ?", (user_id,))
         await db.execute("DELETE FROM subscription_deliveries WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+        await db.execute("DELETE FROM generation_limits WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM smalltalk_limits WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         await db.commit()

@@ -1,4 +1,5 @@
 import importlib
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -256,3 +257,53 @@ async def test_update_subscription_postgres_returns_false_when_no_row_updated(mo
     )
 
     assert changed is False
+
+
+@pytest.mark.asyncio
+async def test_delete_user_completely_postgres_deletes_in_fk_safe_order(monkeypatch):
+    """Stage 4: delete_user_completely now also clears generation_limits, generation_history
+    and visual_history. On PostgreSQL, visual_history.generation_id references
+    generation_history(id) and generation_limits.user_id references users(user_id) (see the
+    schema in database.py), so those foreign keys are enforced there - a child table's rows
+    must be deleted before the table it references, or the delete raises a foreign-key
+    violation. This pins that ordering without needing a live PostgreSQL instance."""
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/rise")
+    db = _reload_database_module(monkeypatch)
+
+    executed: list[str] = []
+
+    class _FakeTransaction:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeConn:
+        def transaction(self):
+            return _FakeTransaction()
+
+        async def execute(self, query, *params):
+            executed.append(query)
+
+        async def close(self):
+            return None
+
+    async def _fake_connect():
+        return _FakeConn()
+
+    monkeypatch.setattr(db, "_connect_postgres", _fake_connect)
+
+    await db.delete_user_completely(42)
+
+    tables_in_order = [re.search(r"FROM (\w+)", query).group(1) for query in executed]
+    assert tables_in_order == [
+        "visual_history",
+        "generation_history",
+        "subscription_deliveries",
+        "subscriptions",
+        "generation_limits",
+        "smalltalk_limits",
+        "users",
+    ]

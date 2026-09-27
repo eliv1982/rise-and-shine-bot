@@ -10,6 +10,7 @@ from config import get_settings
 from database import (
     get_smalltalk_usage_today,
     get_user,
+    is_onboarding_complete,
     release_smalltalk_usage,
     reserve_smalltalk_usage,
 )
@@ -83,10 +84,12 @@ async def smalltalk(message: Message, state: FSMContext) -> None:
         return
 
     user = await get_user(message.from_user.id)
-    if user is None:
-        # Anonymous/unregistered users must not reach the paid LLM path at all.
+    if not is_onboarding_complete(user):
+        # Anonymous/unregistered users, and users whose registration was interrupted
+        # before name+gender were both collected, must not reach the paid LLM path.
         log_smalltalk_unregistered_rejected(message.from_user.id)
-        await message.answer(_registration_required_text("ru"))
+        language = (user or {}).get("language", "ru")
+        await message.answer(_registration_required_text(language))
         return
 
     language = (user or {}).get("language", "ru")

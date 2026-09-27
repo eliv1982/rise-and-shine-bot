@@ -86,10 +86,11 @@ def test_unregistered_user_does_not_invoke_llm(monkeypatch):
 
 
 @pytest.mark.usefixtures("initialized_db")
-def test_incomplete_registration_row_is_treated_as_registered(monkeypatch):
-    """A `users` row with no name/gender yet (interrupted onboarding) is the app's existing
-    definition of "registered" everywhere else (see handlers/start.py's cmd_language guard:
-    `if not user`), so smalltalk follows the same rule rather than inventing a stricter one."""
+def test_incomplete_registration_row_does_not_reach_llm(monkeypatch):
+    """A `users` row with no name/gender yet (interrupted onboarding - see
+    database.is_onboarding_complete) must not be treated as a completed registration:
+    otherwise a user whose /start was interrupted (bot restart, or /cancel mid-registration)
+    could reach the paid LLM path before ever finishing onboarding."""
 
     async def run():
         await db.create_or_update_user(1002, "u")  # no name/gender
@@ -106,7 +107,35 @@ def test_incomplete_registration_row_is_treated_as_registered(monkeypatch):
         msg = _FakeMessage("просто общаюсь", user_id=1002)
         await smalltalk.smalltalk(msg, _FakeState())
 
-        assert called["count"] == 1
+        assert called["count"] == 0
+        assert "/start" in msg.answers[-1][0]
+
+    asyncio.run(run())
+
+
+@pytest.mark.usefixtures("initialized_db")
+def test_registration_with_name_but_no_gender_does_not_reach_llm(monkeypatch):
+    """Half-finished registration (name captured, gender step never completed) is the
+    interrupted-onboarding case in practice - see database.is_onboarding_complete - and
+    must be rejected the same way a fully empty row is."""
+
+    async def run():
+        await db.create_or_update_user(1010, "u", name="Ira")  # no gender
+
+        monkeypatch.setattr(smalltalk, "get_settings", lambda: _fake_settings(5))
+        called = {"count": 0}
+
+        async def _fake_reply(*_args, **_kwargs):
+            called["count"] += 1
+            return "ok"
+
+        monkeypatch.setattr(smalltalk, "generate_smalltalk_reply", _fake_reply)
+
+        msg = _FakeMessage("просто общаюсь", user_id=1010)
+        await smalltalk.smalltalk(msg, _FakeState())
+
+        assert called["count"] == 0
+        assert "/start" in msg.answers[-1][0]
 
     asyncio.run(run())
 

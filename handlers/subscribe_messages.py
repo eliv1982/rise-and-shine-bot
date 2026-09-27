@@ -8,6 +8,10 @@ def visual_mode_text(language: str) -> str:
     return "🎨 Какой визуал тебе ближе?" if language == "ru" else "🎨 Which visual style feels closer to you?"
 
 
+def relationship_subsphere_text(language: str) -> str:
+    return "Уточни, пожалуйста:" if language == "ru" else "Please specify:"
+
+
 def style_choice_text(language: str, *, multi_mode: bool = False) -> str:
     if multi_mode:
         if language == "ru":

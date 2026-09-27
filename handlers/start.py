@@ -14,6 +14,7 @@ from database import (
     get_active_subscriptions,
     get_user,
     get_user_profile_preferences,
+    is_onboarding_complete,
     merge_user_profile_preferences,
     update_user_language,
     update_user_profile_preferences,
@@ -35,6 +36,7 @@ from keyboards.inline import (
     start_menu_keyboard,
 )
 from database import MAX_ACTIVE_SUBSCRIPTIONS
+from handlers.common_guards import require_onboarded_user
 from handlers.common_messages import (
     main_menu_mismatch_text as _main_menu_mismatch_text,
     voice_language_mismatch_text as _voice_language_mismatch_text,
@@ -259,7 +261,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     username = message.from_user.username
 
     user = await get_user(user_id)
-    if user:
+    if user and is_onboarding_complete(user):
         await state.clear()
         lang = (user or {}).get("language", "ru")
         if lang == "en":
@@ -271,6 +273,26 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         else:
             text = _greet_returning(user.get("name"), user.get("gender"))
         await message.answer(text, reply_markup=main_reply_keyboard(lang))
+        return
+
+    if user and not str(user.get("name") or "").strip():
+        # Row exists (username was seen once) but registration never even got a name -
+        # e.g. a bot restart lost the in-memory FSM state before waiting_for_name was
+        # answered. Resume exactly like a brand-new registration.
+        await create_or_update_user(user_id=user_id, username=username)
+        await state.set_state(RegistrationState.waiting_for_name)
+        await message.answer(_welcome_new_user("ru"))
+        return
+
+    if user:
+        # Name is known but gender is not: registration was interrupted between the two
+        # steps (bot restart, or /cancel mid-registration). Resume at the gender step
+        # instead of treating the row as a completed account.
+        await state.set_state(RegistrationState.waiting_for_gender)
+        await message.answer(
+            f"Продолжим знакомство, {user.get('name')}! Выбери обращение — это поможет точнее формулировать настрой дня:",
+            reply_markup=gender_keyboard(language="ru"),
+        )
         return
 
     # Новый пользователь
@@ -385,8 +407,7 @@ async def update_gender_from_profile(callback: CallbackQuery, state: FSMContext)
 async def cmd_language(message: Message, state: FSMContext) -> None:
     """Выбор языка: русский / English."""
     user = await get_user(message.from_user.id)
-    if not user:
-        await message.answer("Сначала напиши /start.")
+    if not await require_onboarded_user(message, user):
         return
     lang = (user or {}).get("language", "ru")
     text_ru = "Выбери язык общения:"
@@ -418,7 +439,10 @@ async def cmd_language_callback(callback: CallbackQuery, state: FSMContext) -> N
 
 @router.message(Command("profile"))
 async def cmd_profile(message: Message, state: FSMContext) -> None:
-    await _show_profile(message, state, user_id=message.from_user.id)
+    user = await get_user(message.from_user.id)
+    if not await require_onboarded_user(message, user):
+        return
+    await _show_profile(message, state, user_id=message.from_user.id, user=user)
 
 
 @router.callback_query(F.data == "profile:open")

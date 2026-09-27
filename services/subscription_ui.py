@@ -56,7 +56,7 @@ def format_subscription_summary(sub: dict, language: str = "ru", index: int = 1)
     style = effective_subscription_style_mode(
         allowed_visual_modes, sub.get("subscription_style_mode") or sub.get("image_style") or "auto"
     )
-    time_str = f"{int(sub.get('hour', 0)):02d}:{int(sub.get('minute', 0)):02d}"
+    time_str = f"{int(sub.get('hour', 0)):02d}:{int(sub.get('minute', 0)):02d} {'МСК' if language == 'ru' else 'MSK'}"
 
     lines = [f"{index}. {subscription_mode_label(mode, language)}"]
     if mode == "sphere_focus":
