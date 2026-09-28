@@ -276,12 +276,15 @@ def _format_human_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
+    """`env` lets a caller (scripts/preflight_check.py) supply a merged view of
+    process env + parsed .env file, since this module itself only reads os.environ
+    by default. Optional and defaulted to preserve standalone/in-container use."""
     parser = argparse.ArgumentParser(description="Read-only runtime configuration doctor for Rise and Shine bot.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON report")
     args = parser.parse_args(argv)
 
-    report = build_runtime_config_report()
+    report = build_runtime_config_report(env)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:

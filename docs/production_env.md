@@ -104,11 +104,14 @@ SQLITE_DB_PATH=bot.db
 
 - `python scripts/preflight_check.py` — deploy preflight: fails if required config
   (`BOT_TOKEN`, `OPENAI_API_KEY`, etc.) is missing, or `DATABASE_URL` is malformed. No
-  network calls.
+  network calls. Dependency-free by design (stdlib only, parses `.env` itself, never
+  imports `config.py`/`python-dotenv`): the deployment host only needs system Python,
+  not a project virtualenv or any application package — those stay inside the Docker
+  image, delivered to the container by `docker-compose.yml`'s `env_file: .env`.
 - `python scripts/check_runtime_config.py` — read-only config report: provider (always
   `openai`), role flags, database backend/warnings, and any pre-Stage-6 Yandex/Proxi/
   provider-selection env vars still present in `.env` (listed as ignored/safe to
-  remove, never treated as active config). No network calls.
+  remove, never treated as active config). No network calls. Also dependency-free.
 
 Recommended planner flags:
 
