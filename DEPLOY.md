@@ -20,6 +20,9 @@
 
 - Docker и Docker Compose (v2)
 - Git (если деплой через `git pull`)
+- Системный Python 3 (только для `scripts/preflight.sh`/`preflight_check.py`) — без
+  venv и без `pip install`: зависимости приложения (включая `python-dotenv`) живут
+  только внутри Docker-образа.
 
 ### Архитектура production-БД
 
