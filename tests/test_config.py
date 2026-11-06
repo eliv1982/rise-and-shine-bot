@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from config import (
     get_database_url,
     get_image_provider_config,
@@ -39,6 +41,80 @@ def test_database_url_defaults_to_none(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
 
     assert get_database_url() is None
+
+
+@pytest.mark.parametrize("value", [None, "", " \t "])
+def test_text_model_defaults_to_luna(monkeypatch, value):
+    monkeypatch.delenv("OPENAI_TEXT_MODEL", raising=False)
+    if value is not None:
+        monkeypatch.setenv("OPENAI_TEXT_MODEL", value)
+    monkeypatch.delenv("OPENAI_TEXT_REASONING_EFFORT", raising=False)
+    monkeypatch.delenv("OPENAI_TEXT_MAX_COMPLETION_TOKENS", raising=False)
+    cfg = get_text_provider_config()
+    assert cfg.model == "gpt-6-luna"
+    assert cfg.reasoning_effort == "none"
+    assert cfg.max_completion_tokens is None
+
+
+@pytest.mark.parametrize("model", ["gpt-4o-mini", "gpt-6-luna", "gpt-6.1-terra"])
+def test_explicit_text_model_is_preserved(monkeypatch, model):
+    monkeypatch.setenv("OPENAI_TEXT_MODEL", f" \t{model} \n")
+    assert get_text_provider_config().model == model
+
+
+def test_text_reasoning_and_budget_env(monkeypatch):
+    monkeypatch.setenv("OPENAI_TEXT_REASONING_EFFORT", " LOW ")
+    monkeypatch.setenv("OPENAI_TEXT_MAX_COMPLETION_TOKENS", "4096")
+    cfg = get_text_provider_config()
+    assert cfg.reasoning_effort == "low"
+    assert cfg.max_completion_tokens == 4096
+
+
+@pytest.mark.parametrize("model", ["gpt-4o-mini", "gpt-6-luna", "gpt-6.1-terra"])
+@pytest.mark.parametrize("effort", ["minimal", "LOWW", "low medium", "0"])
+def test_invalid_reasoning_effort_rejected_when_loading_settings(monkeypatch, model, effort):
+    monkeypatch.setenv("OPENAI_TEXT_MODEL", model)
+    monkeypatch.setenv("OPENAI_TEXT_REASONING_EFFORT", effort)
+    with pytest.raises(RuntimeError, match="OPENAI_TEXT_REASONING_EFFORT"):
+        get_text_provider_config()
+    with pytest.raises(RuntimeError, match="OPENAI_TEXT_REASONING_EFFORT"):
+        get_settings()
+
+
+@pytest.mark.parametrize("effort", ["none", "low", "medium", "high", "xhigh", "max", "", "   "])
+def test_valid_reasoning_effort_normalized_at_config_load(monkeypatch, effort):
+    monkeypatch.setenv("OPENAI_TEXT_REASONING_EFFORT", f" {effort.upper()} ")
+    assert get_text_provider_config().reasoning_effort == (effort.strip() or "none")
+
+
+@pytest.mark.parametrize("model", [
+    "gpt-6 luna", "gpt-6.1-\tterra", "gpt-6-luna-unverified-snapshot", "gpt-6.1-terra-unverified-snapshot",
+])
+def test_invalid_text_model_rejected_at_config_load(monkeypatch, model):
+    monkeypatch.setenv("OPENAI_TEXT_MODEL", model)
+    with pytest.raises(RuntimeError, match="OPENAI_TEXT_MODEL"):
+        get_text_provider_config()
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "invalid", "1.5"])
+def test_invalid_completion_budget_fails(monkeypatch, value):
+    monkeypatch.setenv("OPENAI_TEXT_MAX_COMPLETION_TOKENS", value)
+    with pytest.raises(RuntimeError, match="positive integer"):
+        get_text_provider_config()
+
+
+@pytest.mark.parametrize("primary,legacy,expected", [
+    (None, None, "gpt-image-2.5-flare"), ("", None, "gpt-image-2.5-flare"),
+    (None, "", "gpt-image-2.5-flare"), (None, "gpt-image-1", "gpt-image-1"),
+    ("   ", " gpt-image-1 ", "gpt-image-1"),
+    ("gpt-image-2.5-flare", "gpt-image-1", "gpt-image-2.5-flare"),
+])
+def test_image_default_and_explicit_overrides(monkeypatch, primary, legacy, expected):
+    for name, value in [("OPENAI_IMAGE_MODEL", primary), ("IMAGE_MODEL", legacy)]:
+        monkeypatch.delenv(name, raising=False)
+        if value is not None:
+            monkeypatch.setenv(name, value)
+    assert get_image_provider_config().model == expected
 
 
 def test_database_url_reads_env(monkeypatch):

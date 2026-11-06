@@ -15,6 +15,7 @@ blank lines) - not a general python-dotenv replacement.
 """
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -52,18 +53,23 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def build_effective_env() -> dict[str, str]:
-    """.env file values, overridden by any already-set process env var - the same
-    precedence python-dotenv's default load_dotenv() (override=False) gives the
-    app at container startup."""
+def build_effective_env(*, production: bool = False) -> dict[str, str]:
+    """Production Compose passes .env via env_file, not the host shell's API/model
+    variables. Local direct Python keeps python-dotenv's process-first precedence.
+    """
     effective = parse_env_file(DOTENV_PATH)
-    effective.update(os.environ)
+    if not production:
+        effective.update(os.environ)
     return effective
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(argv) if argv is not None else sys.argv[1:]
-    env = build_effective_env()
+    parser = argparse.ArgumentParser(description="Read-only deployment configuration preflight.")
+    parser.add_argument("--production", action="store_true", help="Check Compose .env and require a text model pin")
+    parser.add_argument("--json", action="store_true", help="Print machine-readable runtime report")
+    args = parser.parse_args(argv)
+    env = build_effective_env(production=args.production)
 
     missing = [name for name in REQUIRED_ENV_VARS if not (env.get(name) or "").strip()]
     if missing:

@@ -63,6 +63,8 @@ class TextProviderConfig:
     api_key: str
     model: str
     timeout_seconds: int
+    reasoning_effort: str = "none"
+    max_completion_tokens: int | None = None
 
 
 @dataclass
@@ -149,12 +151,27 @@ def get_heartbeat_path() -> str:
 
 def get_text_provider_config() -> TextProviderConfig:
     """OpenAI is the only supported text provider; see docs/production_env.md."""
+    model = os.getenv("OPENAI_TEXT_MODEL", "").strip() or "gpt-6-luna"
+    if any(char.isspace() for char in model):
+        raise RuntimeError("OPENAI_TEXT_MODEL must not contain internal whitespace")
+    if model.startswith(("gpt-6-luna-", "gpt-6.1-terra-")):
+        raise RuntimeError("OPENAI_TEXT_MODEL uses an unverified Luna/Terra snapshot; use gpt-6-luna or gpt-6.1-terra")
+    reasoning_effort = os.getenv("OPENAI_TEXT_REASONING_EFFORT", "none").strip().lower() or "none"
+    if reasoning_effort not in {"none", "low", "medium", "high", "xhigh", "max"}:
+        raise RuntimeError("OPENAI_TEXT_REASONING_EFFORT must be one of: none, low, medium, high, xhigh, max")
+    completion_limit = os.getenv("OPENAI_TEXT_MAX_COMPLETION_TOKENS", "").strip()
+    if completion_limit and (
+        not completion_limit.isascii() or not completion_limit.isdecimal() or int(completion_limit) < 1
+    ):
+        raise RuntimeError("OPENAI_TEXT_MAX_COMPLETION_TOKENS must be a positive integer")
     return TextProviderConfig(
         provider="openai",
         base_url=_get_env_var("OPENAI_BASE_URL", required=False, default="https://api.openai.com/v1"),
         api_key=_get_env_var("OPENAI_API_KEY"),
-        model=_get_env_var("OPENAI_TEXT_MODEL", required=False, default="gpt-4o-mini") or "gpt-4o-mini",
+        model=model,
         timeout_seconds=_get_env_int("OPENAI_TEXT_TIMEOUT_SECONDS", 60),
+        reasoning_effort=reasoning_effort,
+        max_completion_tokens=int(completion_limit) if completion_limit else None,
     )
 
 
@@ -164,7 +181,8 @@ def get_image_provider_config() -> ImageProviderConfig:
         provider="openai",
         base_url=_get_env_var("OPENAI_BASE_URL", required=False, default="https://api.openai.com/v1") or "https://api.openai.com/v1",
         api_key=_get_env_var("OPENAI_API_KEY"),
-        model=_get_env_var("OPENAI_IMAGE_MODEL", required=False, default=os.getenv("IMAGE_MODEL", "gpt-image-1")) or "gpt-image-1",
+        model=(os.getenv("OPENAI_IMAGE_MODEL", "").strip()
+               or os.getenv("IMAGE_MODEL", "").strip() or "gpt-image-2.5-flare"),
         size=_get_env_var("OPENAI_IMAGE_SIZE", required=False, default=os.getenv("IMAGE_SIZE", "1024x1024")) or "1024x1024",
         timeout_seconds=_get_env_int("OPENAI_IMAGE_TIMEOUT_SECONDS", _get_env_int("IMAGE_API_TIMEOUT_SECONDS", 240)),
     )

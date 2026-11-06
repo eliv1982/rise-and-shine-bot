@@ -85,6 +85,10 @@ docker compose up -d --build
 | `BOT_TOKEN` | Токен Telegram-бота |
 | `OPENAI_API_KEY` | Ключ OpenAI API |
 | `OPENAI_BASE_URL` | Официальный эндпоинт OpenAI (по умолчанию `https://api.openai.com/v1`) |
+| `OPENAI_TEXT_MODEL` | По умолчанию `gpt-6-luna`; поддерживаются `gpt-6.1-terra` и явный откат на `gpt-4o-mini` |
+| `OPENAI_TEXT_REASONING_EFFORT` | Для Luna/Terra: по умолчанию `none`, сохраняет текущую температуру; при включении reasoning температура исключается |
+| `OPENAI_TEXT_MAX_COMPLETION_TOKENS` | Необязательный общий лимит ответа Luna/Terra, включая reasoning; без него 512 токенов для аффирмаций/промпта картинки и 200 для smalltalk |
+| `OPENAI_IMAGE_MODEL` | По умолчанию `gpt-image-2.5-flare`; прежний `IMAGE_MODEL` сохранён как fallback |
 | `DATABASE_URL` | `postgresql://...@postgres:5432/...` для PostgreSQL (сервис `postgres` в docker-compose.yml); если не задано — SQLite |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Обязательны для `docker compose up` (сервис `postgres`) |
 
@@ -99,6 +103,11 @@ python -m pytest
 ```
 
 GitHub Actions запускает `python -m pytest` на Python 3.11 при каждом push и pull request ([.github/workflows/tests.yml](.github/workflows/tests.yml)).
+
+Безопасное сравнение Luna/Terra: `python scripts/compare_text_models.py --output outputs/text-model-requests.json`
+(каталог `outputs` должен существовать). По умолчанию это офлайн-манифест одинаковых
+запросов без чтения `.env`, доступа к БД и сообщений в Telegram. Платный запуск,
+критерии сравнения и порядок миграции описаны в [docs/text_model_migration.md](docs/text_model_migration.md).
 
 ## Деплой на сервер
 

@@ -9,13 +9,15 @@ second provider may be introduced later strictly as a resilience fallback (e.g. 
 OpenAI has an outage), not as per-request stylistic/model routing — no such fallback
 exists yet, and none is planned for the current stage.
 
-Required provider env vars:
+Provider environment profile (only the API key is required; model names override code defaults):
 
 ```env
 OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_TEXT_MODEL=gpt-4o-mini
-OPENAI_IMAGE_MODEL=gpt-image-1
+OPENAI_TEXT_MODEL=gpt-6-luna
+OPENAI_TEXT_REASONING_EFFORT=none
+OPENAI_TEXT_MAX_COMPLETION_TOKENS=
+OPENAI_IMAGE_MODEL=gpt-image-2.5-flare
 OPENAI_TTS_MODEL=gpt-4o-mini-tts
 OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 ```
@@ -23,6 +25,39 @@ OPENAI_STT_MODEL=gpt-4o-mini-transcribe
 Only official OpenAI endpoints are used (`api.openai.com`). `OPENAI_BASE_URL` should not
 be pointed at a third-party proxy; `scripts/check_runtime_config.py` warns if it isn't
 the official URL.
+
+The text endpoint remains `/v1/chat/completions`. Luna and `gpt-6.1-terra` use
+`max_completion_tokens` and an explicit `reasoning_effort`. With effort `none`,
+the current per-task `temperature` is preserved; with `low`, `medium`, `high`,
+`xhigh` or `max`, it is omitted. `OPENAI_TEXT_MAX_COMPLETION_TOKENS` optionally
+overrides the task budget (512 for affirmations/image prompts, 200 for smalltalk),
+including reasoning tokens. Increase it deliberately when evaluating reasoning;
+an insufficient budget can produce a truncated/empty response, treated as failure.
+`OPENAI_TEXT_TIMEOUT_SECONDS` defaults to 60 seconds; image-prompt enrichment
+retains its existing minimum of 90 seconds.
+
+An explicit `OPENAI_TEXT_MODEL=gpt-4o-mini` retains the legacy `max_tokens` and
+`temperature` request with no reasoning parameters. The two new reasoning options
+are only sent for the exact Luna/Terra model IDs above. Unknown configured models
+retain the legacy request shape and are not certified by this migration.
+Explicit `OPENAI_IMAGE_MODEL` and the fallback `IMAGE_MODEL` still take precedence
+over the new image default, so an existing pinned environment is not migrated by
+changing code defaults alone.
+
+Outer whitespace in model IDs is trimmed; internal whitespace is an error for
+text models. Blank values use the code default (or legacy image fallback).
+Unverified Luna/Terra snapshot IDs fail before the API instead of silently using
+legacy parameters. Invalid reasoning effort and completion budgets fail when
+settings load and in preflight, including while the text model is `gpt-4o-mini`.
+
+The first code deploy also changes **gpt-4o-mini** behavior: affirmation system
+prompts gain explicit language/anti-injection rules, and response validation
+rejects empty/truncated/filtered/refused responses. Pinning or reverting the model
+name preserves legacy request parameters but does not revert these shared changes.
+
+See [the migration and comparison guide](text_model_migration.md) for offline
+verification, separately approved live comparisons, rollout and rollback. Do not
+copy this new profile over the live `.env` as part of code validation.
 
 ## Database: architecture and truthfulness
 
@@ -108,10 +143,20 @@ SQLITE_DB_PATH=bot.db
   imports `config.py`/`python-dotenv`): the deployment host only needs system Python,
   not a project virtualenv or any application package — those stay inside the Docker
   image, delivered to the container by `docker-compose.yml`'s `env_file: .env`.
+- `python scripts/preflight_check.py --production` — mandatory mode used by
+  `preflight.sh`: checks the Compose `.env` without host-shell API/model overrides
+  and requires a literal, nonempty `OPENAI_TEXT_MODEL` pin. Missing/blank pins fail
+  with the effective code default displayed. The local mode without this flag
+  keeps process-first precedence and allows defaults with a warning.
 - `python scripts/check_runtime_config.py` — read-only config report: provider (always
   `openai`), role flags, database backend/warnings, and any pre-Stage-6 Yandex/Proxi/
   provider-selection env vars still present in `.env` (listed as ignored/safe to
   remove, never treated as active config). No network calls. Also dependency-free.
+
+The runtime doctor reports `gpt-6-luna` / `gpt-image-2.5-flare` when no model is
+explicitly set and warns about an unpinned text model. It reads process env itself;
+preflight supplies the appropriate file/local view. `deploy.sh` invokes preflight
+both before pull and after pull, before rebuilding/restarting the bot.
 
 Recommended planner flags:
 

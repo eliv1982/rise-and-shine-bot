@@ -13,7 +13,10 @@ for the actual .env-file-parsing path and the dependency-free proof.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+
+import pytest
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "preflight_check.py"
 
@@ -90,7 +93,7 @@ def test_env_file_values_are_used_when_process_env_is_unset(monkeypatch, tmp_pat
     exit_code = module.main([])
 
     assert exit_code == 0
-    assert "CONFIG OK" in capsys.readouterr().out
+    assert "effective code default 'gpt-6-luna'" in capsys.readouterr().out
 
 
 def test_process_env_overrides_env_file(monkeypatch, tmp_path):
@@ -105,3 +108,80 @@ def test_process_env_overrides_env_file(monkeypatch, tmp_path):
     effective = module.build_effective_env()
 
     assert effective["BOT_TOKEN"] == "test-token"
+
+
+@pytest.mark.parametrize("model", [None, "", "   "])
+def test_production_requires_file_model_pin_even_if_host_shell_is_pinned(monkeypatch, tmp_path, capsys, model):
+    module = _load_script_module(monkeypatch, tmp_path)
+    _set_required_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "BOT_TOKEN=file-token\nOPENAI_API_KEY=file-key\n"
+        + (f"OPENAI_TEXT_MODEL='{model}'\n" if model is not None else ""), encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "DOTENV_PATH", env_file)
+    assert module.main(["--production", "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["openai"]["OPENAI_TEXT_MODEL"] == "gpt-6-luna"
+    assert report["openai"]["OPENAI_TEXT_MODEL_SOURCE"] == "code_default"
+    assert any("explicit OPENAI_TEXT_MODEL pin" in error for error in report["errors"])
+
+
+@pytest.mark.parametrize("model", ["gpt-4o-mini", "gpt-6-luna", "gpt-6.1-terra"])
+def test_production_reports_compose_file_model_instead_of_host_override(monkeypatch, tmp_path, capsys, model):
+    module = _load_script_module(monkeypatch, tmp_path)
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("OPENAI_TEXT_MODEL", "host-model-must-not-win")
+    monkeypatch.setenv("OPENAI_TEXT_REASONING_EFFORT", "invalid-host-value")
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"BOT_TOKEN=file-token\nOPENAI_API_KEY=file-key\nOPENAI_TEXT_MODEL=' {model} '\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "DOTENV_PATH", env_file)
+    assert module.main(["--production", "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["openai"]["OPENAI_TEXT_MODEL"] == model
+    assert report["openai"]["OPENAI_TEXT_MODEL_SOURCE"] == "explicit"
+
+
+@pytest.mark.parametrize("production", [False, True])
+@pytest.mark.parametrize("name,value", [
+    ("OPENAI_TEXT_REASONING_EFFORT", "minimal"),
+    ("OPENAI_TEXT_MAX_COMPLETION_TOKENS", "-1"),
+    ("OPENAI_TEXT_MODEL", "gpt-6 luna"),
+    ("OPENAI_TEXT_MODEL", "gpt-6-luna-unverified-snapshot"),
+])
+def test_preflight_rejects_bad_text_configuration(monkeypatch, tmp_path, capsys, production, name, value):
+    module = _load_script_module(monkeypatch, tmp_path)
+    env = {"BOT_TOKEN": "file-token", "OPENAI_API_KEY": "file-key", "OPENAI_TEXT_MODEL": "gpt-6-luna", name: value}
+    env_file = tmp_path / ".env"
+    env_file.write_text("".join(f"{key}={item}\n" for key, item in env.items()), encoding="utf-8")
+    monkeypatch.setattr(module, "DOTENV_PATH", env_file)
+    for key in env:
+        monkeypatch.delenv(key, raising=False)
+    assert module.main(["--production"] if production else []) == 1
+    assert name in capsys.readouterr().out
+
+
+def test_local_environment_may_use_default_without_production_pin(monkeypatch, tmp_path, capsys):
+    module = _load_script_module(monkeypatch, tmp_path)
+    _set_required_env(monkeypatch)
+    monkeypatch.delenv("OPENAI_TEXT_MODEL", raising=False)
+    assert module.main(["--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["errors"] == []
+    assert report["openai"]["OPENAI_TEXT_MODEL"] == "gpt-6-luna"
+    assert report["warnings"]
+
+
+def test_production_model_pin_cannot_be_hidden_by_env_interpolation(monkeypatch, tmp_path, capsys):
+    module = _load_script_module(monkeypatch, tmp_path)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "BOT_TOKEN=file-token\nOPENAI_API_KEY=file-key\nOPENAI_TEXT_MODEL=${MODEL_FROM_SHELL}\n", encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "DOTENV_PATH", env_file)
+    monkeypatch.setenv("MODEL_FROM_SHELL", "gpt-4o-mini")
+    assert module.main(["--production"]) == 1
+    assert "literal model ID" in capsys.readouterr().out

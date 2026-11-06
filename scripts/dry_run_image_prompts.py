@@ -23,8 +23,8 @@ import sys
 os.environ.setdefault("OPENAI_API_KEY", "dry-run-key")
 os.environ.setdefault("BOT_TOKEN", "dry-run-token")
 os.environ.setdefault("OPENAI_BASE_URL", "https://api.openai.com/v1")
-os.environ.setdefault("OPENAI_TEXT_MODEL", "gpt-4o-mini")
-os.environ.setdefault("OPENAI_IMAGE_MODEL", "gpt-image-1")
+os.environ.setdefault("OPENAI_TEXT_MODEL", "gpt-6-luna")
+os.environ.setdefault("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
 os.environ.setdefault("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
 os.environ.setdefault("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
 

@@ -68,11 +68,11 @@ Compose определяет имя проекта по базовому име�
 
 ### Префлайт, бэкап и smoke-check
 
-- `./scripts/preflight.sh` — перед деплоем проверяет чистое рабочее дерево, наличие `.env`, доступность Docker и корректность runtime-конфигурации (`scripts/preflight_check.py` + `scripts/check_runtime_config.py`). Без сетевых запросов.
+- `./scripts/preflight.sh` — перед деплоем проверяет чистое рабочее дерево, наличие `.env`, доступность Docker и корректность runtime-конфигурации (`scripts/preflight_check.py --production` + `scripts/check_runtime_config.py`). Требует явный непустой `OPENAI_TEXT_MODEL` в Compose `.env`; отсутствие pin блокирует деплой и показывает фактический code default. Для первого этапа миграции закрепить `gpt-4o-mini`, а не копировать новый профиль `.env.example`. Без сетевых запросов.
 - `./scripts/backup.sh [каталог]` — бэкап БД перед деплоем: `pg_dump` для PostgreSQL (через `docker compose exec postgres`, т.к. хост `postgres` в `DATABASE_URL` доступен только внутри Compose-сети), безопасный онлайн-бэкап для SQLite (автоопределение по `DATABASE_URL`).
 - `./scripts/restore.sh <файл-бэкапа>` — восстановление из бэкапа (`pg_restore` для `.dump` через `docker compose exec postgres`, копирование файла для `.db`); интерактивное подтверждение, не запускается автоматически.
 - `./scripts/smoke_check.sh` — после `docker compose up -d` читает `docker compose ps`/`logs` и проверяет, что контейнер поднялся, БД инициализирована, задачи планировщика зарегистрированы и в логах нет traceback. Не делает сетевых вызовов к Telegram/OpenAI.
-- `./scripts/deploy.sh` уже вызывает `preflight.sh` перед `git pull`/пересборкой — см. ниже.
+- `./scripts/deploy.sh` вызывает `preflight.sh` до `git pull` и повторно после обновления кода, до пересборки/перезапуска — см. ниже. При первом применении guard нужно использовать уже проверенную новую версию скриптов; старый checkout не получает новую защиту задним числом.
 
 Перед первым продакшн-деплоем на новую конфигурацию рекомендуется сделать бэкап (`./scripts/backup.sh`) и один раз вручную проверить восстановление из него (`./scripts/restore.sh`) на тестовой БД — это ещё не проверено вживую для PostgreSQL-бэкапа (см. Stage 7).
 

@@ -1185,7 +1185,7 @@ def test_generate_image_custom_llm_override_uses_coastal_style_notes_for_scene_a
 
 def test_generate_image_non_coastal_override_keeps_generic_photo_safety_only(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "test")
-    monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
+    monkeypatch.setenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
     monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
 
     captured = {}
@@ -1232,7 +1232,7 @@ def test_generate_image_non_coastal_override_keeps_generic_photo_safety_only(mon
 
         final_prompt = captured["payload"]["prompt"].lower()
         assert "a realistic bright desk scene" in final_prompt
-        assert captured["payload"]["model"] == "gpt-image-1"
+        assert captured["payload"]["model"] == "gpt-image-2.5-flare"
         assert captured["payload"]["size"] == "1024x1024"
         assert "response_format" not in captured["payload"]
         assert "photo scene preset:" in final_prompt

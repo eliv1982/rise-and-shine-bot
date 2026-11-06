@@ -4,6 +4,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "check_runtime_config.py"
 
@@ -191,3 +193,63 @@ def test_postgres_with_reachable_host_has_no_database_warning(monkeypatch):
     assert report["database"]["backend"] == "postgresql"
     assert report["errors"] == []
     assert report["warnings"] == []
+
+
+def test_empty_explicit_environment_reports_actual_defaults_without_ambient_env():
+    module = _load_script_module()
+    report = module.build_runtime_config_report({})
+    assert report["openai"]["OPENAI_TEXT_MODEL"] == "gpt-6-luna"
+    assert report["openai"]["OPENAI_IMAGE_MODEL"] == "gpt-image-2.5-flare"
+    assert report["openai"]["OPENAI_API_KEY"] == "unset"
+    assert report["openai"]["OPENAI_TEXT_MODEL_SOURCE"] == "code_default"
+    assert any("effective code default 'gpt-6-luna'" in warning for warning in report["warnings"])
+    assert report["status"].startswith("CONFIG WARNINGS")
+
+
+@pytest.mark.parametrize("text,primary,legacy", [
+    (None, None, None), ("", "", ""), ("   ", "   ", "   "),
+    (" gpt-6-luna ", " gpt-image-2.5-flare ", "gpt-image-1"),
+    (" gpt-6.1-terra ", "", " gpt-image-1 "),
+    (" gpt-4o-mini ", None, "gpt-image-1"),
+])
+def test_report_model_resolution_matches_application_config(monkeypatch, text, primary, legacy):
+    from config import get_image_provider_config, get_text_provider_config
+
+    env = {}
+    for name, value in [("OPENAI_TEXT_MODEL", text), ("OPENAI_IMAGE_MODEL", primary), ("IMAGE_MODEL", legacy)]:
+        monkeypatch.delenv(name, raising=False)
+        if value is not None:
+            monkeypatch.setenv(name, value)
+            env[name] = value
+    report = _load_script_module().build_runtime_config_report(env)
+    assert report["openai"]["OPENAI_TEXT_MODEL"] == get_text_provider_config().model
+    assert report["openai"]["OPENAI_IMAGE_MODEL"] == get_image_provider_config().model
+    assert report["openai"]["OPENAI_TEXT_MODEL_SOURCE"] == ("explicit" if text and text.strip() else "code_default")
+
+
+@pytest.mark.parametrize("effort", ["minimal", "typo", "low medium", "0"])
+@pytest.mark.parametrize("model", ["gpt-4o-mini", "gpt-6-luna", "gpt-6.1-terra"])
+def test_bad_reasoning_effort_is_a_runtime_config_error(model, effort):
+    report = _load_script_module().build_runtime_config_report({
+        "OPENAI_TEXT_MODEL": model, "OPENAI_TEXT_REASONING_EFFORT": effort,
+    })
+    assert any("OPENAI_TEXT_REASONING_EFFORT" in error for error in report["errors"])
+
+
+@pytest.mark.parametrize("effort", ["NONE", " LOW ", "medium", "high", "xhigh", "max", "", "   "])
+def test_report_normalizes_supported_reasoning_effort(effort):
+    report = _load_script_module().build_runtime_config_report({"OPENAI_TEXT_REASONING_EFFORT": effort})
+    assert report["errors"] == []
+    assert report["openai"]["OPENAI_TEXT_REASONING_EFFORT"] == (effort.strip().lower() or "none")
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nope", "1.5"])
+def test_bad_completion_budget_is_a_runtime_config_error(value):
+    report = _load_script_module().build_runtime_config_report({"OPENAI_TEXT_MAX_COMPLETION_TOKENS": value})
+    assert any("OPENAI_TEXT_MAX_COMPLETION_TOKENS" in error for error in report["errors"])
+
+
+@pytest.mark.parametrize("model", ["gpt-6 luna", "gpt-6-luna-unverified-snapshot", "gpt-6.1-terra-unverified-snapshot"])
+def test_bad_model_identifier_is_a_runtime_config_error(model):
+    report = _load_script_module().build_runtime_config_report({"OPENAI_TEXT_MODEL": model})
+    assert any("OPENAI_TEXT_MODEL" in error for error in report["errors"])

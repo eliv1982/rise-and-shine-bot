@@ -38,6 +38,6 @@ for candidate in python3 python; do
     fi
 done
 [ -n "$PYTHON_BIN" ] || fail "no working python3/python found on PATH to run scripts/preflight_check.py."
-"$PYTHON_BIN" scripts/preflight_check.py || fail "runtime configuration check failed (see report above)."
+"$PYTHON_BIN" scripts/preflight_check.py --production || fail "runtime configuration check failed (see report above)."
 
 echo "[preflight] OK."

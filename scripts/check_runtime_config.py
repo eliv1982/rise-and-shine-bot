@@ -14,7 +14,7 @@ _CONTAINER_UNREACHABLE_DB_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def _env(env: Mapping[str, str], name: str, default: str = "") -> str:
-    return (env.get(name) or default or "").strip()
+    return (env.get(name) or "").strip() or default
 
 
 def _env_bool(env: Mapping[str, str], name: str, default: bool = False) -> bool:
@@ -106,9 +106,29 @@ def _database_backend_report(env: Mapping[str, str]) -> dict[str, Any]:
     }
 
 
-def _build_errors(report: dict[str, Any], env: Mapping[str, str]) -> list[str]:
+def _build_errors(report: dict[str, Any], env: Mapping[str, str], *, production: bool = False) -> list[str]:
     """Problems severe enough that a deploy preflight should refuse to proceed."""
     errors: list[str] = []
+    openai = report["openai"]
+    if production and openai["OPENAI_TEXT_MODEL_SOURCE"] == "code_default":
+        errors.append(
+            "Production requires an explicit OPENAI_TEXT_MODEL pin; "
+            f"the effective code default is {openai['OPENAI_TEXT_MODEL']!r} and may change on upgrade. "
+            "For the first migration deploy, pin gpt-4o-mini explicitly."
+        )
+    if any(char.isspace() for char in openai["OPENAI_TEXT_MODEL"]):
+        errors.append("OPENAI_TEXT_MODEL must not contain internal whitespace.")
+    if production and any(char in openai["OPENAI_TEXT_MODEL"] for char in "$`"):
+        errors.append("Production OPENAI_TEXT_MODEL pin must be a literal model ID; interpolation is not supported by preflight.")
+    if openai["OPENAI_TEXT_MODEL"].startswith(("gpt-6-luna-", "gpt-6.1-terra-")):
+        errors.append("OPENAI_TEXT_MODEL uses an unverified Luna/Terra snapshot; use gpt-6-luna or gpt-6.1-terra.")
+    if openai["OPENAI_TEXT_REASONING_EFFORT"] not in {"none", "low", "medium", "high", "xhigh", "max"}:
+        errors.append("OPENAI_TEXT_REASONING_EFFORT must be one of: none, low, medium, high, xhigh, max.")
+    completion_limit = _env(env, "OPENAI_TEXT_MAX_COMPLETION_TOKENS")
+    if completion_limit and (
+        not completion_limit.isascii() or not completion_limit.isdecimal() or int(completion_limit) < 1
+    ):
+        errors.append("OPENAI_TEXT_MAX_COMPLETION_TOKENS must be a positive integer.")
     database = report["database"]
     if database["database_url_set"] and not database["database_url_looks_valid"]:
         errors.append(
@@ -132,6 +152,13 @@ def _build_warnings(report: dict[str, Any], env: Mapping[str, str]) -> list[str]
 
     openai = report["openai"]
     flags = report["flags"]
+
+    if openai["OPENAI_TEXT_MODEL_SOURCE"] == "code_default":
+        warnings.append(
+            "OPENAI_TEXT_MODEL is not explicitly pinned; "
+            f"the effective code default {openai['OPENAI_TEXT_MODEL']!r} will be used. "
+            "A code upgrade can change this model."
+        )
 
     if openai["OPENAI_BASE_URL"] != OFFICIAL_OPENAI_BASE_URL:
         warnings.append(
@@ -163,15 +190,20 @@ def _build_warnings(report: dict[str, Any], env: Mapping[str, str]) -> list[str]
     return warnings
 
 
-def build_runtime_config_report(env: Mapping[str, str] | None = None) -> dict[str, Any]:
-    safe_env = env or os.environ
+def build_runtime_config_report(
+    env: Mapping[str, str] | None = None, *, production: bool = False,
+) -> dict[str, Any]:
+    safe_env = os.environ if env is None else env
 
     report: dict[str, Any] = {
         "provider": "openai",
         "openai": {
             "OPENAI_BASE_URL": _env(safe_env, "OPENAI_BASE_URL", OFFICIAL_OPENAI_BASE_URL),
-            "OPENAI_TEXT_MODEL": _env(safe_env, "OPENAI_TEXT_MODEL", "gpt-4o-mini"),
-            "OPENAI_IMAGE_MODEL": _env(safe_env, "OPENAI_IMAGE_MODEL", _env(safe_env, "IMAGE_MODEL", "gpt-image-1")),
+            "OPENAI_TEXT_MODEL": _env(safe_env, "OPENAI_TEXT_MODEL", "gpt-6-luna"),
+            "OPENAI_TEXT_MODEL_SOURCE": "explicit" if _env(safe_env, "OPENAI_TEXT_MODEL") else "code_default",
+            "OPENAI_TEXT_REASONING_EFFORT": _env(safe_env, "OPENAI_TEXT_REASONING_EFFORT", "none").lower(),
+            "OPENAI_TEXT_MAX_COMPLETION_TOKENS": _env(safe_env, "OPENAI_TEXT_MAX_COMPLETION_TOKENS") or "(per-task 512/200)",
+            "OPENAI_IMAGE_MODEL": _env(safe_env, "OPENAI_IMAGE_MODEL", _env(safe_env, "IMAGE_MODEL", "gpt-image-2.5-flare")),
             "OPENAI_IMAGE_SIZE": _env(safe_env, "OPENAI_IMAGE_SIZE", _env(safe_env, "IMAGE_SIZE", "1024x1024")),
             "OPENAI_TTS_MODEL": _env(safe_env, "OPENAI_TTS_MODEL", "gpt-4o-mini-tts"),
             "OPENAI_STT_MODEL": _env(safe_env, "OPENAI_STT_MODEL", "gpt-4o-mini-transcribe"),
@@ -199,7 +231,7 @@ def build_runtime_config_report(env: Mapping[str, str] | None = None) -> dict[st
         "database": _database_backend_report(safe_env),
     }
 
-    report["errors"] = _build_errors(report, safe_env)
+    report["errors"] = _build_errors(report, safe_env, production=production)
     report["warnings"] = _build_warnings(report, safe_env)
     if report["errors"]:
         report["status"] = f"CONFIG ERRORS: {len(report['errors'])}"
@@ -220,6 +252,9 @@ def _format_human_report(report: dict[str, Any]) -> str:
     for key in [
         "OPENAI_BASE_URL",
         "OPENAI_TEXT_MODEL",
+        "OPENAI_TEXT_MODEL_SOURCE",
+        "OPENAI_TEXT_REASONING_EFFORT",
+        "OPENAI_TEXT_MAX_COMPLETION_TOKENS",
         "OPENAI_IMAGE_MODEL",
         "OPENAI_IMAGE_SIZE",
         "OPENAI_TTS_MODEL",
@@ -277,14 +312,15 @@ def _format_human_report(report: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
-    """`env` lets a caller (scripts/preflight_check.py) supply a merged view of
-    process env + parsed .env file, since this module itself only reads os.environ
-    by default. Optional and defaulted to preserve standalone/in-container use."""
+    """`env` supplies the caller's effective environment (Compose .env only in
+    production, process-first locally). Standalone use reads os.environ.
+    """
     parser = argparse.ArgumentParser(description="Read-only runtime configuration doctor for Rise and Shine bot.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON report")
+    parser.add_argument("--production", action="store_true", help="Require an explicit text model pin")
     args = parser.parse_args(argv)
 
-    report = build_runtime_config_report(env)
+    report = build_runtime_config_report(env, production=args.production)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:

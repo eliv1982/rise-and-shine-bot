@@ -28,6 +28,7 @@ CHECK_RUNTIME_CONFIG = REPO_ROOT / "scripts" / "check_runtime_config.py"
 _RELEVANT_KEYS = (
     "BOT_TOKEN", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_TEXT_MODEL",
     "OPENAI_IMAGE_MODEL", "OPENAI_TTS_MODEL", "OPENAI_STT_MODEL", "DATABASE_URL",
+    "OPENAI_TEXT_REASONING_EFFORT", "OPENAI_TEXT_MAX_COMPLETION_TOKENS",
 )
 
 
@@ -52,9 +53,9 @@ def _clean_subprocess_env() -> dict[str, str]:
     return base
 
 
-def _run_preflight(host_dir: Path) -> subprocess.CompletedProcess[str]:
+def _run_preflight(host_dir: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-S", str(host_dir / "scripts" / "preflight_check.py")],
+        [sys.executable, "-S", str(host_dir / "scripts" / "preflight_check.py"), *args],
         cwd=host_dir,
         env=_clean_subprocess_env(),
         capture_output=True,
@@ -75,7 +76,8 @@ def test_dependency_free_preflight_succeeds_with_valid_env(tmp_path):
     result = _run_preflight(host)
 
     assert result.returncode == 0, result.stderr
-    assert "CONFIG OK" in result.stdout
+    assert "CONFIG WARNINGS" in result.stdout
+    assert "effective code default 'gpt-6-luna'" in result.stdout
     assert not (host / "config.py").exists()  # nothing to import even if it tried
 
 
@@ -164,3 +166,17 @@ def test_static_source_has_no_third_party_or_config_imports():
 
     assert "dotenv" not in imported_modules
     assert "config" not in imported_modules
+
+
+def test_production_guard_is_dependency_free(tmp_path):
+    host = _isolated_host(tmp_path)
+    env_file = host / ".env"
+    env_file.write_text("BOT_TOKEN=host-token\nOPENAI_API_KEY=host-key\n", encoding="utf-8")
+    result = _run_preflight(host, "--production")
+    assert result.returncode == 1
+    assert "explicit OPENAI_TEXT_MODEL pin" in result.stdout
+    with env_file.open("a", encoding="utf-8") as stream:
+        stream.write("OPENAI_TEXT_MODEL=gpt-4o-mini\n")
+    result = _run_preflight(host, "--production")
+    assert result.returncode == 0, result.stderr
+    assert "CONFIG OK" in result.stdout

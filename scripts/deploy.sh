@@ -16,6 +16,9 @@ bash "$(dirname "$0")/preflight.sh"
 echo "[$(date -Iseconds)] Pulling..."
 git pull --ff-only
 
+echo "[$(date -Iseconds)] Checking updated code configuration..."
+bash "$(dirname "$0")/preflight.sh"
+
 echo "[$(date -Iseconds)] Building and starting..."
 docker compose build --no-cache
 docker compose up -d
