@@ -52,6 +52,17 @@ async def stop_scheduler_on_shutdown() -> None:
         scheduler.shutdown(wait=False)
 
 
+def create_dispatcher() -> Dispatcher:
+    dp = Dispatcher(storage=MemoryStorage())
+
+    dp.include_router(start.navigation_router)
+    dp.include_router(subscribe.router)  # до start, чтобы lang: в подписке обрабатывался здесь
+    dp.include_router(start.router)
+    dp.include_router(generation.router)
+    dp.include_router(smalltalk.router)
+    return dp
+
+
 async def main() -> None:
     setup_logging()
     settings = get_settings()
@@ -60,12 +71,7 @@ async def main() -> None:
     await run_outputs_cleanup()
 
     bot = Bot(token=settings.bot_token)
-    dp = Dispatcher(storage=MemoryStorage())
-
-    dp.include_router(subscribe.router)  # до start, чтобы lang: в подписке обрабатывался здесь
-    dp.include_router(start.router)
-    dp.include_router(generation.router)
-    dp.include_router(smalltalk.router)
+    dp = create_dispatcher()
 
     setup_scheduler(bot)
     dp.shutdown.register(stop_scheduler_on_shutdown)

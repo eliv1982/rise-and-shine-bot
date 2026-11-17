@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
 
@@ -658,19 +658,26 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(
-    SubscriptionState.choosing_language,
-    SubscriptionState.choosing_mode,
-    SubscriptionState.choosing_sphere,
-    SubscriptionState.choosing_relationship_subsphere,
-    SubscriptionState.choosing_visual_mode,
-    SubscriptionState.choosing_hour,
-    SubscriptionState.choosing_minute,
-    SubscriptionState.confirming,
-    SubscriptionState.choosing_edit_action,
+    StateFilter(
+        SubscriptionState.choosing_language,
+        SubscriptionState.choosing_mode,
+        SubscriptionState.choosing_sphere,
+        SubscriptionState.choosing_relationship_subsphere,
+        SubscriptionState.choosing_visual_mode,
+        SubscriptionState.choosing_hour,
+        SubscriptionState.choosing_minute,
+        SubscriptionState.confirming,
+        SubscriptionState.choosing_edit_action,
+    ),
     F.text,
     ~F.text.startswith("/"),
 )
 async def subscription_button_menu_text_guard(message: Message, state: FSMContext) -> None:
+    from handlers.generation import _is_create_mood_button, cmd_new
+
+    if _is_create_mood_button(message.text):
+        await cmd_new(message, state)
+        return
     data = await state.get_data()
     user = await get_user(message.from_user.id)
     language = _sub_language(data, user)
@@ -678,15 +685,17 @@ async def subscription_button_menu_text_guard(message: Message, state: FSMContex
 
 
 @router.message(
-    SubscriptionState.choosing_language,
-    SubscriptionState.choosing_mode,
-    SubscriptionState.choosing_sphere,
-    SubscriptionState.choosing_relationship_subsphere,
-    SubscriptionState.choosing_visual_mode,
-    SubscriptionState.choosing_hour,
-    SubscriptionState.choosing_minute,
-    SubscriptionState.confirming,
-    SubscriptionState.choosing_edit_action,
+    StateFilter(
+        SubscriptionState.choosing_language,
+        SubscriptionState.choosing_mode,
+        SubscriptionState.choosing_sphere,
+        SubscriptionState.choosing_relationship_subsphere,
+        SubscriptionState.choosing_visual_mode,
+        SubscriptionState.choosing_hour,
+        SubscriptionState.choosing_minute,
+        SubscriptionState.confirming,
+        SubscriptionState.choosing_edit_action,
+    ),
     F.voice,
 )
 async def subscription_button_menu_voice_guard(message: Message, state: FSMContext) -> None:
@@ -698,6 +707,11 @@ async def subscription_button_menu_voice_guard(message: Message, state: FSMConte
 
 @router.message(SubscriptionState.choosing_style, F.text, ~F.text.startswith("/"))
 async def subscription_style_menu_text_guard(message: Message, state: FSMContext) -> None:
+    from handlers.generation import _is_create_mood_button, cmd_new
+
+    if _is_create_mood_button(message.text):
+        await cmd_new(message, state)
+        return
     data = await state.get_data()
     user = await get_user(message.from_user.id)
     language = _sub_language(data, user)

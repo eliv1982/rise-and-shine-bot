@@ -4,7 +4,7 @@ import random
 from typing import Optional
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message, PhotoSize
 
@@ -1005,9 +1005,11 @@ async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
 
 
 @router.message(
-    GenerationState.choosing_sphere,
-    GenerationState.choosing_relationship_subsphere,
-    GenerationState.choosing_visual_mode,
+    StateFilter(
+        GenerationState.choosing_sphere,
+        GenerationState.choosing_relationship_subsphere,
+        GenerationState.choosing_visual_mode,
+    ),
     F.text,
     ~F.text.startswith("/"),
 )
@@ -1021,9 +1023,11 @@ async def generation_button_menu_text_guard(message: Message, state: FSMContext)
 
 
 @router.message(
-    GenerationState.choosing_sphere,
-    GenerationState.choosing_relationship_subsphere,
-    GenerationState.choosing_visual_mode,
+    StateFilter(
+        GenerationState.choosing_sphere,
+        GenerationState.choosing_relationship_subsphere,
+        GenerationState.choosing_visual_mode,
+    ),
     F.voice,
 )
 async def generation_button_menu_voice_guard(message: Message, state: FSMContext) -> None:

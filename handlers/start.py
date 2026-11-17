@@ -1,11 +1,14 @@
 import logging
 import os
+import unicodedata
+from hashlib import sha256
 from typing import Optional
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import get_outputs_dir
 from database import (
@@ -53,6 +56,8 @@ from states import ProfileEditState, RegistrationState
 from utils import display_name_for_language, extract_name_from_introduction, is_input_language_compatible
 
 router = Router()
+# Included before the flow routers so persistent Profile navigation wins over text input.
+navigation_router = Router(name="profile_navigation")
 logger = logging.getLogger(__name__)
 
 _PROFILE_TEXT_PROMPTS = {
@@ -176,21 +181,132 @@ async def _show_profile(
     user_id: int,
     user: Optional[dict] = None,
     edit: bool = False,
+    page: int = 0,
+    revision: Optional[str] = None,
 ) -> None:
     text, markup, _lang = await _build_profile_view(user_id=user_id, user=user)
+    pages = _profile_pages(text)
+    current_revision = sha256(text.encode("utf-8")).hexdigest()[:12]
+    # A stale page button must not skip newly inserted/shifted content.
+    if revision is not None and revision != current_revision:
+        page = 0
+    page = max(0, min(page, len(pages) - 1))
+    if len(pages) > 1:
+        navigation = [
+            InlineKeyboardButton(text=label, callback_data=f"profile:page:{target}:{current_revision}")
+            for label, target in (("⬅️", page - 1), ("➡️", page + 1))
+            if 0 <= target < len(pages)
+        ]
+        # Profile actions stay on the final page, after all the content.
+        rows = markup.inline_keyboard if markup and page == len(pages) - 1 else []
+        markup = InlineKeyboardMarkup(inline_keyboard=[navigation, *rows])
     if edit:
-        try:
-            await message.edit_text(text, reply_markup=markup)
-            return
-        except Exception:
-            pass
-    await message.answer(text, reply_markup=markup)
+        await _edit_or_answer(message, pages[page], reply_markup=markup)
+    else:
+        await message.answer(pages[page], reply_markup=markup)
+
+
+def _utf16_length(text: str) -> int:
+    return sum(2 if ord(char) > 0xFFFF else 1 for char in text)
+
+
+def _profile_clusters(text: str):
+    """Keep emoji joins, RI pairs and attached marks together, using only stdlib.
+
+    This deliberately joins either side of any ZWJ, even outside emoji, rather
+    than needing Unicode's versioned Extended_Pictographic property tables.
+    """
+    start = 0
+    regional_run = 0
+    for index, char in enumerate(text):
+        code = ord(char)
+        regional = 0x1F1E6 <= code <= 0x1F1FF
+        attached = (
+            unicodedata.category(char).startswith("M")
+            or 0x1F3FB <= code <= 0x1F3FF  # Skin tones.
+            or 0xE0020 <= code <= 0xE007F  # Emoji tag sequences.
+            or char == "\u200d"
+        )
+        if index and not (
+            attached or text[index - 1] == "\u200d"
+            or (text[index - 1] == "\r" and char == "\n")
+            or (regional and regional_run % 2 == 1)
+        ):
+            yield text[start:index]
+            start = index
+        regional_run = regional_run + 1 if regional else 0
+    if text:
+        yield text[start:]
+
+
+def _split_profile_text(text: str, limit: int = 4096) -> list[str]:
+    """Prefer graphemes; split only oversized ones losslessly by code point."""
+    clusters = []
+    for cluster in _profile_clusters(text):
+        if _utf16_length(cluster) <= limit:
+            clusters.append(cluster)
+            continue
+        # An indivisible grapheme can itself exceed Telegram's page budget.
+        # Keep every code point, including astral characters, within that budget.
+        start = size = 0
+        for index, char in enumerate(cluster):
+            width = _utf16_length(char)
+            if width > limit:
+                raise ValueError("A single Profile code point exceeds the message budget")
+            if size + width > limit:
+                clusters.append(cluster[start:index])
+                start = index
+                size = 0
+            size += width
+        clusters.append(cluster[start:])
+    widths = [_utf16_length(cluster) for cluster in clusters]
+    chunks = []
+    start = 0
+    while start < len(clusters):
+        end = start
+        size = 0
+        paragraph = line = word = None
+        while end < len(clusters) and size + widths[end] <= limit:
+            size += widths[end]
+            end += 1
+            # Avoid tiny pages when the only readable break precedes a long word.
+            if size >= limit // 2:
+                if clusters[end - 1].endswith("\n"):
+                    line = end
+                    if end > 1 and clusters[end - 2].endswith("\n"):
+                        paragraph = end
+                if clusters[end - 1].isspace():
+                    word = end
+        if end < len(clusters):
+            end = paragraph or line or word or end
+        chunks.append("".join(clusters[start:end]))
+        start = end
+    return chunks
+
+
+def _profile_pages(text: str) -> list[str]:
+    """One editable message: no continuation IDs or lifecycle tracking needed."""
+    if _utf16_length(text) <= 4096:
+        return [text]
+    title, _, body = text.partition("\n")
+    # Upper bound on page-number digits; include the contextual header in the budget.
+    header_budget = _utf16_length(title) + 5 + 2 * len(str(len(body)))
+    chunks = _split_profile_text(body, 4096 - header_budget)
+    return [f"{title} ({index + 1}/{len(chunks)})\n{chunk}" for index, chunk in enumerate(chunks)]
 
 
 async def _edit_or_answer(message: Message, text: str, reply_markup=None) -> None:
     try:
         await message.edit_text(text, reply_markup=reply_markup)
-    except Exception:
+    except TelegramBadRequest as exc:
+        description = exc.message.lower()
+        if "message is not modified" in description:
+            return
+        if not any(reason in description for reason in (
+            "message can't be edited", "message to edit not found",
+            "there is no text in the message to edit",
+        )):
+            raise
         await message.answer(text, reply_markup=reply_markup)
 
 
@@ -437,12 +553,18 @@ async def cmd_language_callback(callback: CallbackQuery, state: FSMContext) -> N
     await callback.answer()
 
 
-@router.message(Command("profile"))
+@navigation_router.message(Command("profile"))
 async def cmd_profile(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     if not await require_onboarded_user(message, user):
         return
+    await state.clear()
     await _show_profile(message, state, user_id=message.from_user.id, user=user)
+
+
+@navigation_router.message(F.text.in_({"👤 Профиль", "👤 Profile"}))
+async def main_menu_profile(message: Message, state: FSMContext) -> None:
+    await cmd_profile(message, state)
 
 
 @router.callback_query(F.data == "profile:open")
@@ -450,6 +572,17 @@ async def profile_callback(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.answer()
     await _show_profile(callback.message, state, user_id=callback.from_user.id, edit=True)
+
+
+@router.callback_query(F.data.regexp(r"^profile:page:[0-9]{1,10}:[0-9a-f]{12}$"))
+async def profile_page_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    _, _, page, revision = callback.data.split(":")
+    await state.clear()
+    await callback.answer()
+    await _show_profile(
+        callback.message, state, user_id=callback.from_user.id,
+        edit=True, page=int(page), revision=revision,
+    )
 
 
 @router.callback_query(F.data == "profile:menu")
@@ -659,6 +792,22 @@ async def _save_profile_text_field(
     user = await get_user(message.from_user.id)
     lang = (user or {}).get("language", "ru")
     raw = (message.text or "").strip()
+    menu_labels = {
+        button.text
+        for language in ("ru", "en")
+        for row in main_reply_keyboard(language).keyboard
+        for button in row
+    } | {"🌿 Create focus"}
+    if raw in menu_labels:
+        # Profile itself is handled by navigation_router. Other persistent buttons
+        # must never become a name or preference while this field is being edited.
+        text = (
+            "Чтобы продолжить редактирование, отправь значение поля или вернись в профиль кнопкой ниже."
+            if lang == "ru" else
+            "To continue editing, send a field value or use the button below to return to your profile."
+        )
+        await message.answer(text, reply_markup=profile_text_edit_keyboard(lang, field, allow_clear=allow_clear))
+        return
     if not raw:
         await message.answer(_PROFILE_TEXT_PROMPTS[lang][field], reply_markup=profile_text_edit_keyboard(lang, field, allow_clear=allow_clear))
         return
@@ -703,12 +852,6 @@ async def profile_process_avoid_words(message: Message, state: FSMContext) -> No
 @router.message(ProfileEditState.editing_life_areas)
 async def profile_process_life_areas(message: Message, state: FSMContext) -> None:
     await _save_profile_text_field(message, state, field="life_areas", allow_clear=True)
-
-
-@router.message(StateFilter(None), F.text.in_({"👤 Профиль", "👤 Profile"}))
-async def main_menu_profile(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await cmd_profile(message, state)
 
 
 @router.message(StateFilter(None), F.text.in_({"🌿 Создать настрой", "🌿 Create mood", "🌿 Create focus"}))
