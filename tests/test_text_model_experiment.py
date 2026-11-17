@@ -1,10 +1,26 @@
 import asyncio
+from datetime import datetime, timezone
 from decimal import Decimal
 import json
 
 import pytest
 
 from scripts import run_text_model_experiment as experiment
+
+
+def freeze_experiment_time(monkeypatch, instant):
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz)
+
+    monkeypatch.setattr(experiment, "datetime", FrozenDateTime)
+
+
+@pytest.fixture
+def verified_pricing_time(monkeypatch):
+    # Only these mocked execution tests run on the verified pricing date.
+    freeze_experiment_time(monkeypatch, datetime(2026, 11, 6, 12, tzinfo=timezone.utc))
 
 
 def test_authorized_plan_has_matched_pairs_and_exact_counts():
@@ -69,6 +85,9 @@ class FakeSession:
     async def __aexit__(self, *_):
         return False
 
+    def request(self, *args, **kwargs):
+        pytest.fail("Experiment tests must never send real HTTP requests")
+
 
 def fake_preflight(plan):
     return {"status": "passed", "input_counts": {r["request_id"]: 100 for r in plan["requests"]}}
@@ -94,6 +113,8 @@ def setup_transport(monkeypatch, plan, tmp_path, *, fail=False, mismatch=False):
         return fake_preflight(supplied)
 
     async def api(session, method, path, *, payload=None):
+        assert isinstance(session, FakeSession)
+        assert method == "POST"
         assert path == "/responses"
         report = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
         # The hold and pending ID are durable before entering the paid transport.
@@ -110,12 +131,15 @@ def setup_transport(monkeypatch, plan, tmp_path, *, fail=False, mismatch=False):
 
 
 @pytest.mark.parametrize("fail,mismatch", [(True, False), (False, True)])
-def test_uncertain_charge_stops_without_retry_and_retains_hold(monkeypatch, tmp_path, fail, mismatch):
+def test_uncertain_charge_stops_without_retry_and_retains_hold(
+    monkeypatch, tmp_path, verified_pricing_time, fail, mismatch,
+):
     plan = experiment.build_plan()
     calls = setup_transport(monkeypatch, plan, tmp_path, fail=fail, mismatch=mismatch)
     report = asyncio.run(experiment.execute(plan, api_key="must-not-leak", output=tmp_path, live=True))
     assert len(calls) == report["paid_requests_submitted"] == 1
     assert report["status"] == "stopped"
+    assert report["stop_reason"] == ("TimeoutError" if fail else "unexpected_model_or_tier")
     assert Decimal(report["reserved_usd"]) > 0
     assert report["results"][0]["latency_seconds"] >= 0
     assert "must-not-leak" not in (tmp_path / "results.json").read_text(encoding="utf-8")
@@ -124,7 +148,7 @@ def test_uncertain_charge_stops_without_retry_and_retains_hold(monkeypatch, tmp_
     assert len(calls) == 1
 
 
-def test_completed_run_preserves_usage_reasoning_and_blind_key(monkeypatch, tmp_path):
+def test_completed_run_preserves_usage_reasoning_and_blind_key(monkeypatch, tmp_path, verified_pricing_time):
     plan = experiment.build_plan()
     calls = setup_transport(monkeypatch, plan, tmp_path)
     report = asyncio.run(experiment.execute(plan, api_key="must-not-leak", output=tmp_path, live=True))
@@ -137,6 +161,32 @@ def test_completed_run_preserves_usage_reasoning_and_blind_key(monkeypatch, tmp_
     assert summary["request_count"] == summary["valid_four_strings"] == 16
     assert sum(group["requests"] for group in summary["groups"]) == 16
     assert (tmp_path / "metrics.csv").exists()
+
+
+@pytest.mark.parametrize("instant", [
+    "2026-11-06T21:00:00+00:00",  # Already November 7 in the guard's UTC+3 timezone.
+    "2026-11-17T12:00:00+00:00",
+], ids=["next_day_in_moscow", "stale_later_date"])
+def test_stale_pricing_blocks_live_before_transport(monkeypatch, tmp_path, instant):
+    freeze_experiment_time(monkeypatch, datetime.fromisoformat(instant))
+
+    def unexpected_transport(*args, **kwargs):
+        pytest.fail("Stale pricing must stop before any provider access")
+
+    monkeypatch.setattr(experiment.aiohttp, "ClientSession", unexpected_transport)
+    monkeypatch.setattr(experiment, "preflight", unexpected_transport)
+    monkeypatch.setattr(experiment, "api_json", unexpected_transport)
+
+    report = asyncio.run(experiment.execute(
+        experiment.build_plan(), api_key="must-not-leak", output=tmp_path, live=True,
+    ))
+
+    assert report["status"] == "stopped"
+    assert report["stop_reason"] == "reverify_current_prices_before_live"
+    assert report["paid_requests_submitted"] == 0
+    assert Decimal(report["reserved_usd"]) == 0
+    assert report["results"] == []
+    assert json.loads((tmp_path / "results.json").read_text(encoding="utf-8")) == report
 
 
 def test_preflight_cannot_generate_and_overbudget_plan_is_rejected(monkeypatch):
