@@ -282,6 +282,7 @@ def test_build_profile_text_guidance_includes_tone_support_focus_life_areas_and_
     assert "life_areas: работа, деньги" in guidance
     assert "avoid_topics: болезни, конфликт" in guidance
     assert "avoid_words: срочно, должен" in guidance
-    assert "strictly in Russian" in guidance
-    assert "use «ты», not «Вы/вы»" in guidance
+    assert "preferences override planner suggestions" in guidance
+    assert "within the required language, grammatical gender" in guidance
+    assert "Output language:" not in guidance  # provider owns language and voice
     assert '{"tone_preference"' not in guidance

@@ -7,11 +7,18 @@ import aiohttp
 
 from config import TextProviderConfig, get_text_provider_config
 from services.ritual_config import get_sphere_label, normalize_visual_mode, resolve_style, visual_mode_for_style
+from services.text_prompt_builder import build_profile_text_guidance
 from utils import infer_gender_from_hint, normalize_gender, normalize_russian_informal_address
 
 logger = logging.getLogger(__name__)
 
 _MAX_INJECTION_CHARS = 450
+# The ordinary planner path retains its original budget. Profile has a separate
+# 2,000-character budget, so planner/memory cannot displace its exclusions.
+_TEXT_PLAN_GUIDANCE_MAX_CHARS = 1500
+# Measured base system + user templates peak below 6,400 characters (RU/money/
+# feminine). Bounded Profile inserts plus 3,500 guidance characters fit in 14k.
+_PROFILE_PROMPT_MAX_CHARS = 14000
 
 # Explicit capabilities for the migration targets; other configured models retain
 # the legacy request shape. Do not infer support from a broad model-name prefix.
@@ -353,11 +360,22 @@ def _build_prompt(
     micro_theme: Optional[str] = None,
     sphere_label: Optional[str] = None,
     text_plan_guidance: Optional[str] = None,
+    profile_preferences: dict | None = None,
 ) -> str:
     """
     Формирует промпт для текстовой модели с инструкцией вернуть JSON-массив аффирмаций.
     gender: "male" | "female" из БД — используется для грамматики рода (приоритет над gender_hint).
     """
+    profile_guidance = build_profile_text_guidance(preferences=profile_preferences, language=language)
+    if profile_preferences is not None:
+        # Focus used to repeat the entire (potentially very long) Profile focus
+        # outside the clipped theme. Bound every dynamic insertion on this path.
+        sphere = _clip_user_text(sphere, 64)
+        subsphere = _clip_user_text(subsphere, 64)
+        sphere_label = _clip_user_text(sphere_label, 100)
+        gender_hint = _clip_user_text(gender_hint, 80)
+        focus = _clip_user_text(focus, 600)
+        micro_theme = _clip_user_text(micro_theme, 450)
     if user_text:
         theme = _clip_user_text(user_text, 600)
     else:
@@ -372,7 +390,9 @@ def _build_prompt(
     focus_line_ru = f"- Фокус дня: {focus}.\n" if focus else ""
     micro_line_en = f"- Micro theme / gentle daily step context: {micro_theme}.\n" if micro_theme else ""
     micro_line_ru = f"- Микротема / контекст мягкого шага дня: {micro_theme}.\n" if micro_theme else ""
-    guidance = _clip_user_text(text_plan_guidance, 1500)
+    guidance = _clip_user_text(text_plan_guidance, _TEXT_PLAN_GUIDANCE_MAX_CHARS)
+    if profile_guidance:
+        guidance = "\n\n".join(part for part in (guidance, profile_guidance) if part)
     guidance_line_en = f"{guidance}\n" if guidance else ""
     guidance_line_ru = f"{guidance}\n" if guidance else ""
 
@@ -542,6 +562,7 @@ async def generate_affirmations(
     micro_theme: Optional[str] = None,
     sphere_label: Optional[str] = None,
     text_plan_guidance: Optional[str] = None,
+    profile_preferences: dict | None = None,
 ) -> List[str]:
     """
     Асинхронно вызывает текстовую модель (OpenAI) и возвращает список аффирмаций.
@@ -560,11 +581,15 @@ async def generate_affirmations(
         micro_theme=micro_theme,
         sphere_label=sphere_label,
         text_plan_guidance=text_plan_guidance,
+        profile_preferences=profile_preferences,
     )
 
+    system_text = _affirmation_system_message(language, gender)
+    if profile_preferences is not None and len(system_text) + len(prompt_text) > _PROFILE_PROMPT_MAX_CHARS:
+        raise ValueError("Profile provider prompt exceeds the total character budget")
     url, headers, payload = _build_text_provider_request(
         text_cfg,
-        system_text=_affirmation_system_message(language, gender),
+        system_text=system_text,
         user_text=prompt_text,
         max_tokens=512,
         temperature=_affirmation_temperature(language, gender),

@@ -3,6 +3,13 @@ from services.text_planner import normalize_text_plan
 from utils import infer_gender_from_hint
 
 
+PROFILE_GUIDANCE_MAX_CHARS = 2000
+
+
+class ProfileGuidanceBudgetError(ValueError):
+    """Exclusions cannot fit intact; never send a partially applied avoid list."""
+
+
 def _coerce_bool(value) -> bool:
     if isinstance(value, bool):
         return value
@@ -24,9 +31,9 @@ def is_text_planner_controlled_enabled(settings: object | None = None) -> bool:
 
 
 def _clean_profile_scalar(value) -> str | None:
-    if value is None:
+    if not isinstance(value, str):
         return None
-    text = str(value).strip()
+    text = " ".join(value.split())
     return text or None
 
 
@@ -39,11 +46,27 @@ def _clean_profile_list(value) -> list[str]:
         cleaned = _clean_profile_scalar(item)
         if not cleaned:
             continue
-        key = cleaned.lower()
+        key = cleaned.casefold()
         if key in seen:
             continue
         seen.add(key)
         result.append(cleaned)
+    return result
+
+
+def normalize_profile_text_preferences(preferences) -> dict:
+    """Defend generation against malformed legacy data without stringifying it."""
+    if not isinstance(preferences, dict):
+        return {}
+    result = {}
+    for key in ("tone_preference", "support_style", "text_length_preference", "current_focus"):
+        value = _clean_profile_scalar(preferences.get(key))
+        if value:
+            result[key] = value
+    for key in ("life_areas", "avoid_topics", "avoid_words"):
+        value = _clean_profile_list(preferences.get(key))
+        if value:
+            result[key] = value
     return result
 
 
@@ -52,59 +75,46 @@ def build_profile_text_guidance(
     preferences: dict | None,
     language: str = "ru",
 ) -> str | None:
-    if not isinstance(preferences, dict) or not preferences:
+    preferences = normalize_profile_text_preferences(preferences)
+    if not preferences:
         return None
 
-    tone = _clean_profile_scalar(preferences.get("tone_preference"))
-    support_style = _clean_profile_scalar(preferences.get("support_style"))
-    text_length = _clean_profile_scalar(preferences.get("text_length_preference"))
-    current_focus = _clean_profile_scalar(preferences.get("current_focus"))
-    life_areas = _clean_profile_list(preferences.get("life_areas"))
-    avoid_topics = _clean_profile_list(preferences.get("avoid_topics"))
-    avoid_words = _clean_profile_list(preferences.get("avoid_words"))
-
-    if not any([tone, support_style, text_length, current_focus, life_areas, avoid_topics, avoid_words]):
-        return None
-
-    output_language = "Russian" if language == "ru" else "English"
+    # Language, gender, voice and JSON rules belong to the provider's base prompt.
+    # Keep only Profile-specific guidance here, with explicit planner precedence.
     lines = [
         "Profile preference guidance:",
-        f"- Output language: {output_language}",
+        "- Apply saved preferences within the required language, grammatical gender, four short affirmations and JSON format.",
+        "- Profile exclusions and tone/support/length preferences override planner suggestions.",
     ]
-    if language == "ru":
-        lines.extend(
-            [
-                "- Keep all user-facing text strictly in Russian.",
-                "- Do not leave English words in focus, affirmations, soft action or micro-step.",
-                "- Preserve warm informal singular Russian address: use «ты», not «Вы/вы».",
-                "- Soft action should use informal singular imperative.",
-            ]
-        )
-    if tone:
-        lines.append(f"- preferred_tone: {tone}")
-    if support_style:
-        lines.append(f"- preferred_support_style: {support_style}")
-    if text_length:
-        lines.append(f"- preferred_text_length: {text_length}")
-    if current_focus:
-        lines.append(f"- current_focus_context: {current_focus}")
-        lines.append("- Treat current_focus as strong context, but do not quote it verbatim unless it sounds natural.")
-    if life_areas:
-        lines.append(f"- life_areas: {', '.join(life_areas)}")
-        lines.append("- Let these life areas guide the focus naturally when choosing emphasis.")
-    if avoid_topics:
-        lines.append(f"- avoid_topics: {', '.join(avoid_topics)}")
-        lines.append("- Avoid centering the text on these topics unless the user explicitly asked for them.")
-    if avoid_words:
-        lines.append(f"- avoid_words: {', '.join(avoid_words)}")
-        lines.append("- Do not use these words verbatim in user-facing text when a natural alternative exists.")
-    lines.extend(
-        [
-            "- Keep the tone warm, natural and personal, not bureaucratic.",
-            "- Vary affirmation openings and sentence structures.",
-            "- Prefer a concrete, grounded, small real-life action for the soft action when possible.",
-        ]
-    )
+    for key in ("avoid_topics", "avoid_words"):
+        if preferences.get(key):
+            lines.append(f"- {key}: {', '.join(preferences[key])}")
+    if preferences.get("avoid_topics") or preferences.get("avoid_words"):
+        lines.append("- Do not center the text on avoid_topics or use avoid_words verbatim.")
+    if len("\n".join(lines)) > PROFILE_GUIDANCE_MAX_CHARS:
+        raise ProfileGuidanceBudgetError("Profile avoid-topic/avoid-word constraints exceed the prompt budget")
+
+    # Exclusions are never clipped. Then allocate remaining space in a stable
+    # order, with per-field caps so a long focus cannot consume every preference.
+    for key, label, cap in (
+        ("tone_preference", "preferred_tone", 100),
+        ("support_style", "preferred_support_style", 100),
+        ("text_length_preference", "preferred_text_length", 60),
+        ("current_focus", "current_focus_context", 400),
+        ("life_areas", "life_areas", 200),
+    ):
+        value = preferences.get(key)
+        if not value:
+            continue
+        if isinstance(value, list):
+            value = ", ".join(value)
+        prefix = f"- {label}: "
+        available = min(cap, PROFILE_GUIDANCE_MAX_CHARS - len("\n".join(lines)) - 1 - len(prefix))
+        if available < 2:
+            continue
+        if len(value) > available:
+            value = value[: available - 1].rstrip() + "…"
+        lines.append(prefix + value)
     return "\n".join(lines)
 
 

@@ -93,9 +93,10 @@ from services.scene_planner_shadow import (
 from services.text_planner import build_fallback_text_plan
 from services.text_memory import get_text_memory_context
 from services.text_prompt_builder import (
-    build_profile_text_guidance,
+    ProfileGuidanceBudgetError,
     build_text_generation_guidance,
     is_text_planner_controlled_enabled,
+    normalize_profile_text_preferences,
 )
 from services.text_planner_shadow import (
     attach_text_plan_shadow_to_metadata,
@@ -235,7 +236,7 @@ async def _handle_generation_limit_reached(
 
 
 def _profile_theme_from_preferences(preferences: dict | None, language: str) -> str | None:
-    prefs = preferences if isinstance(preferences, dict) else {}
+    prefs = normalize_profile_text_preferences(preferences)
     current_focus = str(prefs.get("current_focus") or "").strip()
     if current_focus:
         return current_focus
@@ -249,7 +250,7 @@ def _profile_theme_from_preferences(preferences: dict | None, language: str) -> 
 
 
 def _profile_sphere_from_preferences(preferences: dict | None, language: str) -> str:
-    prefs = preferences if isinstance(preferences, dict) else {}
+    prefs = normalize_profile_text_preferences(preferences)
     haystack_parts = [str(prefs.get("current_focus") or "")]
     haystack_parts.extend(str(item) for item in (prefs.get("life_areas") or []))
     haystack = " ".join(haystack_parts).strip().lower()
@@ -295,7 +296,7 @@ async def _start_profile_generation(
         subsphere=None,
         style="auto",
         visual_mode="illustration",
-        theme_text=profile_theme,
+        theme_text=None,
         generation_request_type="profile_preferences",
         use_profile_preferences=True,
     )
@@ -1077,7 +1078,9 @@ async def _run_generation(
     image_provider = get_image_provider_config()
     tts_provider = get_tts_provider_config()
     use_profile_preferences = bool(data.get("use_profile_preferences"))
-    profile_preferences = await get_user_profile_preferences(uid) if use_profile_preferences else {}
+    profile_preferences = (
+        normalize_profile_text_preferences(await get_user_profile_preferences(uid)) if use_profile_preferences else {}
+    )
 
     context = build_generation_context_snapshot(data, theme_text=theme_text)
     sphere = context.sphere
@@ -1096,7 +1099,9 @@ async def _run_generation(
         for item in history[-5:]
         if item.get("selected_style") or item.get("scene_preset")
     ]
-    if use_profile_preferences and not theme_text:
+    if use_profile_preferences:
+        # A Profile repeat uses today's saved preferences, never the previous
+        # derived theme. Only the origin flag belongs in the saved FSM context.
         theme_text = _profile_theme_from_preferences(profile_preferences, language)
 
     if not sphere:
@@ -1188,13 +1193,6 @@ async def _run_generation(
             gender_hint=gender_hint,
             text_memory_context=text_memory_context,
         )
-        profile_text_guidance = build_profile_text_guidance(
-            preferences=profile_preferences if use_profile_preferences else None,
-            language=language,
-        )
-        combined_text_guidance = "\n\n".join(
-            part for part in [text_plan_guidance, profile_text_guidance] if part
-        ) or None
         text_prompt_controlled_meta = None
         if text_plan_guidance:
             text_prompt_controlled_meta = {
@@ -1215,7 +1213,7 @@ async def _run_generation(
                 "profile_preferences_count": profile_preferences_count,
                 "profile_current_focus_used": bool(str(profile_preferences.get("current_focus") or "").strip()),
                 "profile_avoid_constraints_count": profile_avoid_constraints_count,
-                "guidance_used": bool(profile_text_guidance),
+                "guidance_used": bool(profile_preferences),
             }
         text_memory_context_meta = None
         if isinstance(text_memory_context, dict) and text_memory_context:
@@ -1238,8 +1236,18 @@ async def _run_generation(
                 focus=focus_text,
                 micro_theme=micro_step,
                 sphere_label=get_sphere_label(sphere, language),
-                text_plan_guidance=combined_text_guidance,
+                text_plan_guidance=text_plan_guidance,
+                profile_preferences=profile_preferences if use_profile_preferences else None,
             )
+        except ProfileGuidanceBudgetError:
+            await message.answer(
+                "Список тем и слов, которых нужно избегать, слишком длинный. Сократи его в профиле и попробуй снова."
+                if language == "ru"
+                else "Your avoided topics and words list is too long. Shorten it in your profile and try again.",
+                reply_markup=main_reply_keyboard(language),
+            )
+            await state.set_state(GenerationState.choosing_style)
+            return
         except Exception as exc:
             logger.exception("Affirmations generation failed: %s", exc)
             log_generation_fail(uid, "interactive", "affirmations", str(exc))
@@ -1539,7 +1547,8 @@ async def _run_generation(
                 "style": style,
                 "resolved_style": resolved_style,
                 "visual_mode": visual_mode,
-                "theme_text": theme_text,
+                "theme_text": None if use_profile_preferences else theme_text,
+                "use_profile_preferences": use_profile_preferences,
                 "custom_style_description": custom_style_description,
                 "affirmations": affirmations,
                 "focus_key": focus["key"],
@@ -1574,6 +1583,8 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         style=last.get("style") or "nature",
         visual_mode=last.get("visual_mode") or "illustration",
         custom_style_description=last.get("custom_style_description"),
+        use_profile_preferences=last.get("use_profile_preferences") is True,
+        generation_request_type="profile_preferences" if last.get("use_profile_preferences") is True else None,
     )
     again_language = (await get_user(callback.from_user.id) or {}).get("language", "ru")
     if await _check_generation_limit_and_handle(

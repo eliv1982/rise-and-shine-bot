@@ -5,6 +5,7 @@ import pytest
 
 from handlers import generation
 from services.generation_context import build_generation_context_snapshot
+from services.text_prompt_builder import build_profile_text_guidance
 
 
 class _FakeState:
@@ -375,6 +376,7 @@ def test_start_profile_generation_reads_preferences_and_sets_profile_request_con
     assert captured["state_data"]["style"] == "auto"
     assert captured["state_data"]["visual_mode"] == "illustration"
     assert captured["state_data"]["sphere"] == "money"
+    assert captured["state_data"]["theme_text"] is None
     assert message.answers[0][1] == "main:ru"
 
 
@@ -826,7 +828,8 @@ def test_run_generation_uses_profile_preferences_guidance_and_attaches_profile_m
         )
     )
 
-    guidance = captured["text_kwargs"]["text_plan_guidance"]
+    assert captured["text_kwargs"]["text_plan_guidance"] is None
+    guidance = build_profile_text_guidance(preferences=captured["text_kwargs"]["profile_preferences"])
     visual_motifs = captured["history_kwargs"]["visual_motifs"]
     assert "Profile preference guidance:" in guidance
     assert "preferred_tone: calm_no_pathos" in guidance
