@@ -25,6 +25,9 @@ class _FakeState:
     async def update_data(self, **kwargs):
         self.data.update(kwargs)
 
+    async def get_data(self):
+        return dict(self.data)
+
     async def set_state(self, state):
         self.state = state
 
@@ -298,7 +301,7 @@ def test_language_change_clears_state_and_shows_main_menu(monkeypatch):
 
     class _FakeCallback:
         def __init__(self):
-            self.data = "lang:en"
+            self.data = "ui_lang:en"
             self.from_user = SimpleNamespace(id=12)
             self.message = SimpleNamespace(
                 edited=[],
@@ -307,7 +310,7 @@ def test_language_change_clears_state_and_shows_main_menu(monkeypatch):
                 answer=self._answer,
             )
 
-        async def _edit_text(self, text):
+        async def _edit_text(self, text, reply_markup=None):
             self.message.edited.append(text)
 
         async def _answer(self, text, reply_markup=None):
@@ -325,6 +328,9 @@ def test_language_change_clears_state_and_shows_main_menu(monkeypatch):
 
         async def clear(self):
             self.cleared = True
+
+        async def get_data(self):
+            return {}
 
     callback = _FakeCallback()
     state = _State()
@@ -352,11 +358,11 @@ def test_language_change_then_voice_routing_still_works(monkeypatch):
 
     class _FakeCallback:
         def __init__(self):
-            self.data = "lang:en"
+            self.data = "ui_lang:en"
             self.from_user = SimpleNamespace(id=22)
             self.message = SimpleNamespace(edit_text=self._edit_text, answer=self._answer)
 
-        async def _edit_text(self, _text):
+        async def _edit_text(self, _text, reply_markup=None):
             return None
 
         async def _answer(self, _text, reply_markup=None):

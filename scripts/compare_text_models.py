@@ -29,6 +29,7 @@ with patch("dotenv.load_dotenv", return_value=False):
         _build_prompt,
         _build_text_provider_request,
         _parse_text_provider_response,
+        _parse_card_text,
         normalize_russian_user_facing_text_fields,
     )
 
@@ -90,33 +91,25 @@ def build_requests(
 
 def assess_response(raw: str, inputs: dict) -> dict:
     """Record format/diversity checks; language, meaning and tone need human review."""
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines.pop()
-        cleaned = "\n".join(lines).strip()
+    result = {"valid_four_strings": False, "raw_text": raw}
     try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError:
-        parsed = None
-    valid = (
-        isinstance(parsed, list) and len(parsed) == 4
-        and all(isinstance(item, str) and item.strip() for item in parsed)
-    )
-    result = {"valid_four_strings": bool(valid), "raw_text": raw}
-    if valid:
-        affirmations = parsed
-        if inputs.get("language", "ru") == "ru":
-            affirmations = normalize_russian_user_facing_text_fields(
-                parsed, gender=inputs.get("gender"), gender_hint=inputs.get("gender_hint"),
-            )
-        result.update({
-            "affirmations": affirmations,
-            "gender_cleanup_changed": affirmations != parsed,
-            "unique_affirmations": len({item.strip().casefold() for item in affirmations}),
-            "unique_openings": len({" ".join(item.split()[:2]).casefold() for item in affirmations}),
-        })
+        card = _parse_card_text(raw, inputs.get("language", "ru"))
+    except RuntimeError:
+        return result
+    parsed = card.affirmations
+    affirmations = parsed
+    if inputs.get("language", "ru") == "ru":
+        affirmations = normalize_russian_user_facing_text_fields(
+            parsed, gender=inputs.get("gender"), gender_hint=inputs.get("gender_hint"),
+        )
+    result.update({
+        "valid_four_strings": True,
+        "focus": card.focus,
+        "affirmations": affirmations,
+        "gender_cleanup_changed": affirmations != parsed,
+        "unique_affirmations": len({item.strip().casefold() for item in affirmations}),
+        "unique_openings": len({" ".join(item.split()[:2]).casefold() for item in affirmations}),
+    })
     return result
 
 

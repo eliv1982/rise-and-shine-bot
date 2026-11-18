@@ -6,14 +6,20 @@ external provider and Telegram mocked. No real network calls, no real sleeps bey
 few milliseconds used to prove concurrency.
 """
 import asyncio
+import json
 import importlib
 import random
 import uuid
 
+import aiohttp
 import pytest
+
+from services.yandex_gpt import GeneratedCardText
 
 import database as db
 import scheduler
+from services import yandex_gpt as provider
+from services.ritual_config import get_focus_for_date
 from services.delivery_schedule import CATCHUP_WINDOW, CLAIM_LEASE, RETRY_BACKOFF
 
 
@@ -45,7 +51,7 @@ def _install_common_stubs(monkeypatch, module=scheduler):
         return None
 
     async def fake_generate_affirmations(**_kwargs):
-        return ["Affirmation one", "Affirmation two", "Affirmation three"]
+        return GeneratedCardText(_kwargs.get("focus") or "Test focus", ["Affirmation one", "Affirmation two", "Affirmation three"])
 
     def fake_text_reviewer_shadow(**_kwargs):
         return None
@@ -55,7 +61,7 @@ def _install_common_stubs(monkeypatch, module=scheduler):
 
     monkeypatch.setattr(module, "build_text_plan_shadow_best_effort", fake_text_plan_shadow)
     monkeypatch.setattr(module, "build_scene_plan_shadow_best_effort", fake_scene_plan_shadow)
-    monkeypatch.setattr(module, "generate_affirmations", fake_generate_affirmations)
+    monkeypatch.setattr(module, "generate_card_text", fake_generate_affirmations)
     monkeypatch.setattr(module, "build_text_reviewer_shadow_best_effort", fake_text_reviewer_shadow)
     monkeypatch.setattr(module, "build_enriched_image_prompt", fake_build_enriched_image_prompt)
     monkeypatch.setattr(module, "is_text_planner_controlled_enabled", lambda *_a, **_k: False)
@@ -752,9 +758,9 @@ def test_relationship_subscription_delivery_uses_persisted_subsphere(initialized
 
         async def fake_generate_affirmations(**kwargs):
             captured.update(kwargs)
-            return ["Affirmation one", "Affirmation two", "Affirmation three"]
+            return GeneratedCardText(kwargs.get("focus") or "Test focus", ["Affirmation one", "Affirmation two", "Affirmation three"])
 
-        monkeypatch.setattr(scheduler, "generate_affirmations", fake_generate_affirmations)
+        monkeypatch.setattr(scheduler, "generate_card_text", fake_generate_affirmations)
         calls: list[dict] = []
         _install_generate_image(monkeypatch, tmp_path, calls)
 
@@ -780,5 +786,332 @@ def test_relationship_subscription_delivery_uses_persisted_subsphere(initialized
         assert len(bot.sent) == 1
         assert captured.get("sphere") == "relationships"
         assert captured.get("subsphere") == "colleagues"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("ui,content", [("ru", "en"), ("en", "ru")])
+@pytest.mark.parametrize("invalid", [False, True])
+def test_scheduled_content_and_delivery_controls_have_separate_languages(initialized_db, monkeypatch, tmp_path, ui, content, invalid):
+    _install_common_stubs(monkeypatch)
+    monkeypatch.setattr(scheduler, "generate_card_text", provider.generate_card_text)
+    image_calls = []
+    _install_generate_image(monkeypatch, tmp_path, image_calls)
+    requests = []
+    localized = "Calm financial decisions" if content == "en" else "Спокойные финансовые решения"
+    phrases = ["I trust my pace", "My judgment matters", "I can choose calmly", "My experience supports me"] if content == "en" else [
+        "Я берегу свой ритм", "Моё мнение важно", "Мне доступен спокойный выбор", "Мой опыт поддерживает меня",
+    ]
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def json(self):
+            raw = {"focus": "Исходный фокус" if content == "en" else "Source focus", "affirmations": phrases} if invalid else {"focus": localized, "affirmations": phrases}
+            return {"choices": [{"message": {"content": json.dumps(raw)}, "finish_reason": "stop"}]}
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        def post(self, url, **kwargs):
+            requests.append(kwargs["json"])
+            return Response()
+
+    monkeypatch.setattr(provider.aiohttp, "ClientSession", Session)
+
+    async def run():
+        await db.create_or_update_user(1, "offline", name="Елена", gender="female", language=ui)
+        await db.update_user_profile_preferences(1, {"current_focus": "Original profile context"})
+        sub_id = await db.create_subscription(1, "money", None, "auto", content, 8, 0, subscription_mode="sphere_focus", subscription_sphere="money")
+        before_preferences = await db.get_user_profile_preferences(1)
+        bot = _FakeBot()
+        await scheduler.send_daily_affirmations(bot, now=_at(1, 8, 0))
+        assert len(requests) == 1
+        payload = requests[0]
+        assert payload["model"] == "gpt-6-luna"
+        source = get_focus_for_date(1, "money", _at(1, 8, 0).date())
+        assert source[content] in payload["messages"][1]["content"]
+        assert "Language: English." in payload["messages"][1]["content"] if content == "en" else "Язык: русский." in payload["messages"][1]["content"]
+        rows = await db.get_subscription_deliveries(["2030-03-01"])
+        assert (await db.get_user(1))["language"] == ui
+        assert (await db.get_subscription_by_id(sub_id, 1))["language"] == content
+        assert await db.get_user_profile_preferences(1) == before_preferences
+        if invalid:
+            assert not bot.sent and not image_calls
+            assert rows[0]["status"] == "abandoned"
+            return
+        assert rows[0]["status"] == "sent"
+        assert len(bot.sent) == len(image_calls) == 1
+        caption = bot.sent[0]["caption"]
+        assert ("Focus of the day: " if content == "en" else "Фокус дня: ") + localized in caption
+        assert ("Elena, your daily focus" if content == "en" else "Елена, твой настрой на сегодня") in caption
+        assert source[f"micro_step_{content}"] in caption
+        assert all(f"• {phrase}" in caption for phrase in phrases)
+        buttons = {b.callback_data: b.text for row in bot.sent[0]["reply_markup"].inline_keyboard for b in row}
+        assert buttons["sub:change"] == ("⚙️ Настроить подписки" if ui == "ru" else "⚙️ Manage subscriptions")
+        assert ("sub_tts:yes" in buttons) == (content == "ru")
+        if content == "ru":
+            assert buttons["sub_tts:yes"] == "🔊 Listen"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("ui,content", [("ru", "en"), ("en", "ru")])
+def test_scheduled_delivery_refreshes_ui_changed_during_generation(initialized_db, monkeypatch, tmp_path, ui, content):
+    _install_common_stubs(monkeypatch)
+    calls = []
+    _install_generate_image(monkeypatch, tmp_path, calls)
+    original_image = scheduler.generate_image
+
+    async def image_with_language_switch(**kwargs):
+        await db.update_user_language(1, ui)
+        return await original_image(**kwargs)
+
+    monkeypatch.setattr(scheduler, "generate_image", image_with_language_switch)
+
+    async def run():
+        await db.create_or_update_user(1, "offline", name="User", language=content)
+        sub_id = await db.create_subscription(1, "money", None, "auto", content, 8, 0)
+        bot = _FakeBot()
+        await scheduler.send_daily_affirmations(bot, now=_at(1, 8, 0))
+        assert len(bot.sent) == 1
+        assert ("Фокус дня:" if content == "ru" else "Focus of the day:") in bot.sent[0]["caption"]
+        buttons = {b.callback_data: b.text for row in bot.sent[0]["reply_markup"].inline_keyboard for b in row}
+        assert buttons["sub:change"] == ("⚙️ Настроить подписки" if ui == "ru" else "⚙️ Manage subscriptions")
+        assert (await db.get_subscription_by_id(sub_id, 1))["language"] == content
+
+    asyncio.run(run())
+
+
+@pytest.fixture
+def card_transport(monkeypatch):
+    """Run real production text parsing with a completely mocked HTTP boundary."""
+    state = {
+        "status": 200,
+        "raw": json.dumps({"focus": "Спокойный рост", "affirmations": ["Мой опыт важен"] * 4}),
+        "calls": [],
+        "body_reads": 0,
+    }
+
+    class Response:
+        @property
+        def status(self):
+            return state["status"]
+
+        async def __aenter__(self):
+            if state.get("error"):
+                raise state["error"]
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def json(self):
+            if state.get("json_error"):
+                raise state["json_error"]
+            return state.get("data", {"choices": [{"message": {"content": state["raw"]}, "finish_reason": "stop"}]})
+
+        async def text(self):
+            state["body_reads"] += 1
+            return "PRIVATE_PROVIDER_RESPONSE"
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        def post(self, url, **kwargs):
+            state["calls"].append(kwargs["json"])
+            return Response()
+
+    _install_common_stubs(monkeypatch)
+    monkeypatch.setattr(scheduler, "generate_card_text", provider.generate_card_text)
+    monkeypatch.setattr(scheduler, "last_subscription_affirmations", {})
+    monkeypatch.setattr(provider.aiohttp, "ClientSession", Session)
+    return state
+
+
+@pytest.mark.parametrize("failure", [
+    "malformed", "missing_focus", "invalid_type", "wrong_count", "wrong_focus_language",
+    "foreign_affirmation_0", "foreign_affirmation_1", "foreign_affirmation_2", "foreign_affirmation_3",
+    "mixed_language", "neutral_only", "envelope", "response_json", "response_mime", "truncated", "refused",
+])
+def test_scheduled_validation_failure_abandons_once_without_paid_retry(
+    initialized_db, monkeypatch, tmp_path, card_transport, caplog, failure,
+):
+    payload = json.loads(card_transport["raw"])
+    if failure == "missing_focus":
+        payload.pop("focus")
+    elif failure == "invalid_type":
+        payload["affirmations"] = "PRIVATE_PERSONALIZED_CONTENT"
+    elif failure == "wrong_count":
+        payload["affirmations"].pop()
+    elif failure == "wrong_focus_language":
+        payload["focus"] = "I trust PRIVATE_PERSONALIZED_CONTENT"
+    elif failure.startswith("foreign_affirmation_"):
+        payload["affirmations"][int(failure[-1])] = "I trust PRIVATE_PERSONALIZED_CONTENT"
+    elif failure == "mixed_language":
+        payload["affirmations"][2] = "Я feel calm and choose PRIVATE_PERSONALIZED_CONTENT"
+    elif failure == "neutral_only":
+        payload["affirmations"][3] = "2026 🌿"
+    card_transport["raw"] = "PRIVATE_PERSONALIZED_CONTENT {malformed" if failure == "malformed" else json.dumps(payload)
+    if failure == "envelope":
+        card_transport["data"] = {"choices": [{"message": {"content": {"private": "PRIVATE_PERSONALIZED_CONTENT"}}}]}
+    elif failure == "response_json":
+        card_transport["json_error"] = ValueError("PRIVATE_PROVIDER_RESPONSE")
+    elif failure == "response_mime":
+        card_transport["json_error"] = aiohttp.ContentTypeError(None, (), message="PRIVATE_PROVIDER_RESPONSE")
+    elif failure in ("truncated", "refused"):
+        card_transport["data"] = {"choices": [{
+            "message": {"content": "PRIVATE_PROVIDER_RESPONSE", "refusal": failure == "refused"},
+            "finish_reason": "length" if failure == "truncated" else "stop",
+        }]}
+    image_calls = []
+    _install_generate_image(monkeypatch, tmp_path, image_calls)
+
+    async def run():
+        sub_id = await _make_subscription(901, 8, 0, ["photo"])
+        bot = _FakeBot()
+        for minute in (0, 16, 32, 48):
+            await scheduler.send_daily_affirmations(bot, now=_at(1, 8, minute))
+        rows = await db.get_subscription_deliveries(["2030-03-01"])
+        assert len(rows) == len(card_transport["calls"]) == 1
+        row = rows[0]
+        assert row["subscription_id"] == sub_id
+        assert row["status"] == "abandoned" and row["attempts"] == 1 and row["sent_at"] is None
+        assert "ProviderOutputValidationError" in row["last_error"]
+        assert not bot.sent and not image_calls and not scheduler.last_subscription_affirmations
+        assert await db.get_generation_usage_today(901) == 0
+        for secret in ("PRIVATE_PERSONALIZED_CONTENT", "PRIVATE_PROVIDER_RESPONSE"):
+            assert secret not in caplog.text and secret not in row["last_error"]
+        assert card_transport["body_reads"] == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["connection", "timeout", "rate_limit", "temporary_provider", "api_error"])
+@pytest.mark.parametrize("recover", [True, False])
+def test_scheduled_transient_text_errors_preserve_backoff_attempts_and_accounting(
+    initialized_db, monkeypatch, tmp_path, card_transport, caplog, failure, recover,
+):
+    if failure == "connection":
+        card_transport["error"] = aiohttp.ClientConnectionError("PRIVATE_PROVIDER_RESPONSE")
+    elif failure == "timeout":
+        card_transport["error"] = asyncio.TimeoutError("PRIVATE_PROVIDER_RESPONSE")
+    elif failure in ("rate_limit", "temporary_provider"):
+        card_transport["status"] = 429 if failure == "rate_limit" else 503
+    else:
+        card_transport["data"] = {"error": {"message": "PRIVATE_PROVIDER_RESPONSE"}}
+    image_calls = []
+    _install_generate_image(monkeypatch, tmp_path, image_calls)
+
+    async def run():
+        await _make_subscription(902, 8, 0, ["photo", "illustration"])
+        bot = _FakeBot()
+        await scheduler.send_daily_affirmations(bot, now=_at(2, 8, 0))
+        row = (await db.get_subscription_deliveries(["2030-03-02"]))[0]
+        visual_mode = row["visual_mode"]
+        assert row["status"] == "failed" and row["attempts"] == 1 and row["sent_at"] is None
+        assert len(card_transport["calls"]) == 1 and not bot.sent and not image_calls
+        await scheduler.send_daily_affirmations(bot, now=_at(2, 8, 14))
+        assert len(card_transport["calls"]) == 1
+        if recover:
+            card_transport.pop("error", None)
+            card_transport.pop("data", None)
+            card_transport["status"] = 200
+        for minute in (16, 32, 48):
+            await scheduler.send_daily_affirmations(bot, now=_at(2, 8, minute))
+        row = (await db.get_subscription_deliveries(["2030-03-02"]))[0]
+        expected_attempts = 2 if recover else 3
+        assert row["status"] == ("sent" if recover else "abandoned")
+        assert row["attempts"] == len(card_transport["calls"]) == expected_attempts
+        assert row["visual_mode"] == visual_mode
+        assert len(bot.sent) == len(image_calls) == (1 if recover else 0)
+        assert bool(row["sent_at"]) is recover
+        assert await db.get_generation_usage_today(902) == 0  # Scheduled calls never use the interactive quota.
+        assert "PRIVATE_PROVIDER_RESPONSE" not in caplog.text
+        assert "PRIVATE_PROVIDER_RESPONSE" not in (row["last_error"] or "")
+        assert card_transport["body_reads"] == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("field", ["focus", 0, 1, 2, 3])
+@pytest.mark.parametrize("language", ["ru", "en"])
+@pytest.mark.parametrize("case", ["hyphen", "quotation", "quoted_bypass", "wrong_outside_quote", "spoof"])
+def test_fix04b_delivery_policy_uses_one_request_and_preserves_profile(
+    initialized_db, monkeypatch, tmp_path, card_transport, field, language, case,
+):
+    texts = {
+        "ru": {
+            "hyphen": "Я Python-разработчик и работаю с IT-специалистом.",
+            "quotation": "Я помню фразу «I am calm».",
+            "quoted_bypass": "«I am calm»",
+            "wrong_outside_quote": "Я помню фразу «I am calm», and I trust myself.",
+            "spoof": "Я учу Pуthon-разработчика.",
+        },
+        "en": {
+            "hyphen": "I enjoy reading Иван-Петров and practise йога.",
+            "quotation": "I repeat the words «Я спокоен» every morning.",
+            "quoted_bypass": "«Я спокоен»",
+            "wrong_outside_quote": "I repeat the words «Я спокоен», и я верю в себя.",
+            "spoof": "I enjoy reading Пушкuн.",
+        },
+    }
+    text = texts[language][case]
+    payload = {
+        "focus": "Спокойный рост" if language == "ru" else "Gentle growth",
+        "affirmations": ["Мой опыт важен" if language == "ru" else "My experience matters"] * 4,
+    }
+    if field == "focus":
+        payload["focus"] = text
+    else:
+        payload["affirmations"][field] = text
+    card_transport["raw"] = json.dumps(payload, ensure_ascii=False)
+    image_calls = []
+    _install_generate_image(monkeypatch, tmp_path, image_calls)
+    valid = case in {"hyphen", "quotation"}
+
+    async def run():
+        ui_language = "en" if language == "ru" else "ru"
+        await db.create_or_update_user(903, "offline", name="User", language=ui_language)
+        preferences = {"current_focus": "Я Python-разработчик; I remember «Я спокоен» and ‘I am calm’."}
+        await db.update_user_profile_preferences(903, preferences)
+        before = await db.get_user_profile_preferences(903)
+        sub_id = await db.create_subscription(903, "money", None, "auto", language, 8, 0)
+        bot = _FakeBot()
+        for minute in (0, 16, 32, 48):
+            await scheduler.send_daily_affirmations(bot, now=_at(1, 8, minute))
+        rows = await db.get_subscription_deliveries(["2030-03-01"])
+        assert len(rows) == len(card_transport["calls"]) == 1
+        row = rows[0]
+        assert row["subscription_id"] == sub_id and row["attempts"] == 1
+        assert row["status"] == ("sent" if valid else "abandoned")
+        assert bool(row["sent_at"]) is valid
+        assert len(bot.sent) == len(image_calls) == int(valid)
+        assert bool(scheduler.last_subscription_affirmations) is valid
+        if valid:
+            # Double quotation marks may be HTML escaped by Telegram formatting.
+            assert text in bot.sent[0]["caption"]
+        else:
+            assert "ProviderOutputValidationError" in row["last_error"]
+        assert (await db.get_user(903))["language"] == ui_language
+        assert (await db.get_subscription_by_id(sub_id, 903))["language"] == language
+        assert await db.get_user_profile_preferences(903) == before
+        assert before["current_focus"] == preferences["current_focus"]
+        assert await db.get_generation_usage_today(903) == 0
+        assert card_transport["body_reads"] == 0
 
     asyncio.run(run())

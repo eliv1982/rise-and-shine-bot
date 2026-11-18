@@ -49,6 +49,7 @@ from handlers.common_messages import (
 )
 from monitoring import log_voice_cleanup_failed
 from services.subscription_ui import build_subscription_summary, build_subscriptions_summary, gender_profile_label
+from services.language_policy import interface_language
 from services.main_menu_intents import _normalize_intent_text, detect_main_menu_intent
 from services.speechkit_stt import transcribe_audio_with_meta
 from services.voice_input import VoiceInputProcessor
@@ -164,7 +165,7 @@ async def _build_profile_view(*, user_id: int, user: Optional[dict] = None) -> t
     if not user:
         return "Похоже, мы ещё не знакомы. Напиши /start.", None, "ru"
 
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     preferences = await get_user_profile_preferences(user_id)
     subscriptions = await get_active_subscriptions(user_id)
     subscriptions_summary = build_subscriptions_summary(subscriptions, lang)
@@ -315,6 +316,20 @@ async def _return_to_main_menu(message: Message, language: str) -> None:
     await message.answer(text, reply_markup=main_reply_keyboard(language))
 
 
+async def _clear_active_flow(state: FSMContext) -> None:
+    """Cancel input drafts while keeping the last completed card's More context."""
+    data = await state.get_data()
+    completed = {key: data[key] for key in ("last_generation", "recent_generation_history") if key in data}
+    await state.clear()
+    if completed:
+        await state.update_data(**completed)
+
+
+async def _refresh_language_keyboard(message: Message, language: str) -> None:
+    text = "🌿 Язык обновлён. Нижнее меню тоже переключилось на русский." if language == "ru" else "🌿 Language updated. The bottom menu is now in English."
+    await message.answer(text, reply_markup=main_reply_keyboard(language))
+
+
 def _greet_returning(name: Optional[str], gender: Optional[str]) -> str:
     ready = "Готова" if gender == "female" else "Готов"
     if name:
@@ -379,7 +394,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     user = await get_user(user_id)
     if user and is_onboarding_complete(user):
         await state.clear()
-        lang = (user or {}).get("language", "ru")
+        lang = interface_language(user)
         if lang == "en":
             name = display_name_for_language(user.get("name"), "en") or "there"
             text = (
@@ -513,44 +528,50 @@ async def update_gender_from_profile(callback: CallbackQuery, state: FSMContext)
     gender = callback.data.split(":", maxsplit=1)[1]
     await update_user_profile(user_id=callback.from_user.id, gender=gender)
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     text = "👤 Обращение обновлено." if lang == "ru" else "👤 Pronouns updated."
     await callback.answer()
     await callback.message.answer(text, reply_markup=main_reply_keyboard(lang))
 
 
-@router.message(Command("language"))
+@navigation_router.message(Command("language"))
 async def cmd_language(message: Message, state: FSMContext) -> None:
     """Выбор языка: русский / English."""
     user = await get_user(message.from_user.id)
     if not await require_onboarded_user(message, user):
         return
-    lang = (user or {}).get("language", "ru")
+    await _clear_active_flow(state)
+    lang = interface_language(user)
     text_ru = "Выбери язык общения:"
     text_en = "Choose your language:"
     text = text_ru if lang == "ru" else text_en
     await message.answer(text, reply_markup=language_keyboard())
 
 
-@router.callback_query(F.data.startswith("lang:"))
+@navigation_router.callback_query(F.data.startswith("ui_lang:"))
 async def cmd_language_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """Смена языка по кнопке после /language (не в процессе подписки)."""
-    current = await state.get_state()
-    if current and current.startswith("SubscriptionState:"):
-        return
     lang = callback.data.split(":", maxsplit=1)[1]
     if lang not in ("ru", "en"):
         await callback.answer()
         return
     await update_user_language(callback.from_user.id, lang)
-    await state.clear()
-    if lang == "ru":
-        await callback.message.edit_text("Язык изменён на русский. Дальше буду общаться по-русски.")
-        await callback.message.answer("🌿 Язык обновлён. Нижнее меню тоже переключилось на русский.", reply_markup=main_reply_keyboard("ru"))
-    else:
-        await callback.message.edit_text("Language set to English. I'll use English from now on.")
-        await callback.message.answer("🌿 Language updated. The bottom menu is now in English.", reply_markup=main_reply_keyboard("en"))
+    await _clear_active_flow(state)
     await callback.answer()
+    if lang == "ru":
+        await _edit_or_answer(callback.message, "Язык изменён на русский. Дальше буду общаться по-русски.")
+    else:
+        await _edit_or_answer(callback.message, "Language set to English. I'll use English from now on.")
+    await _refresh_language_keyboard(callback.message, lang)
+
+
+@router.callback_query(F.data.startswith("lang:") | F.data.startswith("sub_lang:"))
+async def expired_language_callback(callback: CallbackQuery, state: FSMContext) -> None:
+    # Valid sub_lang buttons were already handled by the subscription router.
+    # Shared legacy lang buttons cannot safely identify their original owner.
+    language = interface_language(await get_user(callback.from_user.id))
+    text = "Этот выбор языка устарел. Открой /language или /subscribe." if language == "ru" else "This language selector has expired. Open /language or /subscribe."
+    await callback.answer(text)
 
 
 @navigation_router.message(Command("profile"))
@@ -558,7 +579,7 @@ async def cmd_profile(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     if not await require_onboarded_user(message, user):
         return
-    await state.clear()
+    await _clear_active_flow(state)
     await _show_profile(message, state, user_id=message.from_user.id, user=user)
 
 
@@ -569,7 +590,7 @@ async def main_menu_profile(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "profile:open")
 async def profile_callback(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+    await _clear_active_flow(state)
     await callback.answer()
     await _show_profile(callback.message, state, user_id=callback.from_user.id, edit=True)
 
@@ -577,7 +598,7 @@ async def profile_callback(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data.regexp(r"^profile:page:[0-9]{1,10}:[0-9a-f]{12}$"))
 async def profile_page_callback(callback: CallbackQuery, state: FSMContext) -> None:
     _, _, page, revision = callback.data.split(":")
-    await state.clear()
+    await _clear_active_flow(state)
     await callback.answer()
     await _show_profile(
         callback.message, state, user_id=callback.from_user.id,
@@ -587,9 +608,9 @@ async def profile_page_callback(callback: CallbackQuery, state: FSMContext) -> N
 
 @router.callback_query(F.data == "profile:menu")
 async def profile_menu_callback(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+    await _clear_active_flow(state)
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     await callback.answer()
     await _return_to_main_menu(callback.message, lang)
 
@@ -597,7 +618,7 @@ async def profile_menu_callback(callback: CallbackQuery, state: FSMContext) -> N
 @router.callback_query(F.data == "profile_edit:gender")
 async def profile_edit_gender(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     text = "Выбери обращение:" if lang == "ru" else "Choose pronouns:"
     selected_gender = (user or {}).get("gender")
     await callback.answer()
@@ -609,7 +630,7 @@ async def profile_set_gender(callback: CallbackQuery, state: FSMContext) -> None
     gender = callback.data.split(":", maxsplit=1)[1]
     await update_user_profile(user_id=callback.from_user.id, gender=gender)
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     text = "✅ Обращение обновлено." if lang == "ru" else "✅ Pronouns updated."
     await callback.answer(text)
     await _show_profile(callback.message, state, user_id=callback.from_user.id, user=user, edit=True)
@@ -617,8 +638,9 @@ async def profile_set_gender(callback: CallbackQuery, state: FSMContext) -> None
 
 @router.callback_query(F.data == "profile_edit:language")
 async def profile_edit_language(callback: CallbackQuery, state: FSMContext) -> None:
+    await _clear_active_flow(state)
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     text = "Выбери язык профиля:" if lang == "ru" else "Choose profile language:"
     await callback.answer()
     await _edit_or_answer(callback.message, text, reply_markup=profile_language_keyboard(lang, lang))
@@ -631,8 +653,10 @@ async def profile_set_language(callback: CallbackQuery, state: FSMContext) -> No
         await callback.answer()
         return
     await update_user_language(callback.from_user.id, lang)
+    await _clear_active_flow(state)
     text = "✅ Язык профиля обновлён." if lang == "ru" else "✅ Profile language updated."
     await callback.answer(text)
+    await _refresh_language_keyboard(callback.message, lang)
     user = await get_user(callback.from_user.id)
     await _show_profile(callback.message, state, user_id=callback.from_user.id, user=user, edit=True)
 
@@ -640,7 +664,7 @@ async def profile_set_language(callback: CallbackQuery, state: FSMContext) -> No
 @router.callback_query(F.data == "profile_edit:tone_preference")
 async def profile_edit_tone(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     preferences = await get_user_profile_preferences(callback.from_user.id)
     text = "Выбери тон общения:" if lang == "ru" else "Choose a tone:"
     await callback.answer()
@@ -654,7 +678,7 @@ async def profile_edit_tone(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "profile_edit:support_style")
 async def profile_edit_support_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     preferences = await get_user_profile_preferences(callback.from_user.id)
     text = "Выбери формат поддержки:" if lang == "ru" else "Choose a support style:"
     await callback.answer()
@@ -668,7 +692,7 @@ async def profile_edit_support_style(callback: CallbackQuery, state: FSMContext)
 @router.callback_query(F.data == "profile_edit:text_length_preference")
 async def profile_edit_text_length(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     preferences = await get_user_profile_preferences(callback.from_user.id)
     text = "Выбери желаемую длину текста:" if lang == "ru" else "Choose preferred text length:"
     await callback.answer()
@@ -684,7 +708,7 @@ async def profile_set_preference_callback(callback: CallbackQuery, state: FSMCon
     _, field, value = callback.data.split(":", maxsplit=2)
     await merge_user_profile_preferences(callback.from_user.id, {field: value})
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     text = "✅ Профиль обновлён." if lang == "ru" else "✅ Profile updated."
     await callback.answer(text)
     await _show_profile(callback.message, state, user_id=callback.from_user.id, user=user, edit=True)
@@ -702,7 +726,7 @@ async def profile_clear_preference_callback(callback: CallbackQuery, state: FSMC
         patch = {field: []}
     await merge_user_profile_preferences(callback.from_user.id, patch)
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     text = "✅ Поле очищено." if lang == "ru" else "✅ Preference cleared."
     await callback.answer(text)
     await _show_profile(callback.message, state, user_id=callback.from_user.id, user=user, edit=True)
@@ -717,7 +741,7 @@ async def _start_profile_text_edit(
     allow_clear: bool,
 ) -> None:
     user = await get_user(callback.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     await state.set_state(target_state)
     await callback.answer()
     await callback.message.answer(
@@ -790,7 +814,7 @@ async def _save_profile_text_field(
     allow_clear: bool = False,
 ) -> None:
     user = await get_user(message.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     raw = (message.text or "").strip()
     menu_labels = {
         button.text
@@ -889,7 +913,7 @@ async def main_menu_help(message: Message, state: FSMContext) -> None:
 @router.message(StateFilter(None), F.text, ~F.text.startswith("/"))
 async def main_menu_text_router(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     text = (message.text or "").strip()
     if not text:
         return
@@ -914,7 +938,7 @@ async def main_menu_text_router(message: Message, state: FSMContext) -> None:
 @router.message(StateFilter(None), F.voice)
 async def main_menu_voice_router(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     processor = VoiceInputProcessor(stt_transcriber=transcribe_audio_with_meta)
     result = await processor.process(
         message,
@@ -955,7 +979,7 @@ async def main_menu_voice_router(message: Message, state: FSMContext) -> None:
 async def cmd_cancel(message: Message, state: FSMContext) -> None:
     """Выход из текущего диалога (сброс FSM)."""
     user = await get_user(message.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     current = await state.get_state()
     if not current:
         await message.answer("Нечего отменять." if lang == "ru" else "Nothing to cancel.")
@@ -973,7 +997,7 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
 async def cmd_reset(message: Message, state: FSMContext) -> None:
     """Полный сброс регистрации пользователя, чтобы пройти её заново."""
     user = await get_user(message.from_user.id)
-    lang = (user or {}).get("language", "ru")
+    lang = interface_language(user)
     await delete_user_completely(message.from_user.id)
     await state.clear()
     if lang == "ru":

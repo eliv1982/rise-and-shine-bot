@@ -3,6 +3,19 @@ from services.text_prompt_builder import (
     build_text_generation_guidance,
     is_text_planner_controlled_enabled,
 )
+import pytest
+
+
+@pytest.mark.parametrize("target,planner_language", [("ru", "en"), ("en", "ru")])
+def test_planner_cannot_override_target_generation_language(target, planner_language):
+    plan = {"focus_title": "source focus", "language": planner_language}
+    guidance = build_text_generation_guidance(text_plan=plan, language=target)
+    assert f"Output language: {'Russian' if target == 'ru' else 'English'}" in guidance
+    if target == "en":
+        assert "surrounding prose in English" in guidance
+        assert "Do not leave English words" not in guidance
+        assert "Russian grammatical gender" not in guidance
+    assert plan["language"] == planner_language
 
 
 class _Settings:
@@ -64,8 +77,8 @@ def test_build_text_generation_guidance_mentions_russian_output_for_ru():
     )
 
     assert "Output language: Russian" in guidance
-    assert "keep all user-facing text strictly in Russian" in guidance
-    assert "Do not leave English words or English action phrases" in guidance
+    assert "keep the surrounding prose in Russian" in guidance
+    assert "preserve proper nouns, brands, abbreviations and technical terms" in guidance
 
 
 def test_build_text_generation_guidance_does_not_dump_full_raw_json():

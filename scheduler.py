@@ -19,7 +19,8 @@ Delivery contract
   completed delivery is never generated or sent again.
 * An attempt that fails before Telegram confirms (text, image, send) is released as
   ``failed`` and retried after RETRY_BACKOFF, at most MAX_DELIVERY_ATTEMPTS times inside
-  the window. A permanent Telegram error (bot blocked) is abandoned at once.
+  the window. Permanent Telegram errors and provider-output validation failures
+  are abandoned at once, without another paid request.
 * Due deliveries run concurrently, bounded by SCHEDULER_MAX_CONCURRENCY; a failure in one
   never affects another.
 
@@ -57,6 +58,7 @@ from database import (
     get_active_subscriptions_for_delivery,
     get_last_sent_visual_mode,
     get_subscription_deliveries,
+    get_user,
     mark_subscription_delivery_failed,
     mark_subscription_delivery_sent,
 )
@@ -129,7 +131,9 @@ from services.ritual_config import (
     visual_mode_for_style,
 )
 from services.visual_memory import get_visual_memory_context
-from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
+from services.yandex_gpt import ProviderOutputValidationError, build_enriched_image_prompt, generate_card_text
+from services.language_policy import interface_language, normalize_language
+from handlers.generation_formatting import build_generation_caption
 from utils import gender_display
 
 logger = logging.getLogger(__name__)
@@ -347,17 +351,17 @@ async def _release_failed_attempt(delivery: dict, attempt: _Attempt, exc: Except
         "Subscription delivery failed at %s stage for user %s: %s",
         attempt.stage,
         fields["user_id"],
-        exc,
-        exc_info=exc,
+        type(exc).__name__,
     )
-    log_generation_fail(fields["user_id"], "subscription", step, str(exc) or type(exc).__name__)
-    permanent = _is_permanent_send_error(exc)
+    # Exception messages/chains can echo personalized provider output.
+    log_generation_fail(fields["user_id"], "subscription", step, type(exc).__name__)
+    permanent = _is_permanent_send_error(exc) or isinstance(exc, ProviderOutputValidationError)
     retryable = not permanent and delivery["attempts"] < MAX_DELIVERY_ATTEMPTS
     try:
         await mark_subscription_delivery_failed(
             delivery["id"],
             delivery["attempts"],
-            f"{attempt.stage}: {type(exc).__name__}: {exc}",
+            f"{attempt.stage}: {type(exc).__name__}",
             retryable=retryable,
             now=clock(),
         )
@@ -410,7 +414,7 @@ async def _deliver_subscription(
     sphere = sub["sphere"]
     subsphere = sub.get("subsphere")
     style = sub["image_style"]
-    language = sub["language"]
+    language = normalize_language(sub["language"])
     gender = sub.get("user_gender")
     subscription_mode = sub.get("subscription_mode") or ("weekly_balance" if sphere == "random" else "sphere_focus")
     allowed_visual_modes = get_allowed_visual_modes(sub)
@@ -493,7 +497,7 @@ async def _deliver_subscription(
             "avoid_soft_actions_count": len(text_memory_context.get("avoid_soft_actions") or []),
         }
 
-    affirmations = await generate_affirmations(
+    card_text = await generate_card_text(
         sphere=sphere,
         language=language,
         user_text=None,
@@ -505,10 +509,11 @@ async def _deliver_subscription(
         sphere_label=get_sphere_label(sphere, language),
         text_plan_guidance=text_plan_guidance,
     )
+    affirmations = card_text.affirmations
     text_reviewer_shadow_payload = build_text_reviewer_shadow_best_effort(
         affirmations=affirmations,
         soft_action=micro_step,
-        focus_title=focus_text,
+        focus_title=card_text.focus,
         language=language,
         gender_hint=gender_hint,
         text_plan=text_plan,
@@ -651,33 +656,10 @@ async def _deliver_subscription(
         photo_scene_preset_override=photo_scene_preset_override,
     )
 
-    text_lines = []
-    name = sub.get("user_name")
-    if language == "ru":
-        if name:
-            text_lines.append(f"{name}, твой настрой на сегодня 🌿")
-        else:
-            text_lines.append("Твой настрой на сегодня 🌿")
-    else:
-        if name:
-            text_lines.append(f"{name}, your daily focus 🌿")
-        else:
-            text_lines.append("Your daily focus 🌿")
-
-    if language == "ru":
-        text_lines.append(f"Фокус дня: {focus_text}")
-    else:
-        text_lines.append(f"Focus of the day: {focus_text}")
-
-    for a in affirmations:
-        text_lines.append(f"• {a}")
-
-    if language == "ru":
-        text_lines.append(f"Мягкий шаг дня:\n{micro_step}")
-    else:
-        text_lines.append(f"Gentle step of the day:\n{micro_step}")
-
-    caption = "\n\n".join(text_lines)
+    caption = build_generation_caption(
+        user={"name": sub.get("user_name")}, language=language,
+        focus_text=card_text.focus, affirmations=affirmations, micro_step=micro_step,
+    )
 
     meta_path = image_path.replace(".png", "_meta.json")
     image_meta = {}
@@ -718,7 +700,9 @@ async def _deliver_subscription(
 
     attempt.stage = _STAGE_SEND
     photo = FSInputFile(image_path)
-    keyboard = subscription_after_keyboard(language)
+    # UI changes during generation do not change subscription content language.
+    ui_language = interface_language(await get_user(user_id))
+    keyboard = subscription_after_keyboard(ui_language, content_language=language)
     sent_message = await bot.send_photo(
         chat_id=user_id,
         photo=photo,
@@ -778,7 +762,7 @@ async def _deliver_subscription(
         await record_generation_history_best_effort(
             telegram_user_id=user_id,
             request_type="subscription",
-            focus_title=focus_text,
+            focus_title=card_text.focus,
             affirmations=affirmations,
             soft_action=micro_step,
             text_model=getattr(text_provider, "model", None),

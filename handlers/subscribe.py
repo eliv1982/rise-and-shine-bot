@@ -35,10 +35,9 @@ from database import (
     get_subscription_by_id,
     get_user,
     update_subscription,
-    update_user_language,
 )
 from keyboards.inline import (
-    language_keyboard,
+    subscription_language_keyboard,
     relationships_subsphere_keyboard,
     sphere_keyboard,
     sphere_keyboard_for_subscription,
@@ -59,6 +58,7 @@ from keyboards.inline import (
     visual_mix_keyboard_for_subscription,
 )
 from scheduler import last_subscription_affirmations
+from services.language_policy import interface_language, normalize_language
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.ritual_config import (
     VISUAL_MIX_PRESETS,
@@ -81,6 +81,15 @@ def _state_allowed_visual_modes(data: dict) -> list[str]:
     return data.get("allowed_visual_modes") or [normalize_visual_mode(data.get("visual_mode"))]
 
 
+async def _content_language_for_setup(data: dict, user_id: int, ui_language: str) -> str:
+    if data.get("content_language") in ("ru", "en"):
+        return data["content_language"]
+    if data.get("subscription_action") == "edit" and data.get("edit_subscription_id"):
+        subscription = await get_subscription_by_id(int(data["edit_subscription_id"]), user_id)
+        return normalize_language((subscription or {}).get("language"))
+    return ui_language
+
+
 def _visual_mix_label(allowed_visual_modes: list[str], language: str) -> str:
     if len(allowed_visual_modes) == 1:
         return get_visual_mode_label(allowed_visual_modes[0], language)
@@ -100,7 +109,7 @@ async def _show_dashboard_message(message: Message, user_id: int, language: str)
 
 async def _show_dashboard_callback(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subscriptions = await get_active_subscriptions(callback.from_user.id)
     await state.clear()
     await callback.message.edit_text(
@@ -118,7 +127,7 @@ async def _start_subscription_setup(
     subscription_id: Optional[int] = None,
 ) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     if action == "add" and await count_active_subscriptions(callback.from_user.id) >= MAX_ACTIVE_SUBSCRIPTIONS:
         await callback.message.answer(_limit_text(language))
         await _show_dashboard_message(callback.message, callback.from_user.id, language)
@@ -127,7 +136,7 @@ async def _start_subscription_setup(
     await state.clear()
     await state.update_data(subscription_action=action, edit_subscription_id=subscription_id)
     await state.set_state(SubscriptionState.choosing_language)
-    await callback.message.answer(_setup_intro(language, action), reply_markup=language_keyboard())
+    await callback.message.answer(_setup_intro(language, action), reply_markup=subscription_language_keyboard())
     await callback.answer()
 
 
@@ -180,7 +189,7 @@ async def cmd_subscribe(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     if not await require_onboarded_user(message, user):
         return
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.clear()
     await _show_dashboard_message(message, message.from_user.id, language)
 
@@ -201,7 +210,7 @@ async def sub_open_from_result(callback: CallbackQuery, state: FSMContext) -> No
     messages) - a new message is sent instead, the same way /subscribe does.
     """
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.clear()
     await _show_dashboard_message(callback.message, callback.from_user.id, language)
     await callback.answer()
@@ -210,7 +219,7 @@ async def sub_open_from_result(callback: CallbackQuery, state: FSMContext) -> No
 @router.callback_query(F.data == "sub:cancel_dash")
 async def sub_cancel_dashboard(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.clear()
     await callback.message.edit_text("✅ Меню подписок закрыто." if language == "ru" else "✅ Subscriptions menu closed.")
     await callback.answer()
@@ -221,13 +230,14 @@ async def sub_add_callback(callback: CallbackQuery, state: FSMContext) -> None:
     await _start_subscription_setup(callback, state, action="add")
 
 
-@router.callback_query(SubscriptionState.choosing_language, F.data.startswith("lang:"))
+@router.callback_query(SubscriptionState.choosing_language, F.data.startswith("sub_lang:"))
 async def sub_choose_language(callback: CallbackQuery, state: FSMContext) -> None:
     lang = callback.data.split(":", maxsplit=1)[1]
     if lang not in ("ru", "en"):
         await callback.answer()
         return
-    await state.update_data(language=lang)
+    await state.update_data(content_language=lang)
+    language = interface_language(await get_user(callback.from_user.id))
     await state.set_state(SubscriptionState.choosing_mode)
     text_ru = (
         "🌿 Настроим ежедневный ритуал\n\n"
@@ -241,8 +251,8 @@ async def sub_choose_language(callback: CallbackQuery, state: FSMContext) -> Non
         "🌿 Weekly balance — a different area every day, without repeats during the week.\n"
         "🎯 Focus on one area — a new daily focus within the selected area."
     )
-    text = text_ru if lang == "ru" else text_en
-    await callback.message.edit_text(text, reply_markup=subscription_mode_keyboard(lang))
+    text = text_ru if language == "ru" else text_en
+    await callback.message.edit_text(text, reply_markup=subscription_mode_keyboard(language))
     await callback.answer()
 
 
@@ -302,7 +312,7 @@ async def sub_choose_mode(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(Command("unsubscribe"))
 async def cmd_unsubscribe(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.clear()
     subscriptions = await get_active_subscriptions(message.from_user.id)
     if not subscriptions:
@@ -558,12 +568,15 @@ async def sub_choose_minute(callback: CallbackQuery, state: FSMContext) -> None:
     style_label = _style_display(style, language)
     time_str = f"{hour:02d}:{minute:02d} {'МСК' if language == 'ru' else 'MSK'}"
     visual_label = _visual_mix_label(allowed_visual_modes, language)
+    content_language = await _content_language_for_setup(data, callback.from_user.id, language)
+    content_label = ("Русский" if content_language == "ru" else "Английский") if language == "ru" else ("Russian" if content_language == "ru" else "English")
     if language == "ru":
         mode_label = "Баланс недели" if mode == "weekly_balance" else "Фокус на сфере"
         text = f"Подтверди подписку:\n\n• Режим: {mode_label}\n• Визуально: {visual_label}\n• Сфера: {sphere_label}\n• Стиль: {style_label}\n• Время: {time_str}"
     else:
         mode_label = "Weekly balance" if mode == "weekly_balance" else "Focus on one area"
         text = f"Confirm subscription:\n\n• Mode: {mode_label}\n• Visual: {visual_label}\n• Area: {sphere_label}\n• Style: {style_label}\n• Time: {time_str}"
+    text += f"\n• Язык контента: {content_label}" if language == "ru" else f"\n• Content language: {content_label}"
     await callback.message.edit_text(text, reply_markup=subscription_confirm_keyboard(language))
     await callback.answer()
 
@@ -587,6 +600,7 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     user = await get_user(callback.from_user.id)
     language = _sub_language(data, user)
+    content_language = await _content_language_for_setup(data, callback.from_user.id, language)
     sphere = data["sphere"]
     subsphere = None if sphere == "random" else data.get("subsphere")
     subscription_mode = data.get("subscription_mode", "weekly_balance")
@@ -603,7 +617,7 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
                 sphere=sphere,
                 subsphere=subsphere,
                 image_style=data["style"],
-                language=language,
+                language=content_language,
                 hour=int(data["hour"]),
                 minute=int(data["minute"]),
                 subscription_mode=subscription_mode,
@@ -621,7 +635,7 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
                 sphere=sphere,
                 subsphere=subsphere,
                 image_style=data["style"],
-                language=language,
+                language=content_language,
                 hour=int(data["hour"]),
                 minute=int(data["minute"]),
                 subscription_mode=subscription_mode,
@@ -643,7 +657,6 @@ async def sub_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await state.clear()
         await callback.answer()
         return
-    await update_user_language(callback.from_user.id, language)
     await state.clear()
     count = await count_active_subscriptions(callback.from_user.id)
     summary = build_subscription_summary(saved_subscription, language)
@@ -731,7 +744,7 @@ async def sub_unsubscribe_callback(callback: CallbackQuery, state: FSMContext) -
     """Backward-compatible callback from old messages: open deletion flow."""
     await state.clear()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subscriptions = await get_active_subscriptions(callback.from_user.id)
     if not subscriptions:
         await callback.message.answer("Активных подписок нет." if language == "ru" else "No active subscriptions.")
@@ -757,7 +770,7 @@ async def sub_edit_callback(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.clear()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subscriptions = await get_active_subscriptions(callback.from_user.id)
     if not subscriptions:
         await callback.message.answer("Активных подписок нет." if language == "ru" else "No active subscriptions.")
@@ -780,7 +793,7 @@ async def sub_edit_selected(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.clear()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subscription_id = int(callback.data.split(":", maxsplit=1)[1])
     subscription = await get_subscription_by_id(subscription_id, callback.from_user.id)
     if not subscription:
@@ -798,7 +811,7 @@ async def sub_edit_field(callback: CallbackQuery, state: FSMContext) -> None:
     subscription_id = int(subscription_id_raw)
     subscription = await get_subscription_by_id(subscription_id, callback.from_user.id)
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     if not subscription:
         await callback.message.answer("Подписка не найдена." if language == "ru" else "Subscription not found.")
         await callback.answer()
@@ -857,9 +870,13 @@ async def sub_edit_field(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("sublangedit:"))
 async def sub_edit_language_selected(callback: CallbackQuery, state: FSMContext) -> None:
-    _, subscription_id_raw, language = callback.data.split(":", maxsplit=2)
+    _, subscription_id_raw, content_language = callback.data.split(":", maxsplit=2)
+    if content_language not in ("ru", "en"):
+        await callback.answer()
+        return
+    language = interface_language(await get_user(callback.from_user.id))
     subscription_id = int(subscription_id_raw)
-    updated = await _update_subscription_fields(callback.from_user.id, subscription_id, language=language)
+    updated = await _update_subscription_fields(callback.from_user.id, subscription_id, language=content_language)
     await state.clear()
     if not updated:
         await callback.message.edit_text("Подписка не найдена." if language == "ru" else "Subscription not found.")
@@ -874,7 +891,7 @@ async def sub_visual_style_followup(callback: CallbackQuery, state: FSMContext) 
     _, subscription_id_raw, choice = callback.data.split(":", maxsplit=2)
     subscription_id = int(subscription_id_raw)
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subscription = await get_subscription_by_id(subscription_id, callback.from_user.id)
     if not subscription:
         await state.clear()
@@ -907,7 +924,7 @@ async def sub_delete_callback(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer()
     await state.clear()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subscriptions = await get_active_subscriptions(callback.from_user.id)
     if not subscriptions:
         await callback.message.answer("Активных подписок нет." if language == "ru" else "No active subscriptions.")
@@ -930,7 +947,7 @@ async def sub_delete_selected(callback: CallbackQuery, state: FSMContext) -> Non
     await callback.answer()
     await state.clear()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subscription_id = int(callback.data.split(":", maxsplit=1)[1])
     subscription = await get_subscription_by_id(subscription_id, callback.from_user.id)
     if not subscription:
@@ -947,7 +964,7 @@ async def sub_delete_confirmed(callback: CallbackQuery, state: FSMContext) -> No
     await callback.answer()
     await state.clear()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subscription_id = int(callback.data.split(":", maxsplit=1)[1])
     await deactivate_subscription(callback.from_user.id, subscription_id)
     count = await count_active_subscriptions(callback.from_user.id)
@@ -964,7 +981,7 @@ async def subscription_create_new(callback: CallbackQuery, state: FSMContext) ->
     """Начать ручную генерацию из сообщения подписки."""
     await callback.answer()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.clear()
     await state.update_data(theme_text=None)
     from states import GenerationState
@@ -982,7 +999,7 @@ async def subscription_more(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     user_id = callback.from_user.id
     user = await get_user(user_id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     cached = last_subscription_affirmations.get(user_id)
     if not cached:
         await callback.message.answer(
@@ -1016,17 +1033,19 @@ async def subscription_tts(callback: CallbackQuery) -> None:
     await callback.answer()
     user_id = callback.from_user.id
     user = await get_user(user_id)
-    language = (user or {}).get("language", "ru")
-    if not is_tts_available(language):
-        await callback.message.answer(
-            "English audio is coming soon. Audio is currently available in Russian only."
-        )
-        return
+    language = interface_language(user)
     cached = last_subscription_affirmations.get(user_id)
     if not cached or not cached.get("affirmations"):
         msg_ru = "Нет данных для озвучки. Следующая рассылка по подписке придёт в назначенное время."
         msg_en = "No data to voice. Your next subscription delivery will arrive at the scheduled time."
         await callback.message.answer(msg_ru if language == "ru" else msg_en)
+        return
+    if not is_tts_available(normalize_language(cached.get("language"))):
+        await callback.message.answer(
+            "Озвучка на английском скоро появится. Сейчас доступна только русская озвучка."
+            if language == "ru" else
+            "English audio is coming soon. Audio is currently available in Russian only."
+        )
         return
     affirmations = cached["affirmations"]
     gender = cached.get("gender")
@@ -1035,8 +1054,6 @@ async def subscription_tts(callback: CallbackQuery) -> None:
             affirmations, gender=gender, pause_seconds=5.0
         )
         await callback.message.answer_voice(voice=FSInputFile(audio_path))
-    except RuntimeError as e:
-        await callback.message.answer(str(e))
     except Exception as exc:
         logger.exception("Subscription TTS failed: %s", exc)
         err_ru = "Сервис озвучки временно недоступен. Попробуй позже."

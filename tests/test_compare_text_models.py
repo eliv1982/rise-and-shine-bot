@@ -122,7 +122,9 @@ def test_case_filter_and_reasoning_parameters(tmp_path):
 
 
 @pytest.mark.parametrize("raw,valid", [
-    ('["a", "b", "c", "d"]', True), ('```json\n["a", "b", "c", "d"]\n```', True),
+    ('["a", "b", "c", "d"]', False), ('```json\n["a", "b", "c", "d"]\n```', False),
+    ('{"focus":"Rest","affirmations":["a","b","c","d"]}', True),
+    ('```json\n{"focus":"Rest","affirmations":["a","b","c","d"]}\n```', True),
     ('[]', False), ('["", "b", "c", "d"]', False), ('not JSON', False),
 ])
 def test_comparison_flags_invalid_format_without_hiding_raw_output(raw, valid):
@@ -133,7 +135,7 @@ def test_comparison_flags_invalid_format_without_hiding_raw_output(raw, valid):
 
 def test_comparison_records_gender_cleanup_and_diversity():
     result = comparison.assess_response(
-        '["Я готов", "Я готов", "Мой голос важен", "Сегодня есть выбор"]',
+        '{"focus":"Опора","affirmations":["Я готов", "Я готов", "Мой голос важен", "Сегодня есть выбор"]}',
         {"language": "ru", "gender": "female"},
     )
     assert result["gender_cleanup_changed"] is True
@@ -143,7 +145,7 @@ def test_comparison_records_gender_cleanup_and_diversity():
 
 
 @pytest.mark.parametrize("status,content,finish", [
-    (200, '["a", "b", "c", "d"]', "stop"),
+    (200, '{"focus":"Опора","affirmations":["Я готов","Мой опыт важен","Я выбираю ясность","Мой голос важен"]}', "stop"),
     (429, None, None), (200, "", "length"),
 ])
 def test_live_transport_is_mocked_and_records_usage_without_secrets(monkeypatch, status, content, finish):
@@ -191,6 +193,6 @@ def test_live_transport_is_mocked_and_records_usage_without_secrets(monkeypatch,
             assert result["usage"]["completion_tokens_details"]["reasoning_tokens"] == 40
             assert result["response_model"] == "resolved-model"
         if status != 200 or finish == "length":
-            assert result["error"] == "RuntimeError"
+            assert result["error"] == ("ProviderOutputValidationError" if finish == "length" else "RuntimeError")
         else:
             assert result["valid_four_strings"] is True

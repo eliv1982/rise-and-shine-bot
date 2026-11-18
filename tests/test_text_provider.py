@@ -153,7 +153,7 @@ def _invoke(kind):
 def test_all_generation_paths_use_compatible_requests(monkeypatch, transport, model, kind):
     monkeypatch.setattr(client, "get_text_provider_config", lambda: _config(model))
     content = {
-        "affirmations": '["Я открыт новому", "Я готов пробовать", "Я уверен в себе", "Мой опыт важен"]',
+        "affirmations": '{"focus":"Спокойный рост", "affirmations":["Я открыт новому", "Я готов пробовать", "Я уверен в себе", "Мой опыт важен"]}',
         "smalltalk": "  A warm reply.  ",
         "image_prompt": '{"prompt":"A bright coastal photograph in natural daylight. No text."}',
     }[kind]
@@ -217,7 +217,7 @@ def test_provider_failures_raise_or_use_image_template(monkeypatch, transport, m
 def test_empty_affirmation_arrays_are_not_success(monkeypatch, transport, raw):
     monkeypatch.setattr(client, "get_text_provider_config", _config)
     transport["data"] = _response(raw)
-    with pytest.raises(RuntimeError, match="empty affirmations"):
+    with pytest.raises(RuntimeError):
         asyncio.run(_invoke("affirmations"))
 
 
@@ -229,7 +229,7 @@ def test_migration_preserves_personalization_and_injection_boundary(monkeypatch,
     raw = ["I feel ready", "My voice matters", "I choose calm", "My pace is enough"] if language == "en" else [
         "Я готов", "Мой голос важен", "Сегодня выбираю ясность", "Я ценю свой опыт",
     ]
-    transport["data"] = _response(json.dumps(raw))
+    transport["data"] = _response(json.dumps({"focus": "Dignity" if language == "en" else "Достоинство", "affirmations": raw}))
     messages = []
     for model in MODELS:
         monkeypatch.setattr(client, "get_text_provider_config", lambda model=model: _config(model))
@@ -249,3 +249,92 @@ def test_migration_preserves_personalization_and_injection_boundary(monkeypatch,
         assert ("untrusted context" if language == "en" else "недоверенный контекст") in system["content"]
         messages.append(payload["messages"])
     assert messages[0] == messages[1] == messages[2]
+
+
+@pytest.mark.parametrize("language,source,focus,affirmations", [
+    ("en", "Вернуть уверенность в своих решениях", "Regaining trust in my decisions", ["My judgment matters", "I can pause before choosing", "I trust my own pace", "My experience supports me"]),
+    ("ru", "Making room for rest without guilt", "Отдых без чувства вины", ["Я замечаю свою усталость", "Мой отдых имеет значение", "Я берегу свои силы", "Мне доступна спокойная пауза"]),
+])
+def test_card_contract_localizes_focus_in_the_same_provider_call(monkeypatch, transport, language, source, focus, affirmations):
+    monkeypatch.setattr(client, "get_text_provider_config", _config)
+    transport["data"] = _response(json.dumps({"focus": focus, "affirmations": affirmations}))
+    card = asyncio.run(client.generate_card_text(
+        "inner_peace", language=language, focus=source, user_text=source,
+        profile_preferences={"current_focus": source, "avoid_words": ["hurry"]},
+    ))
+    assert card == client.GeneratedCardText(focus, affirmations)
+    assert len(transport["calls"]) == 1
+    payload = transport["calls"][0]["json"]
+    assert payload["model"] == "gpt-6-luna"
+    assert payload["max_completion_tokens"] == 512
+    system, user = [m["content"] for m in payload["messages"]]
+    assert source in user
+    assert source not in system
+    assert '"focus"' in system and '"affirmations"' in system
+    assert '"focus"' in user and '"affirmations"' in user
+    assert "gentle_step" in user  # explicitly forbidden in the response
+    assert "JSON array of strings only" not in user
+
+
+@pytest.mark.parametrize("raw", [
+    "plain text", "", "```json\n{}\n```", "null", "[]",
+    '{"focus":"Rest"}', '{"focus":17,"affirmations":["a","b","c","d"]}',
+    '{"focus":" ","affirmations":["a","b","c","d"]}',
+    '{"focus":"Rest","affirmations":"a"}',
+    '{"focus":"Rest","affirmations":["a","b","c"]}',
+    '{"focus":"Rest","affirmations":["a","b","c","d","e"]}',
+    '{"focus":"Rest","affirmations":["a","b","c",null]}',
+    '{"focus":"Rest","affirmations":["a","b","c",{}]}',
+    '{"focus":"Rest","affirmations":["a","b","c"," "]}',
+    '{"focus":"Rest","focus":"Calm","affirmations":["a","b","c","d"]}',
+    '{"focus":"Отдых","affirmations":["a","b","c","d"]}',
+    '{"focus":"Rest","affirmations":["a","b","c","Мой отдых важен"]}',
+    '{"focus":"Rest и покой","affirmations":["a","b","c","d"]}',
+    '{"focus":"Rest","affirmations":["a","b","c","123"]}',
+])
+def test_invalid_card_json_is_rejected_without_raw_fallback_or_retry(monkeypatch, transport, raw):
+    monkeypatch.setattr(client, "get_text_provider_config", _config)
+    transport["data"] = _response(raw)
+    with pytest.raises(RuntimeError):
+        asyncio.run(client.generate_card_text("inner_peace", language="en", focus="Отдых"))
+    assert len(transport["calls"]) == 1
+
+
+@pytest.mark.parametrize("field", ["focus", "affirmations"])
+def test_russian_card_rejects_english_in_any_display_field(monkeypatch, transport, field):
+    monkeypatch.setattr(client, "get_text_provider_config", _config)
+    card = {"focus": "Внутренняя опора", "affirmations": ["Мой опыт важен"] * 4}
+    if field == "focus":
+        card["focus"] = "Inner support"
+    else:
+        card["affirmations"][2] = "I trust myself"
+    transport["data"] = _response(json.dumps(card))
+    with pytest.raises(RuntimeError, match="language mismatch"):
+        asyncio.run(client.generate_card_text("inner_peace", language="ru"))
+    assert len(transport["calls"]) == 1
+
+
+@pytest.mark.parametrize("fence", [False, True])
+def test_extra_keys_and_fences_work_in_one_actual_provider_call(monkeypatch, transport, fence):
+    monkeypatch.setattr(client, "get_text_provider_config", _config)
+    payload = {
+        "focus": "Learning Python", "affirmations": ["I trust my experience"] * 4,
+        "gentle_step": "MODEL STEP MUST BE IGNORED", "extra": {"harmless": True},
+    }
+    raw = json.dumps(payload)
+    transport["data"] = _response(f"```json\n{raw}\n```" if fence else raw)
+    card = asyncio.run(client.generate_card_text("career", language="en"))
+    assert card == client.GeneratedCardText(payload["focus"], payload["affirmations"])
+    assert len(transport["calls"]) == 1
+
+
+@pytest.mark.parametrize("language", ["ru", "en"])
+def test_prompts_preserve_original_names_and_translate_only_surrounding_prose(language):
+    system = client._affirmation_system_message(language, gender=None)
+    prompt = client._build_prompt("career", subsphere=None, user_text=None, language=language)
+    if language == "en":
+        assert "original spelling" in system and "original spelling" in prompt
+    else:
+        assert "исходное написание" in system and "исходное написание" in prompt
+    assert "never copy foreign-language source text verbatim" not in prompt
+    assert "без английских слов" not in prompt

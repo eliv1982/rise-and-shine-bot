@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from services.yandex_gpt import GeneratedCardText
+
 from handlers import generation
 from services.generation_context import build_generation_context_snapshot
 from services.text_prompt_builder import build_profile_text_guidance
@@ -445,7 +447,7 @@ def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last
 
     async def _fake_generate_affirmations(**kwargs):
         captured["text_kwargs"] = kwargs
-        return ["I trust myself", "I move gently", "I stay present", "I choose clarity"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["I trust myself", "I move gently", "I stay present", "I choose clarity"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         captured["prompt_kwargs"] = kwargs
@@ -473,7 +475,7 @@ def test_run_generation_passes_theme_and_custom_style_separately_and_stores_last
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
@@ -519,7 +521,7 @@ def test_run_generation_symbolic_bypasses_scene_planner_and_prompt_override(monk
         return {"language": "en", "gender": "female"}
 
     async def _fake_generate_affirmations(**_kwargs):
-        return ["I trust my inner rhythm", "I move with calm clarity", "I stay centered", "I choose quiet balance"]
+        return GeneratedCardText(_kwargs.get("focus") or "Test focus", ["I trust my inner rhythm", "I move with calm clarity", "I stay centered", "I choose quiet balance"])
 
     async def _fake_scene_plan_shadow(**_kwargs):
         return {"scene_plan": {"scene_type": "abstract_light"}}
@@ -546,7 +548,7 @@ def test_run_generation_symbolic_bypasses_scene_planner_and_prompt_override(monk
             scene_planner_image_prompt_enabled=True,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_scene_plan_shadow_best_effort", _fake_scene_plan_shadow)
     monkeypatch.setattr(
         generation,
@@ -594,7 +596,7 @@ def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkey
 
     async def _fake_generate_affirmations(**kwargs):
         captured["text_kwargs"] = kwargs
-        return ["I trust myself", "I move gently", "I stay present", "I choose clarity"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["I trust myself", "I move gently", "I stay present", "I choose clarity"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         return "prompt", "template"
@@ -620,7 +622,7 @@ def test_run_generation_passes_text_plan_guidance_when_controlled_enabled(monkey
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
@@ -659,7 +661,7 @@ def test_run_generation_attaches_compact_text_memory_context_metadata_when_enabl
 
     async def _fake_generate_affirmations(**kwargs):
         captured["text_kwargs"] = kwargs
-        return ["I trust myself", "I move gently", "I stay present", "I choose clarity"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["I trust myself", "I move gently", "I stay present", "I choose clarity"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         return "prompt", "template"
@@ -709,7 +711,7 @@ def test_run_generation_attaches_compact_text_memory_context_metadata_when_enabl
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
@@ -767,7 +769,7 @@ def test_run_generation_uses_profile_preferences_guidance_and_attaches_profile_m
 
     async def _fake_generate_affirmations(**kwargs):
         captured["text_kwargs"] = kwargs
-        return ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         return "prompt", "template"
@@ -800,7 +802,7 @@ def test_run_generation_uses_profile_preferences_guidance_and_attaches_profile_m
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
@@ -854,7 +856,7 @@ def test_run_generation_does_not_read_text_memory_or_attach_marker_when_disabled
 
     async def _fake_generate_affirmations(**kwargs):
         captured["text_kwargs"] = kwargs
-        return ["I trust myself", "I move gently", "I stay present", "I choose clarity"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["I trust myself", "I move gently", "I stay present", "I choose clarity"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         return "prompt", "template"
@@ -887,7 +889,7 @@ def test_run_generation_does_not_read_text_memory_or_attach_marker_when_disabled
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
@@ -923,7 +925,7 @@ def test_run_generation_attaches_text_reviewer_shadow_metadata_when_enabled(monk
         return {"language": "ru", "gender": "female"}
 
     async def _fake_generate_affirmations(**kwargs):
-        return ["Я открыт новому", "Я выбираю спокойствие", "Я выбираю ясность", "Я нахожу опору"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["Я открыт новому", "Я выбираю спокойствие", "Я выбираю ясность", "Я нахожу опору"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         return "prompt", "template"
@@ -963,7 +965,7 @@ def test_run_generation_attaches_text_reviewer_shadow_metadata_when_enabled(monk
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
@@ -1000,7 +1002,7 @@ def test_run_generation_does_not_attach_text_reviewer_shadow_when_disabled(monke
         return {"language": "ru", "gender": "female"}
 
     async def _fake_generate_affirmations(**kwargs):
-        return ["Я открыт новому", "Я выбираю спокойствие", "Я выбираю ясность", "Я нахожу опору"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["Я открыт новому", "Я выбираю спокойствие", "Я выбираю ясность", "Я нахожу опору"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         return "prompt", "template"
@@ -1031,7 +1033,7 @@ def test_run_generation_does_not_attach_text_reviewer_shadow_when_disabled(monke
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
@@ -1066,7 +1068,7 @@ def test_run_generation_attaches_orchestrator_shadow_when_enabled(monkeypatch):
         return {"language": "ru", "gender": "female"}
 
     async def _fake_generate_affirmations(**kwargs):
-        return ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         return "prompt", "template"
@@ -1107,7 +1109,7 @@ def test_run_generation_attaches_orchestrator_shadow_when_enabled(monkeypatch):
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)
@@ -1147,7 +1149,7 @@ def test_run_generation_does_not_attach_orchestrator_shadow_when_disabled(monkey
         return {"language": "ru", "gender": "female"}
 
     async def _fake_generate_affirmations(**kwargs):
-        return ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"]
+        return GeneratedCardText(kwargs.get("focus") or "Test focus", ["Я выбираю спокойствие", "Я нахожу опору", "Я дышу свободнее", "Я берегу себя"])
 
     async def _fake_build_enriched_image_prompt(**kwargs):
         return "prompt", "template"
@@ -1179,7 +1181,7 @@ def test_run_generation_does_not_attach_orchestrator_shadow_when_disabled(monkey
             scene_planner_image_prompt_enabled=False,
         ),
     )
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_args, **_kwargs: None)

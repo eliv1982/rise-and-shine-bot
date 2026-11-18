@@ -9,12 +9,13 @@ import pytest_asyncio
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
 from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
-from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage
+from aiogram.methods import AnswerCallbackQuery, EditMessageText, SendMessage, SendVoice
 from aiogram.types import CallbackQuery, Chat, InlineKeyboardMarkup, Message, MessageEntity, Update, User, Voice
 
 import database as db
 from bot import create_dispatcher
-from handlers import generation, start
+from handlers import generation, start, subscribe
+from services.language_policy import interface_language
 from handlers.common_messages import menu_choose_option_text, menu_choose_style_text
 from keyboards.inline import main_reply_keyboard
 from services.subscription_ui import build_subscriptions_summary
@@ -145,6 +146,148 @@ async def app(dispatcher, initialized_db, monkeypatch):
 
 async def snapshot():
     return await db.get_user(USER_ID), await db.get_user_profile_preferences(USER_ID), await db.get_active_subscriptions(USER_ID)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["ru", "en"])
+@pytest.mark.parametrize("initial_state", ACTIVE_STATES, ids=lambda s: s.state if s else "idle")
+async def test_language_command_cancels_every_active_flow_and_refreshes_keyboard(app, target, initial_state):
+    await db.update_user_language(USER_ID, "en" if target == "ru" else "ru")
+    before_preferences = await db.get_user_profile_preferences(USER_ID)
+    before_subscriptions = await db.get_active_subscriptions(USER_ID)
+    completed = {"last_generation": {"sphere": "money", "use_profile_preferences": True}, "recent_generation_history": [{"selected_style": "nature"}]}
+    await app.state.set_state(initial_state)
+    await app.state.update_data(**completed, content_language="en", theme_text="unfinished input", partial_edit_field="time")
+    await app.send("/language")
+    assert await app.state.get_state() is None
+    assert await app.state.get_data() == completed
+    selector = app.session.messages[-1].reply_markup
+    assert {b.callback_data for row in selector.inline_keyboard for b in row} == {"ui_lang:ru", "ui_lang:en"}
+    await app.send(callback=f"ui_lang:{target}")
+    assert (await db.get_user(USER_ID))["language"] == target
+    assert app.session.messages[-1].reply_markup == main_reply_keyboard(target)
+    assert sum(isinstance(c, AnswerCallbackQuery) for c in app.session.calls) == 1
+    assert await app.state.get_data() == completed
+    assert await db.get_user_profile_preferences(USER_ID) == before_preferences
+    assert await db.get_active_subscriptions(USER_ID) == before_subscriptions
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["ru", "en"])
+@pytest.mark.parametrize("source", ["profile", "global"])
+@pytest.mark.parametrize("initial_state", [SubscriptionState.choosing_language, SubscriptionState.confirming, GenerationState.waiting_for_theme_early, ProfileEditState.editing_current_focus])
+async def test_language_callback_during_active_flow_has_interface_ownership(app, target, source, initial_state):
+    await db.update_user_language(USER_ID, "en" if target == "ru" else "ru")
+    before_subscriptions = await db.get_active_subscriptions(USER_ID)
+    await app.state.set_state(initial_state)
+    await app.state.update_data(content_language="ru", edit_subscription_id=1)
+    await app.send(callback=f"{'profile_lang' if source == 'profile' else 'ui_lang'}:{target}")
+    assert await app.state.get_state() is None
+    assert await app.state.get_data() == {}
+    assert (await db.get_user(USER_ID))["language"] == target
+    keyboard_messages = [m for m in app.session.messages if isinstance(m, SendMessage) and getattr(m.reply_markup, "keyboard", None)]
+    assert keyboard_messages[-1].reply_markup == main_reply_keyboard(target)
+    assert any(isinstance(c, AnswerCallbackQuery) for c in app.session.calls)
+    assert await db.get_active_subscriptions(USER_ID) == before_subscriptions
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ui,content", [("ru", "en"), ("en", "ru")])
+@pytest.mark.parametrize("action", ["save", "edit", "cancel"])
+async def test_subscription_setup_uses_interface_language_and_preserves_content_choice(app, ui, content, action):
+    await db.update_user_language(USER_ID, ui)
+    before = await snapshot()
+    await app.send(callback="sub:add")
+    assert {b.callback_data for row in app.session.messages[-1].reply_markup.inline_keyboard for b in row} == {"sub_lang:ru", "sub_lang:en"}
+    await app.send(callback=f"sub_lang:{content}")
+    if action == "edit":
+        await app.state.update_data(subscription_action="edit", edit_subscription_id=before[2][0]["id"])
+    assert "Выбери режим" in app.session.messages[-1].text if ui == "ru" else "Choose subscription mode" in app.session.messages[-1].text
+    assert (await app.state.get_data())["content_language"] == content
+    assert (await db.get_user(USER_ID))["language"] == ui
+    for callback in ("submode:weekly_balance", "visualmix:photo", "style:auto", "hour:10", "minute:15"):
+        await app.send(callback=callback)
+    confirmation = app.session.messages[-1].text
+    assert "Подтверди подписку" in confirmation if ui == "ru" else "Confirm subscription" in confirmation
+    assert "Язык контента: Английский" in confirmation if ui == "ru" else "Content language: Russian" in confirmation
+    await app.send(callback="sub:confirm" if action in ("save", "edit") else "sub:cancel")
+    assert await app.state.get_state() is None
+    assert (await db.get_user(USER_ID))["language"] == ui
+    assert await db.get_user_profile_preferences(USER_ID) == before[1]
+    subscriptions = await db.get_active_subscriptions(USER_ID)
+    if action == "save":
+        assert len(subscriptions) == len(before[2]) + 1
+        assert next(s for s in subscriptions if s["hour"] == 10)["language"] == content
+        assert "Подписка добавлена" in app.session.messages[-1].text if ui == "ru" else "Subscription added" in app.session.messages[-1].text
+    elif action == "edit":
+        assert len(subscriptions) == len(before[2])
+        assert subscriptions[0]["language"] == content
+        assert "Подписка обновлена" in app.session.messages[-1].text if ui == "ru" else "Subscription updated" in app.session.messages[-1].text
+    else:
+        assert subscriptions == before[2]
+        assert "Твои подписки" in app.session.messages[-1].text if ui == "ru" else "Your subscriptions" in app.session.messages[-1].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ui,content", [("ru", "en"), ("en", "ru")])
+async def test_subscription_partial_edits_keep_global_and_existing_content_languages_separate(app, ui, content):
+    await db.update_user_language(USER_ID, ui)
+    subscription_id = (await db.get_active_subscriptions(USER_ID))[0]["id"]
+    await app.send(callback=f"subfield:{subscription_id}:language")
+    await app.send(callback=f"sublangedit:{subscription_id}:{content}")
+    assert "Язык подписки обновлён" in app.session.messages[-1].text if ui == "ru" else "Subscription language updated" in app.session.messages[-1].text
+    assert (await db.get_user(USER_ID))["language"] == ui
+    assert (await db.get_subscription_by_id(subscription_id, USER_ID))["language"] == content
+    await app.send(callback=f"subfield:{subscription_id}:time")
+    await app.send(callback="hour:11")
+    await app.send(callback="minute:20")
+    saved = await db.get_subscription_by_id(subscription_id, USER_ID)
+    assert saved["language"] == content
+    assert (saved["hour"], saved["minute"]) == (11, 20)
+    assert interface_language(await db.get_user(USER_ID)) == ui
+    await app.send(callback="sub:dash")
+    assert "Язык контента: Английский" in app.session.messages[-1].text if ui == "ru" else "Content language: Russian" in app.session.messages[-1].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("callback", ["lang:en", "sub_lang:en", "ui_lang:xx", "profile_lang:xx"])
+async def test_stale_or_invalid_language_callbacks_are_acknowledged_without_mutation(app, callback):
+    before = await snapshot()
+    await app.send(callback=callback)
+    assert await snapshot() == before
+    assert sum(isinstance(c, AnswerCallbackQuery) for c in app.session.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ui,content", [("ru", "en"), ("en", "ru")])
+async def test_subscription_audio_uses_content_language_and_localizes_messages(app, monkeypatch, ui, content):
+    await db.update_user_language(USER_ID, ui)
+    monkeypatch.setitem(subscribe.last_subscription_affirmations, USER_ID, {
+        "affirmations": ["Мой отдых важен"] * 4 if content == "ru" else ["My rest matters"] * 4,
+        "language": content, "gender": "female",
+    })
+    synthesize = AsyncMock(return_value="offline-audio.ogg")
+    monkeypatch.setattr(subscribe, "synthesize_affirmations_with_pauses", synthesize)
+    await app.send(callback="sub_tts:yes")
+    if content == "ru":
+        synthesize.assert_awaited_once()
+        assert any(isinstance(call, SendVoice) for call in app.session.calls)
+    else:
+        synthesize.assert_not_awaited()
+        assert "Озвучка на английском скоро появится" in app.session.messages[-1].text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ui", ["ru", "en"])
+async def test_subscription_audio_errors_use_interface_language(app, monkeypatch, ui):
+    await db.update_user_language(USER_ID, ui)
+    monkeypatch.setitem(subscribe.last_subscription_affirmations, USER_ID, {
+        "affirmations": ["Мой отдых важен"] * 4, "language": "ru",
+    })
+    monkeypatch.setattr(subscribe, "synthesize_affirmations_with_pauses", AsyncMock(side_effect=RuntimeError("Ошибка сервиса")))
+    await app.send(callback="sub_tts:yes")
+    text = app.session.messages[-1].text
+    assert "Сервис озвучки временно недоступен" in text if ui == "ru" else "Voice service is temporarily unavailable" in text
 
 
 async def collect_profile_pages(app, first):
@@ -553,7 +696,7 @@ async def test_generation_and_subscription_controls_still_route(app, language):
     assert await app.state.get_state() == GenerationState.choosing_sphere.state
     await app.send("/subscribe")
     await app.send(callback="sub:add")
-    await app.send(callback=f"lang:{language}")
+    await app.send(callback=f"sub_lang:{language}")
     assert await app.state.get_state() == SubscriptionState.choosing_mode.state
     await app.send(callback="submode:weekly_balance")
     await app.send(callback="visualmix:photo")

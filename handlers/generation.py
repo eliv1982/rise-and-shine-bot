@@ -123,7 +123,8 @@ from services.speechkit_stt import transcribe_audio_with_meta
 from services.speechkit_tts import synthesize_affirmations_with_pauses
 from services.visual_memory import get_visual_memory_context
 from services.voice_input import VoiceInputProcessor, VoiceProcessingResult
-from services.yandex_gpt import build_enriched_image_prompt, generate_affirmations
+from services.yandex_gpt import build_enriched_image_prompt, generate_card_text
+from services.language_policy import interface_language, normalize_language
 from states import GenerationState
 from utils import gender_display, is_gibberish_text, is_input_language_compatible
 
@@ -285,7 +286,7 @@ async def _start_profile_generation(
     edit_inline: bool = False,
 ) -> None:
     user = await get_user(user_id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     preferences = await get_user_profile_preferences(user_id)
     profile_theme = _profile_theme_from_preferences(preferences, language)
     profile_sphere = _profile_sphere_from_preferences(preferences, language)
@@ -398,7 +399,7 @@ async def cb_new_affirmation(callback: CallbackQuery, state: FSMContext) -> None
     """Обработка кнопки создания нового настроя дня после регистрации."""
     await callback.answer()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     if await _check_generation_limit_and_handle(
         callback.message,
         state,
@@ -421,7 +422,7 @@ async def cmd_new(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
     if not await require_onboarded_user(message, user):
         return
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     if await _check_generation_limit_and_handle(
         message,
         state,
@@ -453,7 +454,7 @@ async def cb_generate_from_profile(callback: CallbackQuery, state: FSMContext) -
 async def choose_custom_theme_early(callback: CallbackQuery, state: FSMContext) -> None:
     """Своя тема в меню сферы: запрос текста или голоса."""
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     if await _check_generation_limit_and_handle(
         callback.message,
         state,
@@ -478,7 +479,7 @@ async def choose_custom_theme_early(callback: CallbackQuery, state: FSMContext) 
 @router.callback_query(GenerationState.waiting_for_theme_early, F.data == "theme_early:cancel")
 async def theme_early_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.set_state(GenerationState.choosing_sphere)
     await callback.message.edit_text(
         _new_flow_text(language),
@@ -490,7 +491,7 @@ async def theme_early_cancel(callback: CallbackQuery, state: FSMContext) -> None
 @router.message(GenerationState.waiting_for_theme_early, F.voice)
 async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     result = await _process_generation_voice_input(message, state, language=language, pending_kind="theme")
     if result.status == "stt_failed":
         await message.answer(_voice_recognition_failed_text(language))
@@ -521,7 +522,7 @@ async def handle_voice_theme_early(message: Message, state: FSMContext) -> None:
 @router.message(GenerationState.waiting_for_theme_early, F.text, ~F.text.startswith("/"))
 async def handle_text_theme_early(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     text = (message.text or "").strip()
     if not text:
         await message.answer("Напиши тему или нажми «Отмена»." if language == "ru" else "Type your theme or press Cancel.")
@@ -549,7 +550,7 @@ async def choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
     if callback.data == "sphere:custom_theme":
         return
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     sphere = callback.data.split(":", maxsplit=1)[1]
     if await _check_generation_limit_and_handle(
         callback.message,
@@ -589,7 +590,7 @@ async def choose_sphere(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(GenerationState.choosing_relationship_subsphere, F.data.startswith("subsphere:"))
 async def choose_relationship_subsphere(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     subsphere = callback.data.split(":", maxsplit=1)[1]
     if await _check_generation_limit_and_handle(
         callback.message,
@@ -621,7 +622,7 @@ async def choose_relationship_subsphere(callback: CallbackQuery, state: FSMConte
 @router.callback_query(GenerationState.choosing_visual_mode, F.data.startswith("visual:"))
 async def choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     visual_mode = normalize_visual_mode(callback.data.split(":", maxsplit=1)[1])
     if await _check_generation_limit_and_handle(
         callback.message,
@@ -653,7 +654,7 @@ async def choose_visual_mode(callback: CallbackQuery, state: FSMContext) -> None
 @router.callback_query(GenerationState.choosing_relationship_subsphere, F.data == "nav:back_to_sphere")
 async def nav_back_to_sphere(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.set_state(GenerationState.choosing_sphere)
     await callback.message.edit_text(
         _new_flow_text(language),
@@ -665,7 +666,7 @@ async def nav_back_to_sphere(callback: CallbackQuery, state: FSMContext) -> None
 @router.callback_query(GenerationState.choosing_style, F.data == "nav:back_to_visual")
 async def nav_back_to_visual(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.set_state(GenerationState.choosing_visual_mode)
     await callback.message.edit_text(
         _visual_mode_text(language),
@@ -677,7 +678,7 @@ async def nav_back_to_visual(callback: CallbackQuery, state: FSMContext) -> None
 @router.callback_query(F.data == "nav:main_menu")
 async def nav_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.clear()
     await callback.answer()
     try:
@@ -693,7 +694,7 @@ async def nav_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(GenerationState.choosing_style, F.data == "style:custom")
 async def choose_custom_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     if await _check_generation_limit_and_handle(
         callback.message,
         state,
@@ -729,7 +730,7 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
     if callback.data == "style:custom":
         return
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     style = callback.data.split(":", maxsplit=1)[1]
     if await _check_generation_limit_and_handle(
         callback.message,
@@ -763,7 +764,7 @@ async def choose_style(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(GenerationState.waiting_for_custom_style, F.data == "style:cancel")
 async def cancel_custom_style(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await state.update_data(style=None, custom_style_description=None)
     await state.set_state(GenerationState.choosing_style)
     await callback.message.edit_text(
@@ -776,7 +777,7 @@ async def cancel_custom_style(callback: CallbackQuery, state: FSMContext) -> Non
 @router.callback_query(GenerationState.waiting_for_theme_early, F.data.startswith("theme_voice:"))
 async def handle_theme_voice_recovery(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     action = callback.data.split(":", maxsplit=1)[1]
     if action == "use":
         data = await state.get_data()
@@ -867,7 +868,7 @@ async def handle_theme_voice_recovery(callback: CallbackQuery, state: FSMContext
 @router.callback_query(GenerationState.waiting_for_custom_style, F.data.startswith("style_voice:"))
 async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext) -> None:
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     action = callback.data.split(":", maxsplit=1)[1]
     if action == "use":
         data = await state.get_data()
@@ -961,7 +962,7 @@ async def handle_style_voice_recovery(callback: CallbackQuery, state: FSMContext
 @router.message(GenerationState.waiting_for_custom_style, F.voice)
 async def handle_voice_custom_style(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     result = await _process_generation_voice_input(message, state, language=language, pending_kind="style")
     if result.status == "stt_failed":
         await message.answer(_voice_recognition_failed_text(language))
@@ -992,7 +993,7 @@ async def handle_voice_custom_style(message: Message, state: FSMContext) -> None
 @router.message(GenerationState.waiting_for_custom_style, F.text, ~F.text.startswith("/"))
 async def handle_text_custom_style(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     text = (message.text or "").strip()
     if not text:
         await message.answer("Напиши описание стиля или нажми «Отмена»." if language == "ru" else "Type style description or press Cancel.")
@@ -1019,7 +1020,7 @@ async def generation_button_menu_text_guard(message: Message, state: FSMContext)
         await cmd_new(message, state)
         return
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await answer_menu_option_guard(message, language)
 
 
@@ -1033,7 +1034,7 @@ async def generation_button_menu_text_guard(message: Message, state: FSMContext)
 )
 async def generation_button_menu_voice_guard(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await answer_menu_option_guard(message, language)
 
 
@@ -1043,19 +1044,34 @@ async def generation_style_menu_text_guard(message: Message, state: FSMContext) 
         await cmd_new(message, state)
         return
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await answer_menu_style_guard(message, language)
 
 
 @router.message(GenerationState.choosing_style, F.voice)
 async def generation_style_menu_voice_guard(message: Message, state: FSMContext) -> None:
     user = await get_user(message.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     await answer_menu_style_guard(message, language)
 
 
 
 
+
+
+async def _generation_language_is_current(message: Message, user_id: int, language: str) -> bool:
+    current = interface_language(await get_user(user_id))
+    if current == language:
+        return True
+    # A language callback cancels the active flow. Do not deliver its old card
+    # or overwrite any new FSM flow, and do not retry a paid call automatically.
+    text = (
+        "Язык изменился во время создания настроя. Попробуй создать его ещё раз."
+        if current == "ru" else
+        "The language changed while this focus was being created. Please try again."
+    )
+    await message.answer(text, reply_markup=main_reply_keyboard(current))
+    return False
 
 
 async def _run_generation(
@@ -1070,7 +1086,7 @@ async def _run_generation(
     """
     uid = user_telegram_id if user_telegram_id is not None else message.from_user.id
     user = await get_user(uid)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     gender = (user or {}).get("gender")
     data = await state.get_data()
     settings = get_settings()
@@ -1226,7 +1242,7 @@ async def _run_generation(
             }
 
         try:
-            affirmations = await generate_affirmations(
+            card_text = await generate_card_text(
                 sphere=sphere,
                 language=language,
                 user_text=theme_text,
@@ -1239,7 +1255,11 @@ async def _run_generation(
                 text_plan_guidance=text_plan_guidance,
                 profile_preferences=profile_preferences if use_profile_preferences else None,
             )
+            affirmations = card_text.affirmations
+            caption_focus = card_text.focus
         except ProfileGuidanceBudgetError:
+            if not await _generation_language_is_current(message, uid, language):
+                return
             await message.answer(
                 "Список тем и слов, которых нужно избегать, слишком длинный. Сократи его в профиле и попробуй снова."
                 if language == "ru"
@@ -1251,6 +1271,8 @@ async def _run_generation(
         except Exception as exc:
             logger.exception("Affirmations generation failed: %s", exc)
             log_generation_fail(uid, "interactive", "affirmations", str(exc))
+            if not await _generation_language_is_current(message, uid, language):
+                return
             await message.answer(
                 "Не удалось собрать текст настроя дня. Попробуй ещё раз — выбери стиль ниже или /new."
                 if language == "ru"
@@ -1260,10 +1282,13 @@ async def _run_generation(
             await state.set_state(GenerationState.choosing_style)
             return
 
+        if not await _generation_language_is_current(message, uid, language):
+            return
+
         text_reviewer_shadow_payload = build_text_reviewer_shadow_best_effort(
             affirmations=affirmations,
             soft_action=micro_step,
-            focus_title=focus_text,
+            focus_title=caption_focus,
             language=language,
             gender_hint=gender_hint,
             text_plan=text_plan,
@@ -1415,6 +1440,8 @@ async def _run_generation(
         except Exception as exc:
             logger.exception("Image generation failed: %s", exc)
             log_generation_fail(uid, "interactive", "image", str(exc))
+            if not await _generation_language_is_current(message, uid, language):
+                return
             err_text = str(exc)
             if language == "ru":
                 if "Генерация изображения" in err_text or "времени" in err_text:
@@ -1430,10 +1457,13 @@ async def _run_generation(
             await state.set_state(GenerationState.choosing_style)
             return
 
+        if not await _generation_language_is_current(message, uid, language):
+            return
+
         caption = build_generation_caption(
             user=user,
             language=language,
-            focus_text=focus_text,
+            focus_text=caption_focus,
             affirmations=affirmations,
             micro_step=micro_step,
         )
@@ -1521,7 +1551,7 @@ async def _run_generation(
         await record_generation_history_best_effort(
             telegram_user_id=uid,
             request_type=request_type,
-            focus_title=focus_text,
+            focus_title=caption_focus,
             affirmations=affirmations,
             soft_action=micro_step,
             text_model=getattr(text_provider, "model", None),
@@ -1542,6 +1572,7 @@ async def _run_generation(
         await state.clear()
         await state.update_data(
             last_generation={
+                "language": language,
                 "sphere": sphere,
                 "subsphere": subsphere,
                 "style": style,
@@ -1569,7 +1600,7 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
     last = data.get("last_generation")
     if not last:
         user = await get_user(callback.from_user.id)
-        language = (user or {}).get("language", "ru")
+        language = interface_language(user)
         await state.clear()
         await callback.answer()
         await callback.message.answer(
@@ -1586,7 +1617,7 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
         use_profile_preferences=last.get("use_profile_preferences") is True,
         generation_request_type="profile_preferences" if last.get("use_profile_preferences") is True else None,
     )
-    again_language = (await get_user(callback.from_user.id) or {}).get("language", "ru")
+    again_language = interface_language(await get_user(callback.from_user.id))
     if await _check_generation_limit_and_handle(
         callback.message,
         state,
@@ -1612,14 +1643,25 @@ async def tts_affirmations(callback: CallbackQuery, state: FSMContext) -> None:
     """Озвучить последние аффирмации через SpeechKit TTS и отправить голосовым сообщением."""
     await callback.answer()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
-    if not is_tts_available(language):
+    language = interface_language(user)
+    data = await state.get_data()
+    last = data.get("last_generation")
+    # Completed cards own their audio language even after an interface switch.
+    # Legacy cards have no language metadata; do not guess from the current UI.
+    card_language = (last or {}).get("language")
+    if last and card_language not in ("ru", "en"):
         await callback.message.answer(
+            "Создай новый настрой, чтобы включить озвучку."
+            if language == "ru" else "Create a new daily focus to enable audio."
+        )
+        return
+    if last and not is_tts_available(normalize_language(card_language)):
+        await callback.message.answer(
+            "Озвучка на английском скоро появится. Сейчас доступна только русская озвучка."
+            if language == "ru" else
             "English audio is coming soon. Audio is currently available in Russian only."
         )
         return
-    data = await state.get_data()
-    last = data.get("last_generation")
     raw = (last or {}).get("affirmations") if last else None
     if not raw:
         await callback.message.answer(
@@ -1659,7 +1701,7 @@ async def new_request_from_result(callback: CallbackQuery, state: FSMContext) ->
     """Начать новый сценарий выбора после результата (сообщение с фото не редактируем — шлём новое)."""
     await callback.answer()
     user = await get_user(callback.from_user.id)
-    language = (user or {}).get("language", "ru")
+    language = interface_language(user)
     if await _check_generation_limit_and_handle(
         callback.message,
         state,

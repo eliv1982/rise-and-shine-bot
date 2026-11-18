@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from services.yandex_gpt import GeneratedCardText
+
 import database as db
 from handlers import generation
 
@@ -87,7 +89,7 @@ async def _fake_get_user(_uid):
 
 
 async def _fake_generate_affirmations(**_kwargs):
-    return ["I trust myself", "I move gently", "I stay present", "I choose clarity"]
+    return GeneratedCardText(_kwargs.get("focus") or "Test focus", ["I trust myself", "I move gently", "I stay present", "I choose clarity"])
 
 
 async def _fake_build_enriched_image_prompt(**_kwargs):
@@ -99,7 +101,7 @@ async def _fake_generate_image(**_kwargs):
 
 
 def _patch_successful_providers(monkeypatch):
-    monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+    monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
     monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
     monkeypatch.setattr(generation, "generate_image", _fake_generate_image)
     monkeypatch.setattr(generation, "log_generation_ok", lambda *_a, **_k: None)
@@ -123,7 +125,7 @@ def test_at_limit_generation_performs_zero_paid_provider_calls(monkeypatch):
 
         monkeypatch.setattr(generation, "get_user", _fake_get_user)
         monkeypatch.setattr(generation, "get_settings", lambda: _settings(generation_daily_limit=2))
-        monkeypatch.setattr(generation, "generate_affirmations", _unexpected_affirmations)
+        monkeypatch.setattr(generation, "generate_card_text", _unexpected_affirmations)
         monkeypatch.setattr(generation, "generate_image", _unexpected_image)
 
         message = _FakeMessage(user_id=301)
@@ -172,7 +174,7 @@ def test_text_provider_failure_releases_the_reservation(monkeypatch):
 
         monkeypatch.setattr(generation, "get_user", _fake_get_user)
         monkeypatch.setattr(generation, "get_settings", lambda: _settings(generation_daily_limit=5))
-        monkeypatch.setattr(generation, "generate_affirmations", _failing_affirmations)
+        monkeypatch.setattr(generation, "generate_card_text", _failing_affirmations)
 
         message = _FakeMessage(user_id=303)
         state = _state()
@@ -197,7 +199,7 @@ def test_image_generation_failure_releases_the_reservation(monkeypatch):
 
         monkeypatch.setattr(generation, "get_user", _fake_get_user)
         monkeypatch.setattr(generation, "get_settings", lambda: _settings(generation_daily_limit=5))
-        monkeypatch.setattr(generation, "generate_affirmations", _fake_generate_affirmations)
+        monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
         monkeypatch.setattr(generation, "build_enriched_image_prompt", _fake_build_enriched_image_prompt)
         monkeypatch.setattr(generation, "generate_image", _failing_image)
 
@@ -249,7 +251,7 @@ def test_generation_cancellation_before_delivery_releases_the_reservation(monkey
 
         monkeypatch.setattr(generation, "get_user", _fake_get_user)
         monkeypatch.setattr(generation, "get_settings", lambda: _settings(generation_daily_limit=5))
-        monkeypatch.setattr(generation, "generate_affirmations", _cancelled_affirmations)
+        monkeypatch.setattr(generation, "generate_card_text", _cancelled_affirmations)
 
         message = _FakeMessage(user_id=306)
         state = _state()
@@ -313,7 +315,7 @@ def test_cross_midnight_rollover_during_request_does_not_erase_next_day_reservat
 
         monkeypatch.setattr(generation, "get_user", _fake_get_user)
         monkeypatch.setattr(generation, "get_settings", lambda: _settings(generation_daily_limit=5))
-        monkeypatch.setattr(generation, "generate_affirmations", _affirmations_that_cross_midnight_then_fail)
+        monkeypatch.setattr(generation, "generate_card_text", _affirmations_that_cross_midnight_then_fail)
 
         message = _FakeMessage(user_id=308)
         state = _state()

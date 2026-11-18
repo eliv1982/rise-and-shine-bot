@@ -19,7 +19,7 @@ def test_affirmation_prompt_contains_anti_cliche_instructions():
         gender="female",
     )
     assert "ровно 4" in prompt
-    assert "JSON-массив" in prompt
+    assert "JSON-объект" in prompt
     assert "Не начинай все пункты одинаково" in prompt
     assert "Я открыта" in prompt
     assert "Я спокойна и уверена" in prompt
@@ -39,7 +39,7 @@ def test_affirmation_prompt_contains_focus_context_and_json_contract():
         micro_theme="Look at one financial question calmly.",
     )
     assert "Focus of the day: calm financial ground" in prompt
-    assert "JSON array of strings only" in prompt
+    assert "JSON object only" in prompt
     assert "exactly 4" in prompt
 
 
@@ -72,7 +72,7 @@ def test_prompt_preserves_theme_across_input_language():
         micro_theme="one honest confident step",
     )
     assert "Language: English." in prompt
-    assert "Interpret user-provided theme in its original language" in prompt
+    assert "Interpret the source focus/theme in its original language, preserving its meaning" in prompt
     assert "Preserve semantic closeness to user theme" in prompt
 
 
@@ -275,7 +275,7 @@ def test_generate_affirmations_applies_gender_cleanup_for_russian_female(monkeyp
                 "choices": [
                     {
                         "message": {
-                            "content": '[\"Я открыт новым возможностям\", \"Я готов развиваться\", \"Путь открыт\", \"Я уверен в себе\"]'
+                            "content": '{"focus":"Мягкая опора", "affirmations":["Я открыт новым возможностям", "Я готов развиваться", "Путь открыт", "Я уверен в себе"]}'
                         }
                     }
                 ]

@@ -18,7 +18,8 @@ from config import TextProviderConfig
 from handlers import generation, start
 from services import yandex_gpt as provider
 from services.text_prompt_builder import PROFILE_GUIDANCE_MAX_CHARS, build_profile_text_guidance
-from states import GenerationState
+from services.ritual_config import get_focus_for_date
+from states import GenerationState, ProfileEditState
 
 
 USER_ID = 72002
@@ -29,7 +30,9 @@ class Message:
         self.from_user = SimpleNamespace(id=user_id)
         self.answers = []
         self.photos = []
+        self.voices = []
         self.fail_delivery = False
+        self.edits = []
 
     async def answer(self, text, **kwargs):
         self.answers.append(text)
@@ -37,11 +40,17 @@ class Message:
     async def edit_reply_markup(self, **kwargs):
         pass
 
+    async def edit_text(self, text, **kwargs):
+        self.edits.append(text)
+
     async def answer_photo(self, **kwargs):
         if self.fail_delivery:
             raise RuntimeError("synthetic Telegram failure")
         self.photos.append(kwargs)
         return SimpleNamespace(photo=[SimpleNamespace(file_id="test-photo")])
+
+    async def answer_voice(self, **kwargs):
+        self.voices.append(kwargs)
 
 
 class Callback:
@@ -51,7 +60,7 @@ class Callback:
         # In an actual callback, the attached message was sent by the bot.
         self.message = Message(user_id=990002)
 
-    async def answer(self):
+    async def answer(self, text=None):
         pass
 
 
@@ -69,7 +78,7 @@ def flow(monkeypatch, initialized_db):
     state = FSMContext(storage=MemoryStorage(), key=StorageKey(bot_id=990002, chat_id=USER_ID, user_id=USER_ID))
     harness = SimpleNamespace(
         settings=settings, state=state, requests=[], image_calls=[], history=[],
-        transport_error=None, image_error=None, planner_calls=[],
+        transport_error=None, image_error=None, planner_calls=[], response_content=None,
     )
 
     class Response:
@@ -84,10 +93,15 @@ def flow(monkeypatch, initialized_db):
             return False
 
         async def json(self):
-            return {"choices": [{"message": {"content": json.dumps([
-                "Сегодня я берегу силы", "Мой опыт имеет значение",
-                "Мне доступен спокойный выбор", "Я замечаю свою опору",
-            ])}, "finish_reason": "stop"}]}
+            english = "Write in English." in harness.requests[-1]["messages"][0]["content"]
+            payload = {
+                "focus": "steady focus" if english else "спокойный фокус",
+                "affirmations": ["I protect my energy", "My experience matters", "I can choose calmly", "I notice my support"] if english else [
+                    "Сегодня я берегу силы", "Мой опыт имеет значение",
+                    "Мне доступен спокойный выбор", "Я замечаю свою опору",
+                ],
+            }
+            return {"choices": [{"message": {"content": harness.response_content if harness.response_content is not None else json.dumps(payload)}, "finish_reason": "stop"}]}
 
     class Session:
         async def __aenter__(self):
@@ -463,3 +477,216 @@ def test_provider_preserves_both_large_exclusion_lists_intact_before_optional_co
     assert "avoid_words: " + ", ".join(words) in prompt
     assert build_profile_text_guidance(preferences=prefs, language=language) in prompt
     assert sum(len(message["content"]) for message in flow.requests[0]["messages"]) <= provider._PROFILE_PROMPT_MAX_CHARS
+
+
+@pytest.mark.parametrize("target,source,localized", [
+    ("en", "Хочу спокойно обсуждать оплату своей работы", "Discussing fair pay for my work calmly"),
+    ("ru", "I want to enjoy quiet evenings without checking work messages", "Спокойные вечера без проверки рабочих сообщений"),
+])
+@pytest.mark.parametrize("origin", ["profile", "ordinary"])
+def test_cross_language_final_card_preserves_meaning_source_and_deterministic_step(flow, target, source, localized, origin):
+    phrases = ["I value my own pace", "My time matters", "I can choose a pause", "My needs deserve attention"] if target == "en" else [
+        "Я берегу свой ритм", "Моё время имеет значение", "Мне доступна спокойная пауза", "Я замечаю свои потребности",
+    ]
+    flow.response_content = json.dumps({"focus": localized, "affirmations": phrases})
+
+    async def run():
+        prefs = {"current_focus": source, "tone_preference": "calm_no_pathos", "avoid_words": ["rush"]}
+        await save_preferences(prefs, target)
+        before = await db._fetchone("SELECT profile_preferences_json FROM users WHERE user_id = ?", (USER_ID,))
+        message = Message()
+        if origin == "profile":
+            await generation._start_profile_generation(message, flow.state, user_id=USER_ID)
+        else:
+            await flow.state.update_data(sphere="career", style="auto", visual_mode="illustration")
+            await generation._run_generation(message, flow.state, theme_text=source)
+        assert len(message.photos) == 1
+        caption = message.photos[0]["caption"]
+        assert ("Focus of the day: " if target == "en" else "Фокус дня: ") + localized in caption
+        assert source not in caption
+        assert ("your daily focus" if target == "en" else "твой настрой на сегодня") in caption
+        assert ("Gentle step of the day:" if target == "en" else "Мягкий шаг дня:") in caption
+        assert all(f"• {phrase}" in caption for phrase in phrases)
+        last = (await flow.state.get_data())["last_generation"]
+        focus = get_focus_for_date(USER_ID, last["sphere"], generation.dt.datetime.now().date())
+        assert focus[f"micro_step_{target}"] in caption
+        assert flow.history[-1]["focus_title"] == localized
+        assert len(flow.requests) == 1
+        assert source in user_prompt(flow)
+        assert "Language: English." in user_prompt(flow) if target == "en" else "Язык: русский." in user_prompt(flow)
+        assert flow.image_calls[0]["user_text"] == source  # image input is unchanged
+        after = await db._fetchone("SELECT profile_preferences_json FROM users WHERE user_id = ?", (USER_ID,))
+        assert before[0] == after[0]
+        assert (await db.get_user_profile_preferences(USER_ID))["current_focus"] == source
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("initial,target", [("ru", "en"), ("en", "ru")])
+@pytest.mark.parametrize("switch", ["profile", "global"])
+def test_profile_more_after_language_change_keeps_origin_and_reloads_preferences(flow, initial, target, switch):
+    async def run():
+        original = {"current_focus": "Поддерживать связь с друзьями" if initial == "ru" else "Keeping in touch with friends", "avoid_words": ["rush"]}
+        await save_preferences(original, initial)
+        await generation._start_profile_generation(Message(), flow.state, user_id=USER_ID)
+        last = copy.deepcopy((await flow.state.get_data())["last_generation"])
+        await start.profile_callback(Callback("profile:open"), flow.state)
+        if switch == "profile":
+            await start.profile_edit_language(Callback("profile_edit:language"), flow.state)
+            await start.profile_set_language(Callback(f"profile_lang:{target}"), flow.state)
+        else:
+            await start.cmd_language_callback(Callback(f"ui_lang:{target}"), flow.state)
+        assert (await flow.state.get_data())["last_generation"] == last
+        assert await flow.state.get_state() is None
+        assert await db.get_user_profile_preferences(USER_ID) == original
+        updated = {"current_focus": "Находить время для важных разговоров" if initial == "ru" else "Making time for meaningful conversations", "avoid_words": ["rush"]}
+        await db.update_user_profile_preferences(USER_ID, updated)
+        localized = "Making time for meaningful conversations" if target == "en" else "Находить время для важных разговоров"
+        phrases = ["My conversations matter"] * 4 if target == "en" else ["Мои разговоры имеют значение"] * 4
+        flow.response_content = json.dumps({"focus": localized, "affirmations": phrases})
+        callback = Callback("again:yes")
+        await generation.again_affirmation(callback, flow.state)
+        assert len(flow.requests) == 2
+        assert updated["current_focus"] in user_prompt(flow)
+        assert original["current_focus"] not in user_prompt(flow)
+        caption = callback.message.photos[0]["caption"]
+        assert ("Focus of the day: " if target == "en" else "Фокус дня: ") + localized in caption
+        assert "Language: English." in user_prompt(flow) if target == "en" else "Язык: русский." in user_prompt(flow)
+        assert (await flow.state.get_data())["last_generation"]["use_profile_preferences"] is True
+        assert await db.get_user_profile_preferences(USER_ID) == updated
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("target,source", [("en", "Бережно отдыхать"), ("ru", "Rest gently")])
+@pytest.mark.parametrize("response", ["broken JSON", "wrong_focus_language", "wrong_affirmation_language", "extra_step"])
+def test_generated_card_validation_and_extra_keys_keep_preferences(flow, target, source, response):
+    focus = "Rest gently" if target == "en" else "Бережно отдыхать"
+    phrases = ["My rest matters"] * 4 if target == "en" else ["Мой отдых важен"] * 4
+    payload = {"focus": focus, "affirmations": phrases}
+    if response == "wrong_focus_language":
+        payload["focus"] = source
+    elif response == "wrong_affirmation_language":
+        payload["affirmations"][0] = source
+    elif response == "extra_step":
+        payload["gentle_step"] = "not allowed"
+    flow.response_content = "broken JSON" if response == "broken JSON" else json.dumps(payload)
+
+    async def run():
+        await save_preferences({"current_focus": source}, target)
+        message = Message()
+        await generation._start_profile_generation(message, flow.state, user_id=USER_ID)
+        assert len(flow.requests) == 1
+        if response == "extra_step":
+            assert len(message.photos) == len(flow.image_calls) == len(flow.history) == 1
+            caption = message.photos[0]["caption"]
+            assert "not allowed" not in caption
+            last = (await flow.state.get_data())["last_generation"]
+            focus_data = get_focus_for_date(USER_ID, last["sphere"], generation.dt.datetime.now().date())
+            assert focus_data[f"micro_step_{target}"] in caption
+            assert last["language"] == target
+            assert await db.get_generation_usage_today(USER_ID) == 1
+            assert (await db.get_user_profile_preferences(USER_ID))["current_focus"] == source
+            return
+        assert not message.photos and not flow.image_calls and not flow.history
+        assert source not in "\n".join(message.answers)
+        assert "Could not create" in message.answers[-1] if target == "en" else "Не удалось собрать" in message.answers[-1]
+        assert (await db.get_user_profile_preferences(USER_ID))["current_focus"] == source
+        assert await db.get_generation_usage_today(USER_ID) == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("initial,target", [("ru", "en"), ("en", "ru")])
+@pytest.mark.parametrize("phase", ["text", "image", "text_error", "image_error"])
+def test_language_switch_during_provider_call_discards_old_card_and_preserves_new_flow(flow, monkeypatch, initial, target, phase):
+    async def run():
+        prefs = {"current_focus": "Бережный отдых" if initial == "ru" else "Gentle rest"}
+        await save_preferences(prefs, initial)
+        await generation._start_profile_generation(Message(), flow.state, user_id=USER_ID)
+        last_success = copy.deepcopy((await flow.state.get_data())["last_generation"])
+        name = "generate_card_text" if phase.startswith("text") else "generate_image"
+        original_call = getattr(generation, name)
+        if phase == "text_error":
+            flow.transport_error = RuntimeError("synthetic provider failure")
+        elif phase == "image_error":
+            flow.image_error = RuntimeError("synthetic image failure")
+
+        async def switch_while_awaiting_provider(**kwargs):
+            try:
+                return await original_call(**kwargs)
+            finally:
+                await start.cmd_language_callback(Callback(f"ui_lang:{target}"), flow.state)
+                # A subsequent user action must not be overwritten by the old run.
+                await flow.state.set_state(ProfileEditState.editing_current_focus)
+                await flow.state.update_data(pending_value="new flow draft")
+
+        monkeypatch.setattr(generation, name, switch_while_awaiting_provider)
+        callback = Callback("again:yes")
+        await generation.again_affirmation(callback, flow.state)
+        assert callback.message.photos == []
+        assert "language changed" in callback.message.answers[-1] if target == "en" else "Язык изменился" in callback.message.answers[-1]
+        assert await flow.state.get_state() == ProfileEditState.editing_current_focus.state
+        data = await flow.state.get_data()
+        assert data["pending_value"] == "new flow draft"
+        assert data["last_generation"] == last_success
+        assert len(flow.history) == len(data["recent_generation_history"]) == 1
+        assert await db.get_generation_usage_today(USER_ID) == 1
+        assert await db.get_user_profile_preferences(USER_ID) == prefs
+        assert len(flow.requests) == 2  # one call per attempt, no automatic retry
+        assert len(flow.image_calls) == (2 if phase.startswith("image") else 1)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("card_language,ui", [("ru", "en"), ("en", "ru")])
+@pytest.mark.parametrize("switch", ["command", "profile"])
+def test_interactive_tts_uses_completed_card_language_after_interface_switch(flow, monkeypatch, card_language, ui, switch):
+    calls = []
+
+    async def synthesize(affirmations, **kwargs):
+        calls.append((affirmations, kwargs))
+        return "mocked_audio.ogg"
+
+    monkeypatch.setattr(generation, "synthesize_affirmations_with_pauses", synthesize)
+
+    async def run():
+        prefs = {"current_focus": "Спокойный рост" if card_language == "ru" else "Gentle growth"}
+        await save_preferences(prefs, card_language)
+        await generation._start_profile_generation(Message(), flow.state, user_id=USER_ID)
+        last = copy.deepcopy((await flow.state.get_data())["last_generation"])
+        assert last["language"] == card_language
+        handler = start.cmd_language_callback if switch == "command" else start.profile_set_language
+        prefix = "ui_lang" if switch == "command" else "profile_lang"
+        await handler(Callback(f"{prefix}:{ui}"), flow.state)
+        callback = Callback("tts:yes")
+        await generation.tts_affirmations(callback, flow.state)
+        assert (await db.get_user(USER_ID))["language"] == ui
+        assert (await flow.state.get_data())["last_generation"] == last
+        assert len(flow.requests) == 1
+        assert await db.get_user_profile_preferences(USER_ID) == prefs
+        assert len(calls) == len(callback.message.voices) == (1 if card_language == "ru" else 0)
+        if calls:
+            assert calls[0][0] == last["affirmations"]
+        else:
+            assert "audio" in callback.message.answers[-1] or "озвучка" in callback.message.answers[-1].lower()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("ui", ["ru", "en"])
+def test_legacy_card_without_language_does_not_guess_audio_language_from_ui(flow, monkeypatch, ui):
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Unknown card language must not cause a paid TTS request")
+
+    monkeypatch.setattr(generation, "synthesize_affirmations_with_pauses", forbidden)
+
+    async def run():
+        await save_preferences({}, ui)
+        await flow.state.update_data(last_generation={"affirmations": ["Legacy text"] * 4})
+        callback = Callback("tts:yes")
+        await generation.tts_affirmations(callback, flow.state)
+        assert not callback.message.voices and not flow.requests
+        assert "Create a new" in callback.message.answers[-1] if ui == "en" else "Создай новый" in callback.message.answers[-1]
+
+    asyncio.run(run())

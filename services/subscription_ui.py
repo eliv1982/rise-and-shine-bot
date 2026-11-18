@@ -1,5 +1,7 @@
 from typing import Optional
 
+from services.language_policy import normalize_language
+
 from database import MAX_ACTIVE_SUBSCRIPTIONS
 from services.ritual_config import (
     effective_subscription_style_mode,
@@ -59,6 +61,9 @@ def format_subscription_summary(sub: dict, language: str = "ru", index: int = 1)
     time_str = f"{int(sub.get('hour', 0)):02d}:{int(sub.get('minute', 0)):02d} {'МСК' if language == 'ru' else 'MSK'}"
 
     lines = [f"{index}. {subscription_mode_label(mode, language)}"]
+    content_language = normalize_language(sub.get("language"))
+    content_label = ("Русский" if content_language == "ru" else "Английский") if language == "ru" else ("Russian" if content_language == "ru" else "English")
+    lines.append(f"   Язык контента: {content_label}" if language == "ru" else f"   Content language: {content_label}")
     if mode == "sphere_focus":
         sphere = sub.get("subscription_sphere") or sub.get("sphere") or "inner_peace"
         label = get_sphere_label(sphere, language)

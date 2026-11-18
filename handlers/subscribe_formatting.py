@@ -1,5 +1,7 @@
 from typing import Optional
 
+from services.language_policy import interface_language
+
 from services.ritual_config import get_allowed_visual_modes, get_sphere_label, get_style_label, normalize_visual_mode
 
 
@@ -18,8 +20,8 @@ def style_display(style: str, language: str) -> str:
 
 
 def sub_language(state_data: dict, user: Optional[dict]) -> str:
-    """Язык в потоке подписки: из state или из профиля."""
-    return (state_data or {}).get("language") or (user or {}).get("language", "ru")
+    """Subscription management uses the interface language, never content state."""
+    return interface_language(user)
 
 
 def subscription_update_kwargs(subscription: dict, **overrides) -> dict:

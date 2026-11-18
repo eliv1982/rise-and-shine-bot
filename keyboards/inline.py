@@ -284,10 +284,18 @@ def gender_keyboard(language: str) -> InlineKeyboardMarkup:
 
 
 def language_keyboard() -> InlineKeyboardMarkup:
-    """Выбор языка: русский / English (для /language и для подписки)."""
+    """Interface language selection, independent of subscription content."""
     b = InlineKeyboardBuilder()
-    b.button(text="🇷🇺 Русский", callback_data="lang:ru")
-    b.button(text="🇬🇧 English", callback_data="lang:en")
+    b.button(text="🇷🇺 Русский", callback_data="ui_lang:ru")
+    b.button(text="🇬🇧 English", callback_data="ui_lang:en")
+    b.adjust(2)
+    return b.as_markup()
+
+
+def subscription_language_keyboard() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.button(text="🇷🇺 Русский", callback_data="sub_lang:ru")
+    b.button(text="🇬🇧 English", callback_data="sub_lang:en")
     b.adjust(2)
     return b.as_markup()
 
@@ -367,11 +375,11 @@ def subscription_confirm_keyboard(language: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def subscription_after_keyboard(language: str) -> InlineKeyboardMarkup:
+def subscription_after_keyboard(language: str, *, content_language: str | None = None) -> InlineKeyboardMarkup:
     """Клавиатура под сообщением по подписке."""
     b = InlineKeyboardBuilder()
-    if is_tts_available(language):
-        b.button(text="🔊 Озвучить", callback_data="sub_tts:yes")
+    if is_tts_available(content_language or language):
+        b.button(text=_t(language, "🔊 Озвучить", "🔊 Listen"), callback_data="sub_tts:yes")
     b.button(
         text=_t(language, "✨ Ещё настрой", "✨ More"),
         callback_data="sub_more:yes",

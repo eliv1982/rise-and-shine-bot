@@ -342,3 +342,49 @@ def test_partial_edit_of_unrelated_field_preserves_visual_mix(flow_db, edit, exp
             assert after[column] == before[column]
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("ui,content", [("ru", "en"), ("en", "ru")])
+@pytest.mark.parametrize("fsm_language", [None, "invalid", "explicit"])
+def test_full_edit_resolves_missing_content_language_from_persisted_subscription(flow_db, ui, content, fsm_language):
+    async def run():
+        await db.update_user_language(USER_ID, ui)
+        sub_id = await _create_subscription(language=content)
+        before = await db.get_subscription_by_id(sub_id, USER_ID)
+        state = _FakeState(
+            SubscriptionState.choosing_minute,
+            subscription_action="edit", edit_subscription_id=sub_id,
+            sphere="random", style="auto", hour=9,
+            subscription_mode="weekly_balance", allowed_visual_modes=["illustration"],
+        )
+        if fsm_language is not None:
+            state.data["content_language"] = ui if fsm_language == "explicit" else fsm_language
+        expected = ui if fsm_language == "explicit" else content
+        callback = await _click(subscribe.sub_choose_minute, "minute:30", state)
+        confirmation = callback.message.edits[-1][0]
+        label = ("Русский" if expected == "ru" else "Английский") if ui == "ru" else ("Russian" if expected == "ru" else "English")
+        assert ("Язык контента: " if ui == "ru" else "Content language: ") + label in confirmation
+        await _click(subscribe.sub_confirm, "sub:confirm", state)
+        after = await db.get_subscription_by_id(sub_id, USER_ID)
+        assert after["language"] == expected
+        assert (await db.get_user(USER_ID))["language"] == ui
+        assert (after["hour"], after["minute"]) == (9, 30)
+        for column in ("sphere", "subscription_mode", "allowed_visual_modes_json", "image_style"):
+            assert after[column] == before[column]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("ui", ["ru", "en"])
+def test_new_subscription_without_fsm_content_language_still_defaults_to_ui(flow_db, ui):
+    async def run():
+        await db.update_user_language(USER_ID, ui)
+        state = _FakeState(
+            SubscriptionState.confirming, subscription_action="add", sphere="random",
+            style="auto", hour=8, minute=0, allowed_visual_modes=["illustration"],
+        )
+        await _click(subscribe.sub_confirm, "sub:confirm", state)
+        rows = await db.get_active_subscriptions(USER_ID)
+        assert len(rows) == 1 and rows[0]["language"] == ui
+
+    asyncio.run(run())

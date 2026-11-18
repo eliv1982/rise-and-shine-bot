@@ -1,4 +1,5 @@
 from config import get_settings
+from services.language_policy import normalize_language
 from services.text_planner import normalize_text_plan
 from utils import infer_gender_from_hint
 
@@ -128,10 +129,18 @@ def build_text_generation_guidance(
     if not isinstance(text_plan, dict) or not text_plan:
         return None
 
-    normalized = normalize_text_plan(text_plan, language=language)
+    language = normalize_language(language)
+    normalized = normalize_text_plan({**text_plan, "language": language}, language=language)
     affirmation_angles = ", ".join(normalized["affirmation_angles"]) or "—"
     avoid = ", ".join(normalized["avoid"]) or "—"
     output_language = "Russian" if normalized["language"] == "ru" else "English"
+    language_rules = (
+        "- For Russian output, keep the surrounding prose in Russian.\n"
+        "- Translate English prose and action phrases in focus and affirmations; preserve proper nouns, brands, abbreviations and technical terms in their original spelling.\n"
+        if language == "ru" else
+        "- Keep the surrounding prose in English.\n"
+        "- Render Russian source prose in English, preserving meaning and the original spelling of proper nouns, brands, abbreviations and technical terms.\n"
+    )
     gender_lines: list[str] = []
     voice_lines: list[str] = []
     if normalized["language"] == "ru":
@@ -222,8 +231,7 @@ def build_text_generation_guidance(
         f"- soft_action_style: {normalized['soft_action_style']}\n"
         f"- avoid: {avoid}\n"
         f"- Output language: {output_language}\n"
-        "- For Russian output, keep all user-facing text strictly in Russian.\n"
-        "- Do not leave English words or English action phrases in focus, affirmations, soft action or micro-step.\n"
+        f"{language_rules}"
         "- Keep the final text gentle, grounded and emotionally precise.\n"
         "- Avoid toxic positivity, pressure, moralizing and repetitive generic affirmations.\n"
         "- Use varied affirmation openings and keep wording warm, natural and personal.\n"

@@ -5,6 +5,8 @@ import random
 
 import pytest
 
+from services.yandex_gpt import GeneratedCardText
+
 import database as db
 import scheduler
 from keyboards.inline import style_keyboard_for_subscription, subscription_select_keyboard
@@ -286,7 +288,7 @@ def _patch_scheduler_dependencies_for_success(monkeypatch, tmp_path, captured_ca
         return None
 
     async def fake_generate_affirmations(**_kwargs):
-        return ["Affirmation one", "Affirmation two", "Affirmation three"]
+        return GeneratedCardText(_kwargs.get("focus") or "Test focus", ["Affirmation one", "Affirmation two", "Affirmation three"])
 
     def fake_text_reviewer_shadow(**_kwargs):
         return None
@@ -303,7 +305,7 @@ def _patch_scheduler_dependencies_for_success(monkeypatch, tmp_path, captured_ca
 
     monkeypatch.setattr(scheduler, "build_text_plan_shadow_best_effort", fake_text_plan_shadow)
     monkeypatch.setattr(scheduler, "build_scene_plan_shadow_best_effort", fake_scene_plan_shadow)
-    monkeypatch.setattr(scheduler, "generate_affirmations", fake_generate_affirmations)
+    monkeypatch.setattr(scheduler, "generate_card_text", fake_generate_affirmations)
     monkeypatch.setattr(scheduler, "build_text_reviewer_shadow_best_effort", fake_text_reviewer_shadow)
     monkeypatch.setattr(scheduler, "build_enriched_image_prompt", fake_build_enriched_image_prompt)
     monkeypatch.setattr(scheduler, "generate_image", fake_generate_image)

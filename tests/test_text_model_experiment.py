@@ -94,10 +94,17 @@ def fake_preflight(plan):
 
 
 def response(request, **changes):
+    english = request["inputs"].get("language", "ru") == "en"
+    card = {
+        "focus": "Gentle growth" if english else "Бережный рост",
+        "affirmations": ["I value my experience", "My voice matters", "I choose clarity", "My pace deserves respect"] if english else [
+            "Я ценю свой опыт", "Мой голос важен", "Я выбираю ясность", "Мой ритм достоин уважения",
+        ],
+    }
     return {
         "id": "synthetic-response", "model": request["payload"]["model"],
         "service_tier": "default", "status": "completed",
-        "output": [{"type": "message", "content": [{"type": "output_text", "text": '["a", "b", "c", "d"]'}]}],
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps(card)}]}],
         "usage": {"input_tokens": 100, "output_tokens": 200, "total_tokens": 300,
                   "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
                   "output_tokens_details": {"reasoning_tokens": 50}},
