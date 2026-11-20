@@ -42,6 +42,7 @@ from handlers.generation_messages import (
     missing_previous_generation_text,
     new_flow_text as _new_flow_text,
     style_choice_text as _style_choice_text,
+    scene_style_conflict_text,
     visual_mode_text as _visual_mode_text,
 )
 from keyboards.inline import (
@@ -63,6 +64,7 @@ from monitoring import (
     log_rate_limited,
 )
 from services.generation_context import build_generation_context_snapshot
+from services.coastal_intent import coastal_photo_style, coastal_style_conflict, user_coastal_intent
 from services.generation_history import (
     build_visual_motifs,
     extract_telegram_photo_file_id,
@@ -74,6 +76,7 @@ from services.orchestrator_shadow import (
     build_orchestrator_shadow_best_effort,
 )
 from services.scene_planner import (
+    apply_coastal_scene_intent,
     build_fallback_scene_plan,
     normalize_scene_family,
     normalize_scene_plan,
@@ -83,7 +86,6 @@ from services.scene_prompt_builder import (
     build_controlled_scene_prompt,
     is_living_nature_style,
     is_scene_planner_image_prompt_enabled,
-    select_photo_scene_preset_override,
     should_use_llm_image_prompt_for_fallback,
 )
 from services.scene_planner_shadow import (
@@ -112,7 +114,6 @@ from services.ritual_config import (
     get_style_label,
     get_visual_archetype,
     get_visual_mode_label,
-    has_coastal_intent,
     is_tts_available,
     normalize_style_key,
     normalize_visual_mode,
@@ -362,11 +363,22 @@ def _generation_preflight_error(data: dict, theme_text: Optional[str], language:
         if language == "ru":
             return "Что-то пошло не так: не хватает данных для генерации. Пожалуйста, начни заново через /new."
         return "Something went wrong: generation context is incomplete. Please start again with /new."
+    style = data.get("style") or "auto"
+    intent = user_coastal_intent(
+        theme_text, style=style, custom_style_description=data.get("custom_style_description"),
+    )
+    effective_visual_mode = visual_mode_for_style(data.get("visual_mode"), style)
+    if coastal_style_conflict(style, intent, visual_mode=effective_visual_mode):
+        return scene_style_conflict_text(language)
     return None
 
 
 async def _answer_generation_preflight_error(message: Message, state: FSMContext, error_text: str, language: str) -> None:
-    await message.answer(error_text, reply_markup=main_reply_keyboard(language))
+    keyboard = main_reply_keyboard(language)
+    if error_text == scene_style_conflict_text(language):
+        data = await state.get_data()
+        keyboard = style_keyboard(language, visual_mode=data.get("visual_mode", "illustration"))
+    await message.answer(error_text, reply_markup=keyboard)
     await state.set_state(GenerationState.choosing_style)
 
 
@@ -381,6 +393,7 @@ async def _start_generation_after_preflight(
     data = await state.get_data()
     error_text = _generation_preflight_error(data, theme_text, language)
     if error_text:
+        await state.update_data(theme_text=theme_text)
         await _answer_generation_preflight_error(message, state, error_text, language)
         return
     if await _check_generation_limit_and_handle(
@@ -1129,6 +1142,13 @@ async def _run_generation(
         await state.clear()
         return
 
+    # Protect direct/repeated invocations before reservations or any paid work.
+    # Reuse the existing style-choice recovery from preflight.
+    error_text = _generation_preflight_error(data, theme_text, language)
+    if error_text:
+        await _answer_generation_preflight_error(message, state, error_text, language)
+        return
+
     limit_enabled = not settings.disable_daily_generation_limit and settings.generation_daily_limit > 0
     reservation_day: Optional[str] = None
     if limit_enabled:
@@ -1173,9 +1193,13 @@ async def _run_generation(
             recent_styles=recent_styles,
             recent_archetypes=recent_archetypes,
         )
-        if normalize_visual_mode(visual_mode) == "photo" and style == "auto" and has_coastal_intent(theme_text):
-            resolved_style = "sea_coast_photo"
         effective_visual_mode = visual_mode_for_style(visual_mode, resolved_style)
+        if effective_visual_mode != "symbolic":
+            resolved_style = coastal_photo_style(
+                style, resolved_style,
+                user_coastal_intent(theme_text, style=style, custom_style_description=custom_style_description),
+                visual_mode=effective_visual_mode,
+            )
         text_plan_shadow_payload = await build_text_plan_shadow_best_effort(
             sphere=sphere,
             subsphere=subsphere,
@@ -1340,6 +1364,10 @@ async def _run_generation(
                         ),
                         visual_memory_context=visual_memory_context,
                     )
+                scene_plan = apply_coastal_scene_intent(
+                    scene_plan, user_text=theme_text, selected_style=style,
+                    custom_style_description=custom_style_description,
+                )
                 prompt_final = build_controlled_scene_prompt(
                     scene_plan=scene_plan,
                     focus_title=focus_text,
@@ -1351,15 +1379,13 @@ async def _run_generation(
                     sphere=sphere,
                     subsphere=subsphere,
                     language=language,
+                    user_text=theme_text,
+                    custom_style_description=custom_style_description,
                 )
                 if prompt_final:
                     prompt_trace = "scene_planner_local"
-                    photo_scene_preset_override = select_photo_scene_preset_override(
-                        scene_plan=scene_plan,
-                        selected_style=style,
-                        resolved_style=resolved_style,
-                        visual_mode=effective_visual_mode,
-                    )
+                    # The controlled prompt supplies the scene itself.
+                    photo_scene_preset_override = None
                     scene_prompt_controlled_meta = {
                         "enabled": True,
                         "photo_scene_preset_override": photo_scene_preset_override,
@@ -1488,7 +1514,7 @@ async def _run_generation(
             custom_style_description=custom_style_description,
             logger=logger,
         )
-        prompt_final = prompt_final or image_meta.get("final_prompt") or image_meta.get("prompt")
+        prompt_final = image_meta.get("final_prompt") or image_meta.get("prompt") or prompt_final
 
         if settings.show_image_debug:
             caption = f"{caption}\n\n{_build_image_debug_block(image_meta, model=settings.image_model, image_size=settings.image_size)}"
@@ -1500,7 +1526,7 @@ async def _run_generation(
         log_generation_ok(uid, "interactive", prompt_trace)
 
         request_type = str(data.get("generation_request_type") or "manual")
-        scene_type = image_meta.get("scene_preset") or image_meta.get("photo_scene_preset")
+        scene_type = image_meta.get("scene_type") or image_meta.get("scene_preset") or image_meta.get("photo_scene_preset")
         telegram_image_file_id = extract_telegram_photo_file_id(sent_message)
         visual_motifs = build_visual_motifs(
             image_meta=image_meta,
@@ -1631,6 +1657,7 @@ async def again_affirmation(callback: CallbackQuery, state: FSMContext) -> None:
     error_text = _generation_preflight_error(data, last.get("theme_text"), again_language)
     if error_text:
         await callback.answer()
+        await state.update_data(theme_text=last.get("theme_text"))
         await _answer_generation_preflight_error(callback.message, state, error_text, again_language)
         return
     await callback.message.answer(_creating_text(again_language), reply_markup=main_reply_keyboard(again_language))

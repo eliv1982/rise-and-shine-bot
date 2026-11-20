@@ -91,7 +91,7 @@ def test_scene_type_counts_are_collected():
     assert context["scene_type_counts"] == {"forest_path": 2, "garden_morning": 1}
 
 
-def test_visual_memory_extracts_planned_scene_type_from_shadow_and_controlled_metadata():
+def test_visual_memory_actual_scene_takes_priority_over_planned_metadata():
     recent_visuals = [
         {
             "scene_type": "outdoor_path",
@@ -104,9 +104,8 @@ def test_visual_memory_extracts_planned_scene_type_from_shadow_and_controlled_me
 
     context = visual_memory.build_visual_memory_context([], recent_visuals, limit=10)
 
-    assert context["recent_scene_types"] == ["outdoor_path", "forest_path", "riverside"]
-    assert context["scene_type_counts"]["forest_path"] == 1
-    assert context["scene_type_counts"]["riverside"] == 1
+    assert context["recent_scene_types"] == ["outdoor_path"]
+    assert context["scene_type_counts"] == {"outdoor_path": 1}
 
 
 def test_recent_scene_families_and_counts_are_collected():

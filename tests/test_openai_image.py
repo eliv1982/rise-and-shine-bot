@@ -676,7 +676,7 @@ def test_custom_style_coastal_text_does_not_force_deterministic_coastal_routing(
         visual_mode="photo",
     ).lower()
 
-    assert "additional: bright ocean coast with waves" in prompt
+    assert "bright ocean coast with waves" not in prompt
     assert "realistic editorial photo of a bright workspace" in prompt
     assert "coastal realism is mandatory" not in prompt
     assert "avoid inland lakes" not in prompt
@@ -862,7 +862,7 @@ def test_generate_image_coastal_override_path_uses_scene_and_generic_photo_safet
             _cleanup_generated_image(image_path)
 
 
-def test_generate_image_coastal_custom_override_replaces_non_coastal_scene_preset(monkeypatch):
+def test_generate_image_explicit_coastal_custom_request_replaces_non_coastal_scene_preset(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "test")
     monkeypatch.setenv("IMAGE_MODEL", "gpt-image-1")
     monkeypatch.setenv("IMAGE_SIZE", "1024x1024")
@@ -902,6 +902,7 @@ def test_generate_image_coastal_custom_override_replaces_non_coastal_scene_prese
                 sphere="inner_peace",
                 output_dir="test_outputs_phase42",
                 file_basename="custom_coastal_override",
+                user_text="Ocean sunset with waves",
                 prompt_override="Real coastal sunset over the ocean with waves. No text.",
                 resolved_style_override="custom",
                 visual_mode="photo",

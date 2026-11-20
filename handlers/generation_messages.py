@@ -12,6 +12,12 @@ def style_choice_text(language: str) -> str:
     return "✨ Выбери стиль изображения:" if language == "ru" else "✨ Choose image style:"
 
 
+def scene_style_conflict_text(language: str) -> str:
+    if language == "ru":
+        return "Выбранный стиль не сочетается с запросом сцены или её исключениями. Выбери другой стиль или измени тему через /new."
+    return "The selected style conflicts with the scene request or its exclusions. Choose another style or change the theme via /new."
+
+
 def creating_text(language: str) -> str:
     return "🌿 Создаю твой настрой дня..." if language == "ru" else "🌿 Creating your daily focus..."
 

@@ -2,7 +2,7 @@ import json
 import os
 from typing import Optional
 
-from services.ritual_config import has_coastal_intent
+from services.coastal_intent import user_coastal_intent
 from utils import display_name_for_language
 
 
@@ -129,7 +129,9 @@ def update_image_meta(
             meta["stt_language_attempts"] = last_stt_meta.get("stt_language_attempts")
             meta["theme_source"] = "custom_theme" if (theme_text and theme_text.strip()) else "sphere"
             meta["preserved_user_theme"] = bool(theme_text and theme_text.strip())
-            meta["coastal_hint_detected"] = bool(has_coastal_intent(theme_text) or has_coastal_intent(custom_style_description))
+            meta["coastal_hint_detected"] = user_coastal_intent(
+                theme_text, style=style, custom_style_description=custom_style_description,
+            ).wants_coast
             image_meta = meta
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(meta, f, ensure_ascii=False, indent=2)

@@ -63,6 +63,11 @@ def _count_items(items: list[str]) -> dict[str, int]:
 
 
 def _extract_scene_types_from_visual(visual_dict: dict, visual_motifs: dict) -> list[str]:
+    # New records carry the effective scene. A different shadow plan must not
+    # count as a second generated scene. Leave legacy fallback decoding intact.
+    actual = visual_dict.get("scene_type") or visual_motifs.get("scene_type")
+    if isinstance(actual, str) and actual.strip():
+        return [actual.strip()]
     scene_types = []
     for candidate in (
         visual_dict.get("scene_type"),

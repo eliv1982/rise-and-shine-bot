@@ -3,6 +3,8 @@ import json
 import random
 from typing import Dict, List, Optional
 
+from services.coastal_intent import user_coastal_intent
+
 
 MAIN_SPHERES = [
     "inner_peace",
@@ -900,27 +902,8 @@ def normalize_visual_mode(visual_mode: Optional[str]) -> str:
 
 
 def has_coastal_intent(text: Optional[str]) -> bool:
-    if not text:
-        return False
-    low = text.lower()
-    markers = (
-        "море",
-        "океан",
-        "побереж",
-        "берег",
-        "пляж",
-        "берег моря",
-        "берег океана",
-        "beach",
-        "coast",
-        "coastline",
-        "shore",
-        "seaside",
-        "ocean",
-        "sea",
-        "sunset by the ocean",
-    )
-    return any(marker in low for marker in markers)
+    """Positive current-user scene intent; never pass generated prompt prose here."""
+    return user_coastal_intent(text).wants_coast
 
 
 def get_visual_mode_label(visual_mode: str, language: str = "ru") -> str:

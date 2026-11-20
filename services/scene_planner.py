@@ -1,5 +1,10 @@
 import json
 
+from services.coastal_intent import (
+    COASTAL_SCENES, COASTAL_STYLES, coastal_request_text, coastal_style_direction,
+    parse_coastal_text, user_coastal_intent,
+)
+
 VALID_HUMAN_PRESENCE = [
     "none",
     "single_person",
@@ -709,7 +714,8 @@ def resolve_scene_style_family(
         return "cozy_home"
     if any(marker in values for marker in ("book_nook_photo", "книжный уголок", "book nook")):
         return "book_nook"
-    if any(marker in values for marker in ("sea_coast_photo", "bright_ocean_coast_photo", "coast", "coastal", "beach", "ocean", "sea_horizon")):
+    style_keys = {_clean_str(value) for value in (selected_style, resolved_style, style_mode)}
+    if style_keys & (COASTAL_STYLES | COASTAL_SCENES) or parse_coastal_text(values).wants_coast:
         return "coastal"
     if any(marker in values for marker in ("minimal_botanical", "botanical", "garden", "plant")):
         return "botanical"
@@ -1029,6 +1035,14 @@ def normalize_scene_plan(
         + _safe_list(memory.get("hard_avoid_today"))
         + DEFAULT_CLICHE_AVOID
     )
+    # Planner/default avoid lists are auxiliary, not explicit user exclusions.
+    # A deliberately selected beach must not ban its own subject. Explicit
+    # coastal exclusions are applied separately by apply_coastal_scene_intent.
+    scene_subject = parse_coastal_text(f"{setting}. {main_subject}")
+    if scene_type in COASTAL_SCENES or scene_subject.wants_coast:
+        avoid = [item for item in avoid if item.lower() != "beach"]
+        if "cafe terrace" in setting.lower():
+            avoid = [item for item in avoid if item.lower() != "table"]
 
     return {
         "scene_type": scene_type,
@@ -1041,6 +1055,61 @@ def normalize_scene_plan(
         "mood": mood,
         "avoid": avoid,
     }
+
+
+def apply_coastal_scene_intent(
+    scene_plan: dict, *, user_text: str | None = None,
+    selected_style: str | None = None, custom_style_description: str | None = None,
+) -> dict:
+    """Apply only current user coastal requests/exclusions to a selected scene.
+
+    Reuse existing scene types; the original request supplies specific beach,
+    island, lagoon or rocky-shore details without adding a new scene taxonomy.
+    """
+    plan = normalize_scene_plan(scene_plan)
+    intent = user_coastal_intent(
+        user_text, style=selected_style, custom_style_description=custom_style_description,
+    )
+    is_coastal = plan["scene_type"] in COASTAL_SCENES
+    if intent.blocks_coast and is_coastal:
+        plan = normalize_scene_plan({"scene_type": "forest_path", "mood": plan["mood"]})
+    elif intent.wants_coast or (
+        not intent.blocks_coast and intent.time_of_day
+        and (is_coastal or selected_style in COASTAL_STYLES)
+    ):
+        scene_type = {"rocky": "rocky_shore", "water": "sea_horizon"}.get(intent.subtype, "coastal_morning")
+        # Existing neutral presets keep automatic morning prose out of an
+        # explicit sunrise/sunset request without adding any scene taxonomy.
+        if intent.time_of_day and intent.subtype != "rocky":
+            scene_type = "sea_horizon"
+        if not is_coastal or intent.subtype != "coast" or intent.time_of_day:
+            plan = normalize_scene_plan({"scene_type": scene_type, "mood": plan["mood"]})
+        request = coastal_request_text(
+            user_text, style=selected_style, custom_style_description=custom_style_description,
+        )
+        if intent.subtype == "lagoon" and intent.time_of_day:
+            plan["setting"] = "the requested lagoon or bay and its shoreline, believable water and natural light"
+        direction = coastal_style_direction(selected_style, intent)
+        if direction:
+            plan["setting"] = direction
+            plan["main_subject"] = direction
+        directive = f"Explicit coastal scene request: {request}"
+        if request and directive not in plan["setting"]:
+            plan["setting"] = f"{plan['setting']}. {directive}"
+        if intent.subtype in {"beach", "lagoon"}:
+            plan["main_subject"] = f"Requested {intent.subtype} scene: {request}"
+        if intent.subtype == "beach":
+            plan["avoid"] = [item for item in plan["avoid"] if item.lower() != "beach"]
+        if intent.time_of_day:
+            plan["lighting"] = f"natural coastal light at {intent.time_of_day}"
+            plan["visual_motifs"] = _dedupe_stable(plan["visual_motifs"] + [intent.time_of_day])
+    elif is_coastal and intent.excluded & {"beach", "sandy", "rocky"}:
+        plan = normalize_scene_plan({"scene_type": "sea_horizon", "mood": plan["mood"]})
+
+    if intent.excluded:
+        # Keep the scoped constraints explicit, including narrower sandy beach.
+        plan["avoid"] = _dedupe_stable(plan["avoid"] + [intent.exclusion_clause()])
+    return plan
 
 
 def build_fallback_scene_plan(

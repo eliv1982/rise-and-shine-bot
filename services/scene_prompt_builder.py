@@ -1,7 +1,11 @@
 import logging
 
 from config import get_settings
-from services.scene_planner import build_scene_image_prompt, normalize_scene_family, normalize_scene_plan
+from services.coastal_intent import (
+    COASTAL_SCENES, coastal_composition_hint, coastal_time_hint,
+    user_coastal_intent, user_scene_prompt_parts,
+)
+from services.scene_planner import apply_coastal_scene_intent, build_scene_image_prompt, normalize_scene_family
 
 logger = logging.getLogger(__name__)
 
@@ -246,14 +250,31 @@ def build_controlled_scene_prompt(
     sphere: str | None = None,
     subsphere: str | None = None,
     language: str = "ru",
+    user_text: str | None = None,
+    custom_style_description: str | None = None,
 ) -> str:
-    normalized = normalize_scene_plan(scene_plan)
+    normalized = apply_coastal_scene_intent(
+        scene_plan, user_text=user_text, selected_style=selected_style,
+        custom_style_description=custom_style_description,
+    )
     prompt = build_scene_image_prompt(normalized, language=language).strip()
+    intent = user_coastal_intent(user_text, style=selected_style, custom_style_description=custom_style_description)
+    if normalized["scene_type"] in COASTAL_SCENES:
+        color_palette = coastal_time_hint(color_palette, intent)
+        composition_hint = coastal_time_hint(composition_hint, intent)
 
     extras = []
-    focus = _clean_str(focus_title)
+    focus, focus_exclusions = user_scene_prompt_parts(focus_title)
+    focus = _clean_str(focus)
     if focus:
         extras.append(f"Emotional focus: {focus}.")
+    if focus_exclusions:
+        extras.append(f"User exclusions: {focus_exclusions}.")
+    _, style_exclusions = user_scene_prompt_parts(
+        None, style=selected_style, custom_style_description=custom_style_description, intent=intent,
+    )
+    if style_exclusions:
+        extras.append(f"User exclusions: {style_exclusions}.")
     if _clean_str(sphere):
         sphere_part = f"Sphere: {_clean_str(sphere)}."
         if _clean_str(subsphere):
@@ -261,6 +282,8 @@ def build_controlled_scene_prompt(
         extras.append(sphere_part)
     if _clean_str(color_palette):
         extras.append(f"Color direction: {_clean_str(color_palette)}.")
+    if normalized["scene_type"] in COASTAL_SCENES:
+        composition_hint = coastal_composition_hint(composition_hint)
     if _clean_str(composition_hint):
         extras.append(f"Composition preference: {_clean_str(composition_hint)}.")
     if _clean_str(visual_mode):
@@ -279,6 +302,8 @@ def build_controlled_scene_prompt(
     ):
         nature_constraints = build_living_nature_constraints()
         extras.append(
+            "Positive direction: preserve the selected coastal environment and requested shoreline details."
+            if normalized["scene_type"] in COASTAL_SCENES else
             "Positive direction: outdoor nature scene, forest, meadow, garden, riverside, mountain path, field, trees, grass, plants in a natural outdoor setting."
         )
         extras.append(

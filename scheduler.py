@@ -99,7 +99,6 @@ from services.scene_prompt_builder import (
     build_controlled_scene_prompt,
     is_living_nature_style,
     is_scene_planner_image_prompt_enabled,
-    select_photo_scene_preset_override,
     should_use_llm_image_prompt_for_fallback,
 )
 from services.scene_planner_shadow import (
@@ -576,12 +575,8 @@ async def _deliver_subscription(
             )
             if prompt_final:
                 prompt_trace = "scene_planner_local"
-                photo_scene_preset_override = select_photo_scene_preset_override(
-                    scene_plan=scene_plan,
-                    selected_style=style_mode,
-                    resolved_style=style,
-                    visual_mode=effective_visual_mode,
-                )
+                # The controlled prompt supplies the scene itself.
+                photo_scene_preset_override = None
                 scene_prompt_controlled_meta = {
                     "enabled": True,
                     "photo_scene_preset_override": photo_scene_preset_override,
@@ -687,6 +682,8 @@ async def _deliver_subscription(
         except Exception as e:
             logger.warning("Could not update subscription meta %s: %s", meta_path, e)
 
+    prompt_final = image_meta.get("final_prompt") or image_meta.get("prompt") or prompt_final
+
     last_subscription_affirmations[user_id] = {
         "affirmations": affirmations,
         "gender": gender,
@@ -714,7 +711,7 @@ async def _deliver_subscription(
     await _confirm_delivery_sent(delivery, clock)
     try:
         log_generation_ok(user_id, "subscription", prompt_trace)
-        scene_type = image_meta.get("scene_preset") or image_meta.get("photo_scene_preset")
+        scene_type = image_meta.get("scene_type") or image_meta.get("scene_preset") or image_meta.get("photo_scene_preset")
         telegram_image_file_id = extract_telegram_photo_file_id(sent_message)
         visual_motifs = build_visual_motifs(
             image_meta=image_meta,

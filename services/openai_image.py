@@ -4,17 +4,21 @@ import json
 import logging
 import os
 import random
+import re
 import uuid
 from typing import Optional
 
 import aiohttp
 
 from config import get_image_provider_config, get_outputs_dir
+from services.coastal_intent import (
+    COASTAL_SCENES, COASTAL_STYLES, CoastalIntent, coastal_composition_hint, coastal_photo_style, coastal_request_text,
+    coastal_style_direction, coastal_time_hint, parse_coastal_text, user_coastal_intent, user_scene_prompt_parts,
+)
 from services.ritual_config import (
     PHOTO_SCENE_PRESETS,
     STYLE_DESCRIPTIONS,
     get_visual_archetype,
-    has_coastal_intent,
     normalize_style_key,
     normalize_visual_mode,
     resolve_photo_scene_preset,
@@ -356,7 +360,7 @@ def _build_symbolic_image_prompt(
     )
 
 
-def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration") -> str:
+def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration", *, preserve_scene: bool = False) -> str:
     if visual_mode == "photo":
         base = _build_photo_negative_prompt()
     else:
@@ -372,6 +376,12 @@ def _avoid_literal_symbols_clause(sphere: str, visual_mode: str = "illustration"
             "heavy painterly blur, oversimplified beige flower unless the chosen style is minimal_botanical."
         )
     sphere_key = sphere.lower()
+    if preserve_scene:
+        # Keep the sphere's safety exclusions, without its lower-priority scene
+        # recommendations (desk/interior/etc.) displacing an explicit landscape.
+        if sphere_key == "money":
+            return base + " No banknotes, cash, wallets, payment cards, calculators or financial props."
+        return base
     if sphere_key == "money":
         return (
             base
@@ -430,6 +440,11 @@ def _build_photo_prompt(
     avoid_clause: str,
     coastal_clause: str = "",
 ) -> str:
+    abstract_examples = "" if coastal_clause else (
+        "Translate abstract emotions into concrete real-world scenes: room corner with natural light, "
+        "table still life that looks photographed, realistic desk with notebook and cup, real botanical corner, "
+        "riverside or meadow photo, park path, morning field, or believable interior lifestyle scene. "
+    )
     return (
         f"{base_theme}.{extra} "
         f"{photo_scene} "
@@ -440,9 +455,7 @@ def _build_photo_prompt(
         "believable depth of field, authentic photographic detail, realistic textures and materials, "
         "realistic composition, subtle imperfections of real photography, clean but real composition, "
         "candid but composed framing, and serene but real atmosphere. "
-        "Translate abstract emotions into concrete real-world scenes: room corner with natural light, "
-        "table still life that looks photographed, realistic desk with notebook and cup, real botanical corner, "
-        "riverside or meadow photo, park path, morning field, or believable interior lifestyle scene. "
+        f"{abstract_examples}"
         "If nature appears, it must be realistic nature photography or a believable landscape photo. "
         "If an interior appears, it must be a realistic interior photo with real ceramics, wood, linen, glass, paper or plants. "
         "If the scene is symbolic still life, it must look physically photographed, with real objects and believable shadows. "
@@ -469,8 +482,28 @@ def _augment_photo_override_prompt(prompt: str, photo_scene: str, avoid_clause: 
     )
 
 
-def _coastal_photo_clause() -> str:
-    return (
+def _coastal_photo_clause(intent: CoastalIntent = CoastalIntent(), *, style: str | None = None) -> str:
+    direction = coastal_style_direction(style, intent)
+    if direction:
+        return (
+            "Coastal realism is mandatory: preserve the requested coastal setting and visible water. "
+            f"Use {direction}. Preserve explicitly requested shoreline details. "
+            + intent.exclusion_clause()
+        )
+    if intent.subtype == "water":
+        return (
+            "Coastal realism is mandatory: preserve the requested ocean or sea view with water, sky and horizon. "
+            "No shoreline foreground is required. Use realistic photography and believable natural light. "
+            + intent.exclusion_clause()
+        )
+    if intent.subtype == "lagoon":
+        # An explicitly requested sheltered lagoon/bay need not have an open
+        # ocean horizon or a sandy beach. Do not substitute the generic coast.
+        return (
+            "Coastal realism is mandatory: preserve the explicitly requested lagoon or bay and its shoreline. "
+            "Use realistic photography, believable water and natural light. " + intent.exclusion_clause()
+        )
+    clause = (
         "Coastal realism is mandatory: clearly visible open ocean or open sea coast, open horizon over water, visible shoreline, "
         "waves, surf or sea foam, and at least one explicit natural coastal element such as broad sand beach, dunes, dune grass, rocky coastline, driftwood, "
         "seashells, cliffs or seabirds. Foreground must contain only natural shoreline elements; prefer open natural shoreline, clean beach foreground, sand, dune grass, shells, driftwood, rocks, sea foam and ocean horizon. "
@@ -485,6 +518,39 @@ def _coastal_photo_clause() -> str:
         "Avoid washed out beige palette, grey fog, muted pastel haze, melancholic mist, flat low-contrast light. "
         "Do not default to mist or haze unless user explicitly asks for foggy or misty weather."
     )
+    if intent.subtype == "rocky":
+        clause = clause.replace(
+            "broad sand beach, dunes, dune grass, rocky coastline, driftwood, ",
+            "rocky coastline, wet stones, driftwood, ",
+        ).replace(
+            "clean beach foreground, sand, dune grass, shells, driftwood, rocks, sea foam",
+            "rocky foreground, cliffs, driftwood, rocks, sea foam",
+        )
+    if "rocky" in intent.excluded:
+        clause = clause.replace("rocky coastline", "sandy shoreline").replace("driftwood, rocks,", "driftwood,").replace("cliffs", "dunes")
+    return clause + " " + intent.exclusion_clause()
+
+
+def _intent_photo_scene(scene_key: str, intent: CoastalIntent, coastal: bool) -> str:
+    """Constrain only coastal subtypes; leave unrelated preset routing alone."""
+    if intent.blocks_coast and scene_key in COASTAL_SCENES:
+        return "outdoor_path"
+    if coastal:
+        if intent.subtype == "lagoon":
+            return ""
+        if intent.time_of_day:
+            if intent.subtype == "rocky":
+                return "rocky_coast"
+            return {"sunrise": "ocean_sunrise", "sunset": "seaside_sunset"}.get(intent.time_of_day, "")
+        if intent.subtype == "water":
+            return "ocean_sunrise"
+        if intent.subtype == "rocky":
+            return "rocky_coast"
+        if intent.subtype == "beach":
+            return "quiet_beach_morning"
+        if scene_key not in COASTAL_SCENES:
+            return "ocean_sunrise"
+    return scene_key
 
 
 def _build_image_prompt(
@@ -499,18 +565,21 @@ def _build_image_prompt(
     visual_mode: Optional[str] = None,
     focus_key: Optional[str] = None,
     photo_scene_preset: Optional[str] = None,
+    requested_style: Optional[str] = None,
 ) -> str:
     """
     Формирует англоязычный промпт для генерации изображения.
     Случайные color_mood и composition_hint добавляют разнообразие при каждой генерации.
     """
-    requested_style = style
+    requested_style = requested_style or style
     style = resolve_style(style, sphere, visual_mode=visual_mode)
-    coastal_intent = has_coastal_intent(user_text) or has_coastal_intent(image_hint)
-    if normalize_visual_mode(visual_mode) == "photo" and requested_style == "auto" and coastal_intent:
-        style = "bright_ocean_coast_photo"
-    coastal_force = style in {"sea_coast_photo", "bright_ocean_coast_photo"} or coastal_intent
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), style)
+    intent = user_coastal_intent(
+        user_text, style=requested_style, custom_style_description=custom_style_description,
+    )
+    if effective_visual_mode != "symbolic":
+        style = coastal_photo_style(requested_style, style, intent, visual_mode=effective_visual_mode)
+    coastal_force = not intent.blocks_coast and (style in COASTAL_STYLES or intent.wants_coast)
 
     if effective_visual_mode == "symbolic":
         return _build_symbolic_image_prompt(
@@ -527,12 +596,30 @@ def _build_image_prompt(
         if effective_visual_mode == "photo"
         else _build_default_image_theme(sphere, subsphere)
     )
-    if effective_visual_mode == "photo" and coastal_force:
-        base_theme = (
-            "real coastal travel/editorial photo scene, open ocean or sea coast, visible horizon over water, visible shoreline, "
-            "waves or surf with sea foam, beach or rocky coastline, dunes or coastal grass, bright natural light, vivid but realistic colors, clear atmosphere"
-        )
-    if image_hint:
+    if coastal_force:
+        scene_kind = "real coastal travel/editorial photo scene" if effective_visual_mode == "photo" else "coastal landscape illustration"
+        direction = coastal_style_direction(style, intent)
+        if direction:
+            base_theme = f"{scene_kind}: {direction}"
+        elif intent.subtype == "lagoon":
+            base_theme = f"{scene_kind} preserving the requested lagoon or bay and its natural shoreline, believable water and natural light"
+        elif intent.subtype == "water":
+            base_theme = f"{scene_kind} of ocean or sea water and sky, open horizon over water, believable waves and natural light"
+        else:
+            base_theme = (
+                f"{scene_kind}, open ocean or sea coast, visible horizon over water, visible shoreline, "
+                "waves or surf with sea foam, bright natural light, vivid but realistic colors, clear atmosphere"
+            )
+        if intent.subtype == "rocky":
+            base_theme += ", rocky coastline and cliffs"
+        if intent.wants_coast:
+            base_theme += ". Explicit coastal scene request: " + coastal_request_text(
+                user_text, style=requested_style, custom_style_description=custom_style_description,
+            )
+    # Generated focus hints are lower-priority suggestions, never positive user
+    # evidence and never a reason to substitute coast for a selected other scene.
+    hint_intent = parse_coastal_text(image_hint)
+    if image_hint and not coastal_force and not hint_intent.wants_coast and not (hint_intent.positive & intent.excluded):
         base_theme = f"{base_theme}; focus visual hint: {image_hint}"
     photo_scene = ""
     if effective_visual_mode == "photo":
@@ -541,27 +628,49 @@ def _build_image_prompt(
             scene_key = photo_scene_preset or resolve_photo_scene_preset(sphere, coastal_style, focus_key=focus_key)
         else:
             scene_key = photo_scene_preset or resolve_photo_scene_preset(sphere, style, focus_key=focus_key)
+        scene_key = _intent_photo_scene(scene_key, intent, coastal_force)
+        if coastal_style_direction(style, intent):
+            scene_key = ""
         fallback_scene = "bright_ocean_sunrise" if coastal_force else "window_still_life"
-        photo_scene = PHOTO_SCENE_PRESETS.get(scene_key, PHOTO_SCENE_PRESETS[fallback_scene])
+        photo_scene = PHOTO_SCENE_PRESETS.get(scene_key, PHOTO_SCENE_PRESETS[fallback_scene]) if scene_key else ""
 
+    positive_text, user_exclusions = user_scene_prompt_parts(user_text, intent=intent)
     if style.lower() == "custom" and custom_style_description:
-        style_phrase = f"in the style: {custom_style_description}"
+        positive_style, style_exclusions = user_scene_prompt_parts(
+            None, style="custom", custom_style_description=custom_style_description,
+            intent=intent,
+        )
+        style_phrase = f"in the style: {positive_style}" if positive_style else "a balanced, natural visual treatment"
+        user_exclusions = "; ".join(part for part in (user_exclusions, style_exclusions) if part)
     else:
-        style_phrase = _style_to_phrase(style)
-        if custom_style_description:
-            style_phrase = f"{style_phrase}. Additional: {custom_style_description}"
+        style_phrase = coastal_style_direction(style, intent) or _style_to_phrase(style)
+        if coastal_force and style == "living_nature_photo":
+            style_phrase = (
+                "realistic nature photography, crisp clear air, fresh daylight and readable natural detail, "
+                "believable atmosphere, camera realism, avoid fog or mist unless explicitly requested"
+            )
 
     extra = ""
-    if user_text:
-        extra = f" The scene subtly reflects the idea: \"{user_text}\"."
+    if positive_text:
+        extra = f" The scene subtly reflects the idea: \"{positive_text}\"."
 
+    if coastal_force:
+        color_mood = coastal_time_hint(color_mood, intent)
+        composition_hint = coastal_time_hint(composition_hint, intent)
+        style_phrase = coastal_time_hint(style_phrase, intent)
     color_part = f" Color palette and lighting: {color_mood}." if color_mood else ""
+    if coastal_force and intent.time_of_day:
+        color_part += f" Time of day and lighting: {intent.time_of_day}."
+    if coastal_force:
+        composition_hint = coastal_composition_hint(composition_hint)
     comp_part = f" Composition: {composition_hint}." if composition_hint else ""
 
-    avoid_clause = _avoid_literal_symbols_clause(sphere, effective_visual_mode)
+    avoid_clause = _avoid_literal_symbols_clause(sphere, effective_visual_mode, preserve_scene=coastal_force) + " " + intent.exclusion_clause()
+    if user_exclusions:
+        avoid_clause += " User exclusions: " + user_exclusions + "."
 
     if effective_visual_mode == "photo":
-        coastal_clause = _coastal_photo_clause() if coastal_force else ""
+        coastal_clause = _coastal_photo_clause(intent, style=style) if coastal_force else ""
         return _build_photo_prompt(
             base_theme=base_theme,
             photo_scene=photo_scene,
@@ -573,20 +682,26 @@ def _build_image_prompt(
             coastal_clause=coastal_clause,
         )
 
+    illustration_light = intent.time_of_day if coastal_force and intent.time_of_day else "fresh morning or golden-hour"
+    haze_guard = coastal_time_hint(_HAZE_GUARD, intent) if coastal_force else _HAZE_GUARD
+    illustration_scenes = (
+        "Preserve the explicitly requested coastal setting and lighting. " if coastal_force and intent.time_of_day else
+        "Prefer nature scenes, lake, sea, sky, soft landscape, flowering branches, trees in sunlight, meadow, garden, morning light, bright still life with window light, light workspace without visible text, two cups or warm table for relationships, and gentle symbolic nature metaphors. "
+    )
     return (
         f"{base_theme}.{extra} "
         "Create a beautiful bright daily affirmation image for a Telegram card. "
         "The image should feel uplifting, calming, warm, clear and emotionally encouraging. "
-        "Prefer luminous natural light, open air, fresh morning or golden-hour atmosphere, visible depth, clean composition, natural beauty and a hopeful mood. "
+        f"Prefer luminous natural light, open air, {illustration_light} atmosphere, visible depth, clean composition, natural beauty and a hopeful mood. "
         "The image must look clear and pleasant on a phone screen, with bright exposure, readable subject separation, natural detail and elegant simplicity. "
         "Use a high-quality soft semi-realistic or gentle illustration look. "
-        "Prefer nature scenes, lake, sea, sky, soft landscape, flowering branches, trees in sunlight, meadow, garden, morning light, bright still life with window light, light workspace without visible text, two cups or warm table for relationships, and gentle symbolic nature metaphors. "
+        f"{illustration_scenes}"
         "If a person appears, keep them small, from behind or side view, not a dominant portrait, with no direct eye contact. "
         f"{_ANATOMY_ANCHOR} "
         f"Atmosphere: bright daily card, elegant, simple, warm and hopeful, suitable for affirmation practice about {sphere}. "
         f"Visual style: {style_phrase}.{color_part}{comp_part} "
         "No text, no words, no letters, no numbers, no typography, no logos, no watermarks. "
-        f"{_HAZE_GUARD} "
+        f"{haze_guard} "
         f"{avoid_clause}"
     )
 
@@ -626,8 +741,19 @@ async def generate_image(
     """
     resolved_style = resolved_style_override or resolve_style(style, sphere, focus_key=focus_key, visual_mode=visual_mode)
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), resolved_style)
+    intent = user_coastal_intent(user_text, style=style, custom_style_description=custom_style_description)
+    if effective_visual_mode != "symbolic":
+        resolved_style = coastal_photo_style(style, resolved_style, intent, visual_mode=effective_visual_mode)
+    coastal = not intent.blocks_coast and (resolved_style in COASTAL_STYLES or intent.wants_coast)
+    # build_enriched_image_prompt returns complete local prompts for these two
+    # traces. Raw overrides and accepted LLM output still need final enforcement.
+    assembled_template = (
+        effective_visual_mode != "symbolic"
+        and bool(prompt_override)
+        and image_prompt_trace in {"template", "template_fallback"}
+    )
     photo_scene_preset = None
-    if effective_visual_mode == "photo":
+    if effective_visual_mode == "photo" and not assembled_template:
         photo_scene_preset = photo_scene_preset_override or resolve_photo_scene_preset(
             sphere,
             resolved_style,
@@ -635,6 +761,9 @@ async def generate_image(
             recent_scene_presets=recent_scene_presets,
             recent_archetypes=recent_archetypes,
         )
+        photo_scene_preset = _intent_photo_scene(photo_scene_preset, intent, coastal)
+        if coastal_style_direction(resolved_style, intent):
+            photo_scene_preset = None
     if output_dir is None:
         output_dir = get_outputs_dir()
 
@@ -644,23 +773,30 @@ async def generate_image(
 
     color_mood = color_mood or random.choice(_COLOR_MOODS)
     composition_hint = composition_hint or random.choice(_COMPOSITION_HINTS)
+    if coastal:
+        color_mood = coastal_time_hint(color_mood, intent)
+        composition_hint = coastal_time_hint(composition_hint, intent)
+        composition_hint = coastal_composition_hint(composition_hint)
     if effective_visual_mode == "symbolic":
         prompt_override = None
         image_prompt_trace = "symbolic_prompt_builder"
 
-    if prompt_override:
+    if assembled_template:
+        prompt = _ensure_no_text_clause(prompt_override)
         if effective_visual_mode == "photo":
-            coastal_override = (
-                style in {"sea_coast_photo", "bright_ocean_coast_photo"}
-                or resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"}
-                or has_coastal_intent(style)
-                or has_coastal_intent(prompt_override)
-                or has_coastal_intent(user_text)
-                or has_coastal_intent(image_hint)
-                or has_coastal_intent(custom_style_description)
+            # Read only a complete known local preset block, not arbitrary scene
+            # prose. The handoff may have used different focus/history inputs.
+            photo_scene_preset = next(
+                (key for key, block in PHOTO_SCENE_PRESETS.items() if block in prompt_override),
+                None,
             )
-            if coastal_override and not photo_scene_preset_override:
-                coastal_scene_style = resolved_style if resolved_style in {"sea_coast_photo", "bright_ocean_coast_photo"} else "sea_coast_photo"
+    elif prompt_override:
+        if effective_visual_mode == "photo":
+            # The controlled prompt already owns a concrete scene. Do not append
+            # a second scene or infer user intent from its generated Avoid field.
+            controlled = image_prompt_trace == "scene_planner_local"
+            if coastal and not photo_scene_preset_override and not controlled:
+                coastal_scene_style = resolved_style if resolved_style in COASTAL_STYLES else "sea_coast_photo"
                 photo_scene_preset = resolve_photo_scene_preset(
                     sphere,
                     coastal_scene_style,
@@ -668,12 +804,25 @@ async def generate_image(
                     recent_scene_presets=recent_scene_presets,
                     recent_archetypes=recent_archetypes,
                 )
-            scene_text = PHOTO_SCENE_PRESETS.get(photo_scene_preset or "", PHOTO_SCENE_PRESETS["window_still_life"])
+            photo_scene_preset = _intent_photo_scene(photo_scene_preset, intent, coastal)
+            scene_text = PHOTO_SCENE_PRESETS.get(photo_scene_preset, "")
+            if coastal_style_direction(resolved_style, intent):
+                scene_text = coastal_style_direction(resolved_style, intent) + ". "
+                photo_scene_preset = None
+            if controlled:
+                scene_text = ""
+                photo_scene_preset = None
+            elif intent.wants_coast:
+                scene_text += " Explicit coastal scene request: " + coastal_request_text(
+                    user_text, style=style, custom_style_description=custom_style_description,
+                ) + ". "
+            if coastal and intent.time_of_day and not controlled:
+                scene_text += f" Time of day and lighting: {intent.time_of_day}. "
             prompt = _augment_photo_override_prompt(
                 prompt_override,
                 scene_text,
-                _avoid_literal_symbols_clause(sphere, effective_visual_mode),
-                _coastal_photo_clause() if coastal_override else "",
+                _avoid_literal_symbols_clause(sphere, effective_visual_mode, preserve_scene=coastal or controlled) + " " + intent.exclusion_clause(),
+                _coastal_photo_clause(intent, style=resolved_style) if coastal and not controlled else "",
             )
         else:
             prompt = _ensure_no_text_clause(prompt_override)
@@ -690,6 +839,7 @@ async def generate_image(
             visual_mode=effective_visual_mode,
             focus_key=focus_key,
             photo_scene_preset=photo_scene_preset,
+            requested_style=style,
         )
     trace = image_prompt_trace or ("override" if prompt_override else "template")
 
@@ -748,16 +898,30 @@ async def generate_image(
     with open(output_path, "wb") as f:
         f.write(image_bytes)
 
+    # The controlled builder owns this anchored field. Retain its actual scene
+    # in the legacy scene_preset slot as well, while photo_scene_preset describes
+    # only a preset that was really appended. Unknown external overrides stay None.
+    controlled_scene = None
+    if prompt_override and trace == "scene_planner_local":
+        match = re.match(r"Scene type: ([a-z_0-9]+)\.", prompt_override)
+        controlled_scene = match.group(1) if match else None
+    actual_scene = controlled_scene or photo_scene_preset
+    archetype = get_visual_archetype(style=resolved_style, scene_preset=photo_scene_preset)
+    if controlled_scene:
+        from services.scene_prompt_builder import select_photo_scene_preset_override
+        scene_alias = select_photo_scene_preset_override(scene_plan={"scene_type": controlled_scene})
+        archetype = get_visual_archetype(scene_preset=scene_alias) if scene_alias else controlled_scene
     meta = {
         "prompt": prompt,
         "final_prompt": prompt,
         "prompt_branch": effective_visual_mode,
         "photo_scene_preset": photo_scene_preset,
-        "scene_preset": photo_scene_preset,
+        "scene_preset": actual_scene,
+        "scene_type": actual_scene,
         "prompt_source": trace,
         "requested_style": style,
         "selected_style": resolved_style,
-        "visual_archetype": get_visual_archetype(style=resolved_style, scene_preset=photo_scene_preset),
+        "visual_archetype": archetype,
         "visual_mode": effective_visual_mode,
         "style": style,
         "resolved_style": resolved_style,

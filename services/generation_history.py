@@ -29,7 +29,7 @@ def build_visual_motifs(
     subsphere: str | None = None,
 ) -> dict:
     safe_meta = image_meta if isinstance(image_meta, dict) else {}
-    scene_type = safe_meta.get("scene_preset") or safe_meta.get("photo_scene_preset")
+    scene_type = safe_meta.get("scene_type") or safe_meta.get("scene_preset") or safe_meta.get("photo_scene_preset")
     return {
         "source": "generation_runtime_meta",
         "scene_type": scene_type,
