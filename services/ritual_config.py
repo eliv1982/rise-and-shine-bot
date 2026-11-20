@@ -687,6 +687,47 @@ PHOTO_SCENE_PRESETS = {
         "Photo scene preset: relationship_table_scene. Two cups, two chairs, table setting or shared space, "
         "realistic intimate but non-portrait scene, calm daylight, real textures, editorial lifestyle photography."
     ),
+    # Existing controlled scene identities, also available to the photo selector.
+    "riverside": (
+        "Photo scene preset: riverside. Real nature photograph of a river with gentle current, "
+        "grasses and greenery along the water edge, clear natural daylight and believable reflections."
+    ),
+    "mountain_view": (
+        "Photo scene preset: mountain_view. Real nature photograph of mountain ridges and an open horizon, "
+        "clear air, layered landscape depth and natural daylight."
+    ),
+    "quiet_city_morning": (
+        "Photo scene preset: quiet_city_morning. Realistic quiet city street in early daylight, "
+        "recognizable urban facades, street perspective and subtle reflections, editorial city photography."
+    ),
+    "city_park": (
+        "Photo scene preset: city_park. Realistic urban park with trees and open pathways, "
+        "recognizable city buildings visible beyond the greenery, balanced urban and natural detail."
+    ),
+    "bridge_walkway": (
+        "Photo scene preset: bridge_walkway. Realistic city bridge walkway across water or urban space, "
+        "visible city architecture, strong leading lines and clear natural daylight."
+    ),
+    "bookstore_cafe": (
+        "Photo scene preset: bookstore_cafe. Realistic bookstore cafe with bookshelves, cafe seating, "
+        "a menu card and small coffee details, a lived-in reading-cafe environment, not a bare bookshop aisle."
+    ),
+    "orchard_morning": (
+        "Photo scene preset: orchard_morning. Realistic countryside orchard in morning daylight, "
+        "fruit trees, a garden path and cared-for rural details, grounded cottage atmosphere."
+    ),
+    "country_road": (
+        "Photo scene preset: country_road. Realistic country road beside fields and a village, "
+        "rural fences or cottage details, open countryside air and natural daylight."
+    ),
+    "reading_chair": (
+        "Photo scene preset: reading_chair. Realistic reading nook with a reading chair, books and a lamp, "
+        "soft interior light and reflective reading atmosphere, not an office or furniture showroom."
+    ),
+    "hands_detail": (
+        "Photo scene preset: hands_detail. Realistic everyday lifestyle photograph of hands interacting "
+        "with natural objects or fabric, tactile detail, soft daylight and an uncluttered composition."
+    ),
     "ocean_sunrise": (
         "Photo scene preset: ocean_sunrise. Real coastal photograph of sunrise over the ocean, soft cool-warm light, "
         "realistic sky and cloud formations, calm horizon line, believable atmospheric perspective and camera realism."
@@ -852,10 +893,10 @@ PHOTO_SCENE_ROUTING = {
 
 PHOTO_STYLE_SCENE_HINTS = {
     "sunny_morning_photo": ["outdoor_path", "restful_daily_scene", "city_veranda_morning", "window_still_life"],
-    "living_nature_photo": ["outdoor_path", "botanical_corner"],
-    "urban_city_photo": ["city_veranda_morning", "courtyard_cafe", "calm_workspace", "outdoor_path"],
-    "cafe_terrace_photo": ["street_cafe_terrace", "city_veranda_morning", "courtyard_cafe", "bookshop_aisle"],
-    "rural_calm_photo": ["village_veranda", "cottage_garden", "outdoor_path", "restful_daily_scene"],
+    "living_nature_photo": ["outdoor_path", "riverside", "mountain_view"],
+    "urban_city_photo": ["city_veranda_morning", "courtyard_cafe", "quiet_city_morning", "city_park", "bridge_walkway"],
+    "cafe_terrace_photo": ["street_cafe_terrace", "city_veranda_morning", "courtyard_cafe", "bookstore_cafe"],
+    "rural_calm_photo": ["village_veranda", "cottage_garden", "orchard_morning", "country_road"],
     "sea_coast_photo": [
         "ocean_sunrise",
         "seaside_sunset",
@@ -865,18 +906,8 @@ PHOTO_STYLE_SCENE_HINTS = {
         "coastal_path",
     ],
     "cozy_home_photo": ["warm_living_room", "restful_daily_scene", "botanical_corner"],
-    "book_nook_photo": ["bookshop_aisle", "window_still_life"],
-    "calm_lifestyle_photo": ["calm_workspace", "relationship_table_scene"],
-    "bright_ocean_coast_photo": [
-        "bright_ocean_sunrise",
-        "vivid_seaside_sunset",
-        "sunny_beach_morning",
-        "turquoise_shoreline",
-        "rocky_ocean_coast",
-        "seabirds_over_waves",
-    ],
-    "sunny_photo_scene": ["outdoor_path", "restful_daily_scene", "city_veranda_morning", "window_still_life"],
-    "light_interior_photo": ["warm_living_room", "restful_daily_scene", "window_still_life", "botanical_corner"],
+    "book_nook_photo": ["bookshop_aisle", "reading_chair"],
+    "calm_lifestyle_photo": ["calm_workspace", "relationship_table_scene", "hands_detail"],
 }
 
 
@@ -1081,6 +1112,7 @@ def get_recommended_styles(
 
 
 def get_photo_scene_presets(sphere: str, style: Optional[str] = None) -> List[str]:
+    """Prefer sphere scenes within the style; an empty overlap keeps the style."""
     sphere_presets = PHOTO_SCENE_ROUTING.get(sphere, PHOTO_SCENE_ROUTING["inner_peace"])
     style_key = normalize_style_key(style)
     style_presets = PHOTO_STYLE_SCENE_HINTS.get(style_key)
@@ -1089,7 +1121,7 @@ def get_photo_scene_presets(sphere: str, style: Optional[str] = None) -> List[st
     if style_key == "sea_coast_photo":
         return style_presets
     matched = [preset for preset in sphere_presets if preset in style_presets]
-    return matched or sphere_presets
+    return matched or style_presets
 
 
 def resolve_photo_scene_preset(
@@ -1103,7 +1135,13 @@ def resolve_photo_scene_preset(
 ) -> str:
     presets = get_photo_scene_presets(sphere, style)
     if recent_scene_presets:
-        filtered = [p for p in presets if p not in set(recent_scene_presets)]
+        recent_set = set(recent_scene_presets)
+        filtered = [p for p in presets if p not in recent_set]
+        if not filtered:
+            # Exhausted sphere preferences may rotate through the remaining
+            # compatible style scenes, never through an unrelated sphere pool.
+            compatible = PHOTO_STYLE_SCENE_HINTS.get(normalize_style_key(style), presets)
+            filtered = [p for p in compatible if p not in recent_set]
         if filtered:
             presets = filtered
     presets = _filter_by_recent_archetypes(

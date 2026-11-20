@@ -297,7 +297,7 @@ def test_inner_peace_focus_hint_does_not_contradict_clear_air_guard():
 
 def test_interior_office_prompts_guard_against_generic_stock_and_showroom_look():
     career_prompt = _build_image_prompt(
-        style="urban_city_photo",
+        style="calm_lifestyle_photo",
         sphere="career",
         subsphere=None,
         user_text=None,
@@ -309,7 +309,7 @@ def test_interior_office_prompts_guard_against_generic_stock_and_showroom_look()
 
     assert "showroom or catalog-furniture staging" in career_prompt
     assert "corporate stock-photo look" in career_prompt
-    assert "combining laptop, cup, plant and notebook together" in career_prompt
+    assert "laptop-cup-plant-notebook combination" in career_prompt
 
 
 def test_urban_city_photo_allows_subtle_life_without_crowds():
@@ -461,12 +461,13 @@ def test_photo_prompt_uses_concrete_photographable_scenes():
         custom_style_description=None,
         visual_mode="photo",
     ).lower()
-    assert "realistic interior still life photo" in prompt
-    assert "bright organized desk" in prompt
+    assert "photo scene preset: calm_workspace" in prompt
+    assert "realistic lived-in workspace" in prompt
+    assert "stability, abundance and calm order" in prompt
     assert "table still life that looks photographed" in prompt
 
 
-def test_money_photo_auto_uses_workspace_or_interior_scene_preset():
+def test_money_photo_auto_uses_resolved_urban_environment():
     prompt = _build_image_prompt(
         style="auto",
         sphere="money",
@@ -476,8 +477,9 @@ def test_money_photo_auto_uses_workspace_or_interior_scene_preset():
         visual_mode="photo",
     ).lower()
     assert "photo scene preset:" in prompt
-    assert "calm_workspace" in prompt or "window_still_life" in prompt or "botanical_corner" in prompt
-    assert "realistic lived-in workspace" in prompt or "realistic still life by a window" in prompt or "real plant or branches" in prompt
+    assert "city photography" in prompt
+    assert "city_veranda_morning" in prompt or "courtyard_cafe" in prompt or "quiet_city_morning" in prompt or "city_park" in prompt or "bridge_walkway" in prompt
+    assert "prefer a bright organized desk" not in prompt
     assert "meadow edge" not in prompt
 
 
@@ -504,7 +506,8 @@ def test_relationships_photo_auto_uses_concrete_relationship_scene():
     ).lower()
     assert "photo scene preset:" in prompt
     assert "relationship_table_scene" in prompt or "window_still_life" in prompt or "botanical_corner" in prompt
-    assert "two cups" in prompt or "two chairs" in prompt or "realistic intimate" in prompt
+    assert "harmony, connection and warmth" in prompt
+    assert "realistic cozy home photography" in prompt
 
 
 def test_photo_nature_prompt_is_documentary_not_painterly():
@@ -677,7 +680,7 @@ def test_custom_style_coastal_text_does_not_force_deterministic_coastal_routing(
     ).lower()
 
     assert "bright ocean coast with waves" not in prompt
-    assert "realistic editorial photo of a bright workspace" in prompt
+    assert "calm realistic city photography" in prompt
     assert "coastal realism is mandatory" not in prompt
     assert "avoid inland lakes" not in prompt
     assert "desk scenes" not in prompt

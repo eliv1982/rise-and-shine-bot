@@ -250,8 +250,9 @@ def test_get_scene_candidates_for_style_interior_is_not_only_table_mug():
         resolved_style="light_interior_photo",
         visual_mode="photo",
     )
-    assert "library_corner" in candidates
-    assert "reading_corner" in candidates
+    assert "warm_living_room" in candidates
+    assert "soft_blanket_corner" in candidates
+    assert candidates == scene_planner.get_scene_candidates_for_style(selected_style="cozy_home_photo")
     assert len(candidates) >= 4
 
 

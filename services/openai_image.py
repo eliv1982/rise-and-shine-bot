@@ -17,6 +17,7 @@ from services.coastal_intent import (
 )
 from services.ritual_config import (
     PHOTO_SCENE_PRESETS,
+    PHOTO_STYLE_KEYS,
     STYLE_DESCRIPTIONS,
     get_visual_archetype,
     normalize_style_key,
@@ -137,10 +138,15 @@ def _build_default_image_theme(sphere: str, subsphere: Optional[str]) -> str:
     return "an atmospheric, elegant scene suggesting inner balance, dignity and quiet hope through poetic visual metaphor"
 
 
-def _build_photo_image_theme(sphere: str, subsphere: Optional[str]) -> str:
+def _build_photo_image_theme(sphere: str, subsphere: Optional[str], *, preserve_scene: bool = False) -> str:
     """
     Photo mode converts abstract themes into concrete scenes that can plausibly be photographed.
     """
+    if preserve_scene:
+        return (
+            "realistic editorial photo conveying " + _symbolic_meaning_hint(sphere)
+            + " within the selected scene and visual style"
+        )
     sphere_key = sphere.lower()
     subsphere_key = (subsphere or "").lower()
 
@@ -595,7 +601,7 @@ def _build_image_prompt(
         )
 
     base_theme = (
-        _build_photo_image_theme(sphere, subsphere)
+        _build_photo_image_theme(sphere, subsphere, preserve_scene=style in PHOTO_STYLE_KEYS)
         if effective_visual_mode == "photo"
         else _build_default_image_theme(sphere, subsphere)
     )
@@ -668,7 +674,8 @@ def _build_image_prompt(
         composition_hint = coastal_composition_hint(composition_hint)
     comp_part = f" Composition: {composition_hint}." if composition_hint else ""
 
-    avoid_clause = _avoid_literal_symbols_clause(sphere, effective_visual_mode, preserve_scene=coastal_force) + " " + intent.exclusion_clause()
+    preserve_scene = coastal_force or (effective_visual_mode == "photo" and style in PHOTO_STYLE_KEYS)
+    avoid_clause = _avoid_literal_symbols_clause(sphere, effective_visual_mode, preserve_scene=preserve_scene) + " " + intent.exclusion_clause()
     if user_exclusions:
         avoid_clause += " User exclusions: " + user_exclusions + "."
 
@@ -824,7 +831,10 @@ async def generate_image(
             prompt = _augment_photo_override_prompt(
                 prompt_override,
                 scene_text,
-                _avoid_literal_symbols_clause(sphere, effective_visual_mode, preserve_scene=coastal or controlled) + " " + intent.exclusion_clause(),
+                _avoid_literal_symbols_clause(
+                    sphere, effective_visual_mode,
+                    preserve_scene=coastal or controlled or normalize_style_key(resolved_style) in PHOTO_STYLE_KEYS,
+                ) + " " + intent.exclusion_clause(),
                 _coastal_photo_clause(intent, style=resolved_style) if coastal and not controlled else "",
             )
         else:

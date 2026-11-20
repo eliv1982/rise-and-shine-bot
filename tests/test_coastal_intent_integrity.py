@@ -258,7 +258,8 @@ def test_negative_and_incidental_text_at_final_api(image_api, scene_request):
     prompt = image_api.images[0]["prompt"].lower()
     assert "coastal realism is mandatory" not in prompt
     assert "real coastal travel/editorial photo scene" not in prompt
-    assert "workspace" in prompt
+    assert "realistic cozy home photography" in prompt
+    assert "photo scene preset: botanical_corner" in prompt
 
 
 @pytest.mark.parametrize("scene_request", ["Avoid beach", "No ocean", "Без моря"])

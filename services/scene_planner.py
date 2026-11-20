@@ -1,5 +1,7 @@
 import json
 
+from services.ritual_config import normalize_style_key
+
 from services.coastal_intent import (
     COASTAL_SCENES, COASTAL_STYLES, coastal_request_text, coastal_style_direction,
     parse_coastal_text, user_coastal_intent,
@@ -719,6 +721,31 @@ def resolve_scene_style_family(
     subsphere: str | None = None,
     focus_title: str | None = None,
 ) -> str:
+    # Resolve concrete styles before free-form markers or sphere defaults.
+    # Aliases must own the same environment as their canonical photo style.
+    photo_families = {
+        "sunny_morning_photo": "photo_general",
+        "living_nature_photo": "living_nature",
+        "urban_city_photo": "urban",
+        "cafe_terrace_photo": "cafe_terrace",
+        "rural_calm_photo": "rural_calm",
+        "sea_coast_photo": "coastal",
+        "cozy_home_photo": "cozy_home",
+        "book_nook_photo": "book_nook",
+        "calm_lifestyle_photo": "calm_lifestyle",
+    }
+    for value in (selected_style, resolved_style, style_mode):
+        style_key = normalize_style_key((_clean_str(value) or "").lower())
+        family = photo_families.get(style_key)
+        if family:
+            # Sunny Morning has no fixed environment: its existing professional
+            # pool is compatible, so retain the sphere/focus preference there.
+            if style_key == "sunny_morning_photo" and _has_professional_theme_context(
+                sphere=sphere, subsphere=subsphere, focus_title=focus_title,
+                selected_style=selected_style, resolved_style=resolved_style, style_mode=style_mode,
+            ):
+                return "professional_calm"
+            return family
     values = " ".join(
         text.lower()
         for text in (
@@ -909,6 +936,14 @@ def get_scene_candidates_for_style(
             "rain_window",
             "botanical_still_life",
         ],
+        "calm_lifestyle": [
+            "calm_cafe_corner",
+            "quiet_cafe_window",
+            "balcony_garden",
+            "hands_detail",
+            "calm_room_wide",
+            "rain_window",
+        ],
         "urban": [
             "quiet_city_morning",
             "city_park",
@@ -917,8 +952,6 @@ def get_scene_candidates_for_style(
             "bridge_walkway",
             "street_after_rain",
             "tram_stop_morning",
-            "autumn_park",
-            "library_corner",
         ],
         "abstract_symbolic": [
             "abstract_light",
