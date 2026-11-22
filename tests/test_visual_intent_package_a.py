@@ -329,7 +329,8 @@ def test_package_a_has_no_production_imports_or_provider_dependencies():
         names.update(a.name for node in imports if isinstance(node, ast.ImportFrom)
                      and node.module == 'services' for a in node.names)
         if path.stem == 'visual_semantics':
-            assert names <= {'re'}  # neutral registry cannot import consumers
+            assert names <= {'re', 'dataclasses', 'services.visual_safety_types'}
+            # Neutral contracts import no consumers, interpreter, configuration or I/O.
             continue
         if path.stem in modules:
             assert names <= {'dataclasses', 'enum', 're', 'typing', 'hashlib', 'json', 'services',

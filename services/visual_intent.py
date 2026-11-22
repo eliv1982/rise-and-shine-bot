@@ -17,6 +17,10 @@ from services.visual_safety_types import DirectiveRef, immutable_tuple, invalid_
 
 RequestClass = Literal['eligible', 'unsupported_narrative', 'unsupported_visual_form',
                        'nonvisual', 'ambiguous', 'inactive_or_auxiliary']
+# RequestClass classifies a directive's visual interpretation, not its safety.
+# In particular, supported negatives can be 'eligible'; an unresolved negative
+# can be 'nonvisual' here. Only the negative ledger and resolver verdict decide
+# exclusion safety. Unsupported request classes concern explicit positives only.
 NegativeClass = Literal['resolved', 'resolved_positive_legacy_exception', 'unresolved',
                         'nonvisual', 'inactive_or_auxiliary']
 UnresolvedDetail = Literal['relational_scope', 'unknown_target', 'ambiguous_scope', 'unsupported_structure']
@@ -116,7 +120,7 @@ class VisualInterpretation:
     negatives: tuple[NegativeAssessment, ...]
 
     def __post_init__(self):
-        validate_interpretation(self)
+        _validate_interpretation_shape(self)
 
     @property
     def unresolved_negatives(self) -> tuple[UnresolvedNegative, ...]:
@@ -154,7 +158,7 @@ def _authoritative(source):
     return source.active and source.kind in {SourceKind.USER_TEXT, SourceKind.CUSTOM_NOTES}
 
 
-def validate_interpretation(result: VisualInterpretation) -> None:
+def _validate_interpretation_shape(result: VisualInterpretation) -> None:
     if not isinstance(result, VisualInterpretation):
         invalid_evidence()
     for items in (result.segmentations, result.facts, result.classifications, result.negatives):
@@ -249,6 +253,20 @@ def validate_interpretation(result: VisualInterpretation) -> None:
         if negative.classification == 'inactive_or_auxiliary' and _authoritative(sources[ref[0]]):
             invalid_evidence()
     if seen != {ref for ref, d in directives.items() if d.polarity == Polarity.NEGATIVE}:
+        invalid_evidence()
+
+
+def validate_interpretation(result: VisualInterpretation) -> None:
+    """Verify original structure and semantic derivation, not just valid refs.
+
+    Construction checks shape; this authority boundary independently invokes the
+    SAME structural/semantic owners. It never reimplements their policy rules.
+    """
+    _validate_interpretation_shape(result)
+    if any(s != segment_directives(s.source) for s in result.segmentations):
+        invalid_evidence()
+    canonical = interpret_directives(result.segmentations)
+    if result != canonical:
         invalid_evidence()
 
 

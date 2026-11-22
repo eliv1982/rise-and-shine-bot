@@ -374,7 +374,8 @@ def test_vis15_legacy_basis_is_evaluated_once_per_complete_scope(monkeypatch):
         seen.append(text)
         return original(text)
     monkeypatch.setattr(vi, '_legacy_basis', record)
-    resolve('No people, beach at sunset; No people, ocean, no windows')
+    # One interpretation pass; authority checks now deliberately re-derive it.
+    vi.interpret_visual_intent('No people, beach at sunset; No people, ocean, no windows')
     assert seen == ['No people, beach at sunset', ' No people, ocean, no windows', ' No people, ocean, no windows']
 
 
