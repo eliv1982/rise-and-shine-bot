@@ -17,6 +17,7 @@ from services.coastal_intent import (
 )
 from services.ritual_config import (
     PHOTO_SCENE_PRESETS,
+    PHOTO_STYLE_SCENE_HINTS,
     PHOTO_STYLE_KEYS,
     STYLE_DESCRIPTIONS,
     get_visual_archetype,
@@ -25,6 +26,10 @@ from services.ritual_config import (
     resolve_photo_scene_preset,
     resolve_style,
     visual_mode_for_style,
+)
+from services.visual_constraints import (
+    compatible_custom_style_prose, compatible_generated_hints, compatible_style_phrase, exclusion_items, forbidden_objects,
+    positive_objects, user_visual_constraints,
 )
 
 logger = logging.getLogger(__name__)
@@ -448,8 +453,9 @@ def _build_photo_prompt(
     comp_part: str,
     avoid_clause: str,
     coastal_clause: str = "",
+    forbidden: set | None = None,
 ) -> str:
-    abstract_examples = "" if coastal_clause else (
+    abstract_examples = "" if coastal_clause or forbidden else (
         "Translate abstract emotions into concrete real-world scenes: room corner with natural light, "
         "table still life that looks photographed, realistic desk with notebook and cup, real botanical corner, "
         "riverside or meadow photo, park path, morning field, or believable interior lifestyle scene. "
@@ -562,6 +568,15 @@ def _intent_photo_scene(scene_key: str, intent: CoastalIntent, coastal: bool) ->
     return scene_key
 
 
+def _compatible_photo_scene(scene_key: str, *, style: str, forbidden: set) -> str:
+    if not positive_objects(PHOTO_SCENE_PRESETS.get(scene_key, "")) & forbidden:
+        return scene_key
+    for candidate in PHOTO_STYLE_SCENE_HINTS.get(normalize_style_key(style), []):
+        if not positive_objects(PHOTO_SCENE_PRESETS[candidate]) & forbidden:
+            return candidate
+    raise ValueError("Unresolved photo scene/exclusion conflict within selected style")
+
+
 def _build_image_prompt(
     style: str,
     sphere: str,
@@ -581,6 +596,10 @@ def _build_image_prompt(
     Случайные color_mood и composition_hint добавляют разнообразие при каждой генерации.
     """
     requested_style = requested_style or style
+    user_requested, exclusions = user_visual_constraints(
+        user_text, style=requested_style, custom_style_description=custom_style_description,
+    )
+    forbidden = forbidden_objects(exclusions)
     style = resolve_style(style, sphere, visual_mode=visual_mode)
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), style)
     intent = user_coastal_intent(
@@ -588,6 +607,8 @@ def _build_image_prompt(
     )
     if effective_visual_mode != "symbolic":
         style = coastal_photo_style(requested_style, style, intent, visual_mode=effective_visual_mode)
+    if normalize_style_key(style) == "living_nature_photo" and user_requested & {"mug", "table", "notebook", "window"}:
+        raise ValueError("Required visual subject conflicts with selected living nature constraints")
     coastal_force = not intent.blocks_coast and (style in COASTAL_STYLES or intent.wants_coast)
 
     if effective_visual_mode == "symbolic":
@@ -605,6 +626,8 @@ def _build_image_prompt(
         if effective_visual_mode == "photo"
         else _build_default_image_theme(sphere, subsphere)
     )
+    if positive_objects(base_theme) & forbidden:
+        base_theme = "A scene conveying " + _symbolic_meaning_hint(sphere) + " within the selected visual style"
     if coastal_force:
         scene_kind = "real coastal travel/editorial photo scene" if effective_visual_mode == "photo" else "coastal landscape illustration"
         direction = coastal_style_direction(style, intent)
@@ -628,7 +651,7 @@ def _build_image_prompt(
     # Generated focus hints are lower-priority suggestions, never positive user
     # evidence and never a reason to substitute coast for a selected other scene.
     hint_intent = parse_coastal_text(image_hint)
-    if image_hint and not coastal_force and not hint_intent.wants_coast and not (hint_intent.positive & intent.excluded):
+    if image_hint and not coastal_force and not hint_intent.wants_coast and not (hint_intent.positive & intent.excluded) and not positive_objects(image_hint) & forbidden:
         base_theme = f"{base_theme}; focus visual hint: {image_hint}"
     photo_scene = ""
     if effective_visual_mode == "photo":
@@ -640,15 +663,21 @@ def _build_image_prompt(
         scene_key = _intent_photo_scene(scene_key, intent, coastal_force)
         if coastal_style_direction(style, intent):
             scene_key = ""
+        if scene_key:
+            scene_key = _compatible_photo_scene(scene_key, style=style, forbidden=forbidden)
         fallback_scene = "bright_ocean_sunrise" if coastal_force else "window_still_life"
         photo_scene = PHOTO_SCENE_PRESETS.get(scene_key, PHOTO_SCENE_PRESETS[fallback_scene]) if scene_key else ""
 
     positive_text, user_exclusions = user_scene_prompt_parts(user_text, intent=intent)
+    positive_text = compatible_custom_style_prose(positive_text, forbidden)
+    if exclusions:
+        user_exclusions = "; ".join(filter(None, [user_exclusions, "; ".join(exclusion_items(exclusions))]))
     if style.lower() == "custom" and custom_style_description:
         positive_style, style_exclusions = user_scene_prompt_parts(
             None, style="custom", custom_style_description=custom_style_description,
             intent=intent,
         )
+        positive_style = compatible_custom_style_prose(positive_style, forbidden)
         style_phrase = f"in the style: {positive_style}" if positive_style else "a balanced, natural visual treatment"
         user_exclusions = "; ".join(part for part in (user_exclusions, style_exclusions) if part)
     else:
@@ -658,6 +687,13 @@ def _build_image_prompt(
                 "realistic nature photography, crisp clear air, fresh daylight and readable natural detail, "
                 "believable atmosphere, camera realism, avoid fog or mist unless explicitly requested"
             )
+
+    if requested_style != "custom":
+        style_phrase = compatible_style_phrase(style_phrase, forbidden)
+    if composition_hint and positive_objects(composition_hint) & forbidden:
+        composition_hint = None
+    if color_mood and positive_objects(color_mood) & forbidden:
+        color_mood = None
 
     extra = ""
     if positive_text:
@@ -674,7 +710,7 @@ def _build_image_prompt(
         composition_hint = coastal_composition_hint(composition_hint)
     comp_part = f" Composition: {composition_hint}." if composition_hint else ""
 
-    preserve_scene = coastal_force or (effective_visual_mode == "photo" and style in PHOTO_STYLE_KEYS)
+    preserve_scene = bool(forbidden) or coastal_force or (effective_visual_mode == "photo" and style in PHOTO_STYLE_KEYS)
     avoid_clause = _avoid_literal_symbols_clause(sphere, effective_visual_mode, preserve_scene=preserve_scene) + " " + intent.exclusion_clause()
     if user_exclusions:
         avoid_clause += " User exclusions: " + user_exclusions + "."
@@ -690,6 +726,7 @@ def _build_image_prompt(
             comp_part=comp_part,
             avoid_clause=avoid_clause,
             coastal_clause=coastal_clause,
+            forbidden=forbidden,
         )
 
     illustration_light = intent.time_of_day if coastal_force and intent.time_of_day else "fresh morning or golden-hour"
@@ -698,6 +735,9 @@ def _build_image_prompt(
         "Preserve the explicitly requested coastal setting and lighting. " if coastal_force and intent.time_of_day else
         "Prefer nature scenes, lake, sea, sky, soft landscape, flowering branches, trees in sunlight, meadow, garden, morning light, bright still life with window light, light workspace without visible text, two cups or warm table for relationships, and gentle symbolic nature metaphors. "
     )
+    if forbidden and not coastal_force:
+        illustration_scenes = "Preserve the selected visual direction and explicit user scene requirements. "
+    person_direction = "" if "human" in forbidden else "If a person appears, keep them small, from behind or side view, not a dominant portrait, with no direct eye contact. "
     return (
         f"{base_theme}.{extra} "
         "Create a beautiful bright daily affirmation image for a Telegram card. "
@@ -706,8 +746,7 @@ def _build_image_prompt(
         "The image must look clear and pleasant on a phone screen, with bright exposure, readable subject separation, natural detail and elegant simplicity. "
         "Use a high-quality soft semi-realistic or gentle illustration look. "
         f"{illustration_scenes}"
-        "If a person appears, keep them small, from behind or side view, not a dominant portrait, with no direct eye contact. "
-        f"{_ANATOMY_ANCHOR} "
+        f"{person_direction}{_ANATOMY_ANCHOR} "
         f"Atmosphere: bright daily card, elegant, simple, warm and hopeful, suitable for affirmation practice about {sphere}. "
         f"Visual style: {style_phrase}.{color_part}{comp_part} "
         "No text, no words, no letters, no numbers, no typography, no logos, no watermarks. "
@@ -750,6 +789,9 @@ async def generate_image(
     Возвращает путь к файлу.
     """
     resolved_style = resolved_style_override or resolve_style(style, sphere, focus_key=focus_key, visual_mode=visual_mode)
+    # Reuse the established unresolved-conflict exception before any provider
+    # request, including when the caller supplies an already assembled prompt.
+    _, user_excluded_objects = user_visual_constraints(user_text, style=style, custom_style_description=custom_style_description)
     effective_visual_mode = visual_mode_for_style(normalize_visual_mode(visual_mode), resolved_style)
     intent = user_coastal_intent(user_text, style=style, custom_style_description=custom_style_description)
     if effective_visual_mode != "symbolic":
@@ -774,6 +816,11 @@ async def generate_image(
         photo_scene_preset = _intent_photo_scene(photo_scene_preset, intent, coastal)
         if coastal_style_direction(resolved_style, intent):
             photo_scene_preset = None
+        if photo_scene_preset and not prompt_override:
+            photo_scene_preset = _compatible_photo_scene(
+                photo_scene_preset, style=resolved_style,
+                forbidden=forbidden_objects(user_excluded_objects),
+            )
     if output_dir is None:
         output_dir = get_outputs_dir()
 

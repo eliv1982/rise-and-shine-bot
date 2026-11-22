@@ -7,15 +7,16 @@ user_coastal_intent. Generated hints, prompts and avoid lists are not user inten
 import re
 from dataclasses import dataclass
 
+from services.visual_semantics import (
+    COASTAL_STYLES, COASTAL_SCENES, COASTAL_STYLE_DIRECTIONS,
+    COAST_INCOMPATIBLE_STYLES, DEDICATED_BEACH_INCOMPATIBLE_STYLES,
+    COASTAL_CONTEXT,
+)
+from services.visual_constraints import (
+    _continues_exclusion_list, _nominal_list_fragment, compatible_custom_style_prose,
+)
 
-COASTAL_STYLES = {"sea_coast_photo", "bright_ocean_coast_photo"}
-COASTAL_SCENES = {
-    "sea_horizon", "coastal_morning", "beach_path", "dune_grass",
-    "rocky_shore", "quiet_pier", "ocean_sunrise", "seaside_sunset",
-    "quiet_beach_morning", "rocky_coast", "dunes_and_seabirds", "coastal_path",
-    "bright_ocean_sunrise", "vivid_seaside_sunset", "sunny_beach_morning",
-    "turquoise_shoreline", "rocky_ocean_coast", "seabirds_over_waves",
-}
+
 
 # Longest phrases first; shoreline noun endings exclude the verbs «берегу»,
 # «береги», «берегите». Word boundaries exclude research, seasonal and seated.
@@ -53,19 +54,15 @@ _COASTAL_TIMES = {
     "morning": r"\b(?:morning|утр\w*)\b",
     "evening": r"\b(?:evening|dusk|вечер\w*|сумерк\w*)\b",
 }
-COASTAL_STYLE_DIRECTIONS = {
-    "urban_city_photo": "realistic urban waterfront photography, coastal city promenade overlooking the sea, believable city details supporting the water view",
-    "cafe_terrace_photo": "realistic seaside cafe terrace overlooking the ocean, cafe seating as supporting details, editorial cafe photography, water clearly visible",
-    "rural_calm_photo": "realistic coastal village photography, village veranda or cottage garden overlooking the sea, grounded rural details supporting the water view",
-    "calm_lifestyle_photo": "editorial coastal lifestyle photography, quiet coastal walk or balcony sea view, calm understated mood, authentic natural textures",
-}
 
 
 def _scoped_fragments(text: str | None):
     """Yield positive/exclusion spans using a deliberately small RU/EN grammar.
 
-    No/without/без scope ends at a comma. Avoid/exclude can introduce a coastal
-    list across commas, but an unrelated exclusion ("Avoid crowds") cannot.
+    No/without/без coastal scope ends at a comma. Noncoastal nominal exclusions
+    retain the shared object-list scope so they cannot become positive prose.
+    Avoid/exclude can introduce a coastal list across commas, but an unrelated
+    exclusion ("Avoid crowds") cannot.
     An explicit positive directive always ends that list, including after and/и.
     """
     text = text or ""
@@ -81,7 +78,16 @@ def _scoped_fragments(text: str | None):
         else:
             if fragment:
                 yield fragment, negative
-            negative = bool(marker.lastgroup == "comma" and negative and coastal_list and _SUBJECT.search(fragment))
+            next_marker = _SCOPE_MARKER.search(text, marker.end())
+            continuation = text[marker.end():next_marker.start() if next_marker else len(text)]
+            nominal_list = (
+                _nominal_list_fragment(fragment)
+                and not _SUBJECT.search(continuation)
+                and _continues_exclusion_list(text, marker.end())
+            )
+            negative = bool(marker.lastgroup == "comma" and negative and (
+                (coastal_list and _SUBJECT.search(fragment)) or nominal_list
+            ))
             coastal_list = coastal_list and negative
             start = marker.end()
     if tail := text[start:].strip(" ,;\t"):
@@ -151,7 +157,7 @@ def user_coastal_intent(
     dedicated_beach = bool(
         intent.subtype == "beach"
         and re.search(r"\b(?:tropical|palms?|palm\s+trees|тропическ\w*|пальм\w*)\b", positive, re.IGNORECASE)
-        and not re.search(r"\b(?:caf[eé]|terrace|veranda|village|urban|city|waterfront|кафе|террас\w*|веранд\w*|деревн\w*|город\w*)\b", positive, re.IGNORECASE)
+        and not COASTAL_CONTEXT.search(positive)
     )
     return CoastalIntent(intent.positive, intent.excluded, time_of_day, dedicated_beach)
 
@@ -185,7 +191,10 @@ def user_scene_prompt_parts(
         for fragment, excluded in _scoped_fragments(source):
             subjects = parse_coastal_text(fragment).positive
             if excluded:
-                negative.append(fragment)
+                # Joining list members with semicolons must not erase the
+                # negative scope carried by their original comma boundaries.
+                negative.append(fragment if _NEGATION.match(fragment) else
+                                "Avoid " + compatible_custom_style_prose(fragment, ()))
             elif not subjects & forbidden and (subjects or not coastal_only):
                 positive.append(fragment)
     if coastal_only and not positive and intent.wants_coast:
@@ -205,13 +214,8 @@ def coastal_style_conflict(requested_style: str, intent: CoastalIntent, *, visua
     requested_style = normalize_style_key(requested_style)
     return bool(
         (requested_style in COASTAL_STYLES and intent.blocks_coast)
-        or (intent.wants_coast and requested_style in {
-            "cozy_home_photo", "light_interior_photo", "book_nook_photo", "quiet_interior",
-            "minimal_botanical", "mandala_harmony", "sacred_geometry_light", "botanical_mandala", "daily_symbol",
-        })
-        or (intent.wants_coast and intent.dedicated_beach and requested_style in {
-            "urban_city_photo", "cafe_terrace_photo", "rural_calm_photo",
-        })
+        or (intent.wants_coast and requested_style in COAST_INCOMPATIBLE_STYLES)
+        or (intent.wants_coast and intent.dedicated_beach and requested_style in DEDICATED_BEACH_INCOMPATIBLE_STYLES)
     )
 
 

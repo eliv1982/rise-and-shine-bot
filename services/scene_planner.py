@@ -1,6 +1,10 @@
 import json
 
 from services.ritual_config import normalize_style_key
+from services.visual_constraints import (
+    avoid_fragments, exclusion_items, forbidden_objects, positive_objects, suppress_soft_avoids,
+    user_visual_constraints,
+)
 
 from services.coastal_intent import (
     COASTAL_SCENES, COASTAL_STYLES, coastal_request_text, coastal_style_direction,
@@ -1084,16 +1088,47 @@ def normalize_scene_plan(
     composition = _clean_str(safe_plan.get("composition")) or _clean_str(preset.get("composition")) or "balanced open composition"
     lighting = _clean_str(safe_plan.get("lighting")) or _clean_str(preset.get("lighting")) or "soft natural light"
     mood = _clean_str(safe_plan.get("mood")) or _clean_str(preset.get("mood")) or "calm, grounded, emotionally spacious"
-    human_presence = _normalize_human_presence(safe_plan.get("human_presence"))
+    default_presence = "distant_figure" if normalize_scene_family(scene_type) in {"cafe_terrace", "cafe_quiet", "work_quiet"} else "none"
+    if "hands" in positive_objects(f"{setting}. {main_subject}"):
+        default_presence = "hands_only"
+    human_presence = _normalize_human_presence(safe_plan.get("human_presence", default_presence))
 
     visual_motifs = _dedupe_stable(
         _safe_list(safe_plan.get("visual_motifs")) + _safe_list(preset.get("visual_motifs"))
     )
+    previous = _safe_dict(safe_plan.get("constraint_sources"))
+    sources = {
+        "soft_avoid": _dedupe_stable(_safe_list(previous.get("soft_avoid")) + DEFAULT_CLICHE_AVOID),
+        "scene_avoid": _dedupe_stable(_safe_list(previous.get("scene_avoid")) + _safe_list(preset.get("avoid"))),
+        "memory_avoid": _dedupe_stable(_safe_list(previous.get("memory_avoid")) + _safe_list(memory.get("hard_avoid_today"))),
+        "user_exclusions": _dedupe_stable(_safe_list(previous.get("user_exclusions"))),
+        "user_requests": _dedupe_stable(_safe_list(previous.get("user_requests"))),
+        "scene_hints": _dedupe_stable(_safe_list(previous.get("scene_hints"))),
+    }
+    # Legacy/raw planner avoids are generated recommendations. On repeated
+    # normalization do not relabel already sourced effective avoids as soft.
+    known = {item for key in ("soft_avoid", "scene_avoid", "memory_avoid") for item in sources[key]}
+    known.update(atom for item in list(known) for atom in avoid_fragments(item))
+    known.update(exclusion_items(sources["user_exclusions"]))
+    incoming = [item for item in _safe_list(safe_plan.get("avoid")) if not previous or item not in known]
+    sources["soft_avoid"] = _dedupe_stable(incoming + sources["soft_avoid"])
+    required = positive_objects(". ".join([setting, main_subject, composition, lighting] + visual_motifs))
+    required.update(sources["user_requests"])
+    required.update(positive_objects(". ".join(sources["scene_hints"])))
+    if human_presence != "none":
+        required.add("human")
+        if human_presence == "hands_only":
+            required.add("hands")
+    forbidden = forbidden_objects(sources["user_exclusions"])
+    if human_presence == "none":
+        forbidden.update({"human", "hands", "body"})
     avoid = _dedupe_stable(
-        _safe_list(safe_plan.get("avoid"))
-        + _safe_list(preset.get("avoid"))
-        + _safe_list(memory.get("hard_avoid_today"))
-        + DEFAULT_CLICHE_AVOID
+        suppress_soft_avoids(
+            [item for item in _safe_list(safe_plan.get("avoid")) if item not in exclusion_items(sources["user_exclusions"])]
+            + sources["scene_avoid"] + sources["memory_avoid"] + sources["soft_avoid"],
+            required, forbidden=forbidden,
+        )
+        + exclusion_items(sources["user_exclusions"])
     )
     # Planner/default avoid lists are auxiliary, not explicit user exclusions.
     # A deliberately selected beach must not ban its own subject. Explicit
@@ -1114,7 +1149,78 @@ def normalize_scene_plan(
         "lighting": lighting,
         "mood": mood,
         "avoid": avoid,
+        "constraint_sources": sources,
     }
+
+
+def reconcile_scene_constraints(
+    scene_plan: dict, *, user_text=None, selected_style=None, resolved_style=None,
+    custom_style_description=None, sphere=None, subsphere=None,
+) -> dict:
+    """Resolve within the existing style pool or surface the existing ValueError contract."""
+    plan = normalize_scene_plan(scene_plan)
+    positive, negative = user_visual_constraints(
+        user_text, style=selected_style, custom_style_description=custom_style_description,
+    )
+    sources = plan["constraint_sources"]
+    positive.update(sources["user_requests"])
+    negative.update(sources["user_exclusions"])
+    forbidden = forbidden_objects(negative)
+    if positive & forbidden:
+        raise ValueError("Unresolved explicit visual conflict: " + ", ".join(sorted(positive & forbidden)))
+    if positive & {"human", "hands", "body"} and "human" not in negative:
+        # The generated absence default is below an explicit positive request.
+        # The final structured enum must agree with that request as well.
+        plan["human_presence"] = "hands_only" if "hands" in positive and "human" not in positive else "single_person"
+    if "human" in negative or plan["human_presence"] == "none":
+        forbidden.update({"human", "hands", "body"})
+    if positive & forbidden:
+        raise ValueError("Explicit visual request conflicts with human_presence=none")
+
+    def conflicts(candidate):
+        text = ". ".join(str(candidate[key]) for key in ("setting", "main_subject", "composition", "lighting"))
+        required = positive_objects(text)
+        required.update(positive_objects(". ".join(candidate["visual_motifs"])))
+        if candidate["human_presence"] != "none":
+            required.add("human")
+        if candidate["human_presence"] == "hands_only":
+            required.add("hands")
+        return required & forbidden
+
+    if conflicts(plan):
+        # Coast already owns subtype/style resolution. Do not replace explicit
+        # coastal details with an unrelated preset to work around object bans.
+        intent = user_coastal_intent(user_text, style=selected_style, custom_style_description=custom_style_description)
+        if not intent.wants_coast:
+            candidates = get_scene_candidates_for_style(
+                selected_style=selected_style, resolved_style=resolved_style,
+                sphere=sphere, subsphere=subsphere,
+            ) if selected_style or resolved_style else []
+            for scene in candidates:
+                raw_candidate = {"scene_type": scene, "mood": plan["mood"]}
+                if "human" in forbidden:
+                    raw_candidate["human_presence"] = "none"
+                elif positive & {"human", "hands", "body"}:
+                    raw_candidate["human_presence"] = plan["human_presence"]
+                candidate = normalize_scene_plan(raw_candidate)
+                if not conflicts(candidate):
+                    candidate["constraint_sources"] = {
+                        **sources, "scene_avoid": _safe_list(SCENE_PRESETS[scene].get("avoid")),
+                        # The prompt builder derives fresh hints for the selected
+                        # scene. Old hints must not suppress its object avoids.
+                        "scene_hints": [],
+                    }
+                    plan = candidate
+                    break
+            else:
+                raise ValueError("Unresolved scene/exclusion conflict within selected style")
+        else:
+            raise ValueError("Unresolved explicit coastal scene/visual exclusion conflict")
+    if "human" in forbidden:
+        plan["human_presence"] = "none"
+    plan["constraint_sources"]["user_requests"] = sorted(positive)
+    plan["constraint_sources"]["user_exclusions"] = sorted(negative)
+    return normalize_scene_plan(plan)
 
 
 def apply_coastal_scene_intent(
@@ -1169,6 +1275,13 @@ def apply_coastal_scene_intent(
     if intent.excluded:
         # Keep the scoped constraints explicit, including narrower sandy beach.
         plan["avoid"] = _dedupe_stable(plan["avoid"] + [intent.exclusion_clause()])
+    # Coastal scene replacement must retain caller-owned source information.
+    if isinstance(scene_plan.get("constraint_sources"), dict):
+        original = scene_plan["constraint_sources"]
+        for key in ("user_requests", "user_exclusions", "memory_avoid"):
+            plan["constraint_sources"][key] = _dedupe_stable(
+                _safe_list(original.get(key)) + _safe_list(plan["constraint_sources"].get(key))
+            )
     return plan
 
 
@@ -1239,7 +1352,7 @@ def build_fallback_scene_plan(
         mood = f"calm, grounded atmosphere for: {focus}"
 
     scene_family = normalize_scene_family(scene_type)
-    human_presence = "distant_figure" if scene_family in {"cafe_terrace", "cafe_quiet", "work_quiet"} else "none"
+    human_presence = "distant_figure" if scene_family in {"cafe_terrace", "cafe_quiet", "work_quiet"} else "hands_only" if scene_family == "hands_detail" else "none"
 
     raw_plan = {
         "scene_type": scene_type,
@@ -1250,15 +1363,15 @@ def build_fallback_scene_plan(
         "composition": preset.get("composition"),
         "lighting": preset.get("lighting"),
         "mood": mood,
-        "avoid": _safe_list(memory.get("hard_avoid_today")) + _safe_list(preset.get("avoid")) + DEFAULT_CLICHE_AVOID,
     }
     return normalize_scene_plan(raw_plan, visual_memory_context=memory)
 
 
 def build_scene_image_prompt(scene_plan: dict, language: str = "ru") -> str:
-    normalized = normalize_scene_plan(scene_plan)
+    normalized = reconcile_scene_constraints(scene_plan)
     motifs = ", ".join(normalized["visual_motifs"]) or "quiet natural motifs"
     avoid = ", ".join(normalized["avoid"])
+    absence = "No visible people, hands or human body parts. " if normalized["human_presence"] == "none" else ""
     return (
         f"Scene type: {normalized['scene_type']}. "
         f"Setting: {normalized['setting']}. "
@@ -1269,5 +1382,6 @@ def build_scene_image_prompt(scene_plan: dict, language: str = "ru") -> str:
         f"Lighting: {normalized['lighting']}. "
         f"Mood: {normalized['mood']}. "
         f"Avoid: {avoid}. "
+        f"{absence}"
         "No crowd. No extra people. Avoid generic wellness stock photo."
     )

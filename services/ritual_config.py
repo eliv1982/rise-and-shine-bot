@@ -4,6 +4,7 @@ import random
 from typing import Dict, List, Optional
 
 from services.coastal_intent import user_coastal_intent
+from services.visual_semantics import PHOTO_STYLE_ALIASES, normalize_style_key
 
 
 MAIN_SPHERES = [
@@ -496,20 +497,6 @@ PHOTO_STYLE_KEYS = [
     "calm_lifestyle_photo",
 ]
 
-PHOTO_STYLE_ALIASES = {
-    "bright_photo_card": "sunny_morning_photo",
-    "sunny_photo_scene": "sunny_morning_photo",
-    "sunny_morning_scene": "sunny_morning_photo",
-    "sunny_nature_photo": "living_nature_photo",
-    "cinematic_real_photo": "calm_lifestyle_photo",
-    "light_interior_photo": "cozy_home_photo",
-    "bright_ocean_coast_photo": "sea_coast_photo",
-    "vivid_ocean_photo": "sea_coast_photo",
-    "bright_ocean": "sea_coast_photo",
-    # symbolic_luxe was the original single symbolic style; keep old
-    # subscriptions/history pointed at its closest replacement.
-    "symbolic_luxe": "mandala_harmony",
-}
 
 ILLUSTRATION_STYLE_KEYS = [
     "bright_nature_card",
@@ -918,12 +905,6 @@ def get_sphere_label(sphere: str, language: str = "ru") -> str:
 def get_style_label(style: str, language: str = "ru") -> str:
     normalized = normalize_style_key(style)
     return STYLE_LABELS.get(normalized, STYLE_LABELS.get(style, {"ru": style, "en": style})).get(language, style)
-
-
-def normalize_style_key(style: Optional[str]) -> str:
-    if not style:
-        return "auto"
-    return PHOTO_STYLE_ALIASES.get(style, style)
 
 
 def normalize_visual_mode(visual_mode: Optional[str]) -> str:

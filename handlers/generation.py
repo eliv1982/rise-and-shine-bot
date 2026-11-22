@@ -80,6 +80,7 @@ from services.scene_planner import (
     build_fallback_scene_plan,
     normalize_scene_family,
     normalize_scene_plan,
+    reconcile_scene_constraints,
     resolve_scene_style_family,
 )
 from services.scene_prompt_builder import (
@@ -1367,6 +1368,11 @@ async def _run_generation(
                 scene_plan = apply_coastal_scene_intent(
                     scene_plan, user_text=theme_text, selected_style=style,
                     custom_style_description=custom_style_description,
+                )
+                scene_plan = reconcile_scene_constraints(
+                    scene_plan, user_text=theme_text, selected_style=style,
+                    resolved_style=resolved_style, custom_style_description=custom_style_description,
+                    sphere=sphere, subsphere=subsphere,
                 )
                 prompt_final = build_controlled_scene_prompt(
                     scene_plan=scene_plan,

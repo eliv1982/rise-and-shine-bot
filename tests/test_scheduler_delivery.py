@@ -220,6 +220,48 @@ def test_one_subscription_failure_does_not_block_another(initialized_db, monkeyp
     asyncio.run(run())
 
 
+def test_cp01_explicit_visual_conflict_is_isolated_to_one_delivery(initialized_db, monkeypatch, tmp_path):
+    from services.scene_prompt_builder import build_controlled_scene_prompt
+
+    _install_common_stubs(monkeypatch)
+    calls = []
+    _install_generate_image(monkeypatch, tmp_path, calls)
+    conflicts = []
+
+    async def build_prompt(**kwargs):
+        text = "Show a cup. No mug and no table" if kwargs["sphere"] == "money" else "No people and no windows"
+        try:
+            return build_controlled_scene_prompt(
+                scene_plan={"scene_type": "office_morning_light"},
+                selected_style="sunny_morning_photo", sphere=kwargs["sphere"], user_text=text,
+            ), "scene_planner_local"
+        except ValueError as exc:
+            conflicts.append(str(exc))
+            raise
+
+    monkeypatch.setattr(scheduler, "build_enriched_image_prompt", build_prompt)
+
+    async def run():
+        failing_id = await _make_subscription(9220, 8, 0, ["photo"], sphere="money", style="sunny_morning_photo")
+        ok_id = await _make_subscription(9221, 8, 0, ["photo"], sphere="career", style="sunny_morning_photo")
+        bot = _FakeBot()
+        await scheduler.send_daily_affirmations(bot, now=_at(3, 8, 0))
+        rows = {r["subscription_id"]: r for r in await db.get_subscription_deliveries(["2030-03-03"])}
+        assert rows[failing_id]["status"] == "failed"
+        assert rows[failing_id]["last_error"] == "generation: ValueError"
+        assert rows[failing_id]["sent_at"] is None
+        assert rows[ok_id]["status"] == "sent"
+        assert rows[failing_id]["attempts"] == rows[ok_id]["attempts"] == 1
+        assert len(conflicts) == 1 and "explicit visual conflict: mug" in conflicts[0]
+        assert len(calls) == len(bot.sent) == 1
+        assert calls[0]["sphere"] == "career"
+        await scheduler.send_daily_affirmations(bot, now=_at(3, 8, 1))
+        assert len(conflicts) == len(calls) == len(bot.sent) == 1
+        assert await db.get_generation_usage_today(9220) == await db.get_generation_usage_today(9221) == 0
+
+    asyncio.run(run())
+
+
 # ---------------------------------------------------------------------------
 # 4. An already-completed logical delivery is not sent again.
 # ---------------------------------------------------------------------------

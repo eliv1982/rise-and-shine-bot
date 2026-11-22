@@ -45,6 +45,7 @@ def test_normalize_scene_plan_adds_missing_keys():
         "lighting",
         "mood",
         "avoid",
+        "constraint_sources",
     }
 
 

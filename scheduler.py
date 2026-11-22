@@ -93,6 +93,7 @@ from services.scene_planner import (
     build_fallback_scene_plan,
     normalize_scene_family,
     normalize_scene_plan,
+    reconcile_scene_constraints,
     resolve_scene_style_family,
 )
 from services.scene_prompt_builder import (
@@ -561,6 +562,10 @@ async def _deliver_subscription(
                     ),
                     visual_memory_context=visual_memory_context,
                 )
+            scene_plan = reconcile_scene_constraints(
+                scene_plan, selected_style=style_mode, resolved_style=style,
+                sphere=sphere, subsphere=subsphere,
+            )
             prompt_final = build_controlled_scene_prompt(
                 scene_plan=scene_plan,
                 focus_title=focus_text,

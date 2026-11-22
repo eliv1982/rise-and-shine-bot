@@ -5,7 +5,14 @@ from services.coastal_intent import (
     COASTAL_SCENES, coastal_composition_hint, coastal_time_hint,
     user_coastal_intent, user_scene_prompt_parts,
 )
-from services.scene_planner import apply_coastal_scene_intent, build_scene_image_prompt, normalize_scene_family
+from services.scene_planner import (
+    apply_coastal_scene_intent, build_scene_image_prompt, normalize_scene_family,
+    normalize_scene_plan, reconcile_scene_constraints,
+)
+from services.visual_constraints import (
+    compatible_custom_style_prose, compatible_generated_hints, forbidden_objects,
+    positive_objects, user_visual_constraints,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -257,34 +264,51 @@ def build_controlled_scene_prompt(
         scene_plan, user_text=user_text, selected_style=selected_style,
         custom_style_description=custom_style_description,
     )
-    prompt = build_scene_image_prompt(normalized, language=language).strip()
+    normalized = reconcile_scene_constraints(
+        normalized, user_text=user_text, selected_style=selected_style,
+        resolved_style=resolved_style, custom_style_description=custom_style_description,
+        sphere=sphere, subsphere=subsphere,
+    )
+    forbidden = forbidden_objects(normalized["constraint_sources"]["user_exclusions"])
+    if normalized["human_presence"] == "none":
+        forbidden.update({"human", "hands", "body"})
     intent = user_coastal_intent(user_text, style=selected_style, custom_style_description=custom_style_description)
     if normalized["scene_type"] in COASTAL_SCENES:
         color_palette = coastal_time_hint(color_palette, intent)
         composition_hint = coastal_time_hint(composition_hint, intent)
 
     extras = []
-    focus, focus_exclusions = user_scene_prompt_parts(focus_title)
+    focus, _ = user_scene_prompt_parts(focus_title)
     focus = _clean_str(focus)
-    if focus:
+    if focus and not positive_objects(focus) & forbidden:
         extras.append(f"Emotional focus: {focus}.")
-    if focus_exclusions:
-        extras.append(f"User exclusions: {focus_exclusions}.")
-    _, style_exclusions = user_scene_prompt_parts(
+    positive_style, style_exclusions = user_scene_prompt_parts(
         None, style=selected_style, custom_style_description=custom_style_description, intent=intent,
     )
+    positive_style = compatible_custom_style_prose(positive_style, forbidden)
     if style_exclusions:
         extras.append(f"User exclusions: {style_exclusions}.")
+    style_requests, _ = user_visual_constraints(
+        None, style=selected_style, custom_style_description=custom_style_description,
+    )
+    if style_requests and positive_style:
+        extras.append(f"User visual request: {positive_style}.")
+    positive_user, user_exclusions = user_scene_prompt_parts(user_text, intent=intent)
+    positive_user = compatible_custom_style_prose(positive_user, forbidden)
+    if normalized["constraint_sources"]["user_requests"] and positive_user:
+        extras.append(f"User visual request: {positive_user}.")
+    if user_exclusions:
+        extras.append(f"User exclusions: {user_exclusions}.")
     if _clean_str(sphere):
         sphere_part = f"Sphere: {_clean_str(sphere)}."
         if _clean_str(subsphere):
             sphere_part = f"Sphere: {_clean_str(sphere)}. Subsphere: {_clean_str(subsphere)}."
         extras.append(sphere_part)
-    if _clean_str(color_palette):
+    if _clean_str(color_palette) and not positive_objects(color_palette) & forbidden:
         extras.append(f"Color direction: {_clean_str(color_palette)}.")
     if normalized["scene_type"] in COASTAL_SCENES:
         composition_hint = coastal_composition_hint(composition_hint)
-    if _clean_str(composition_hint):
+    if _clean_str(composition_hint) and not positive_objects(composition_hint) & forbidden:
         extras.append(f"Composition preference: {_clean_str(composition_hint)}.")
     if _clean_str(visual_mode):
         extras.append(f"Visual mode: {_clean_str(visual_mode)}.")
@@ -301,6 +325,11 @@ def build_controlled_scene_prompt(
         visual_mode=visual_mode,
     ):
         nature_constraints = build_living_nature_constraints()
+        style_forbidden = set().union(*(user_visual_constraints(item)[1] for item in nature_constraints if item.startswith("no ")))
+        required = set(normalized["constraint_sources"]["user_requests"])
+        required.update(positive_objects(". ".join(normalized[key] for key in ("setting", "main_subject", "composition", "lighting"))))
+        if required & style_forbidden:
+            raise ValueError("Required visual subject conflicts with selected living nature constraints")
         extras.append(
             "Positive direction: preserve the selected coastal environment and requested shoreline details."
             if normalized["scene_type"] in COASTAL_SCENES else
@@ -311,7 +340,7 @@ def build_controlled_scene_prompt(
         )
 
     if scene_family in {"cafe_terrace", "cafe_quiet"}:
-        cafe_constraints = build_cafe_scene_constraints()
+        cafe_constraints = compatible_generated_hints(build_cafe_scene_constraints(), forbidden)
         extras.append(
             "Cafe scene direction: " + ", ".join(cafe_constraints) + "."
         )
@@ -322,21 +351,29 @@ def build_controlled_scene_prompt(
         )
     elif scene_family in {"rural_quiet", "country_garden", "farmhouse_cozy"}:
         outdoor_constraints = build_outdoor_liveliness_constraints()
-        rural_constraints = build_rural_scene_constraints()
+        rural_constraints = compatible_generated_hints(build_rural_scene_constraints(), forbidden)
         extras.append(
             "Rural scene liveliness: " + ", ".join(outdoor_constraints + rural_constraints) + "."
         )
     elif scene_family in {"cozy_home", "book_nook"}:
-        home_constraints = build_home_scene_constraints()
+        home_constraints = compatible_generated_hints(build_home_scene_constraints(), forbidden)
         extras.append(
             "Home scene direction: " + ", ".join(home_constraints) + "."
         )
     elif scene_family == "work_quiet":
-        work_constraints = build_work_scene_constraints()
+        work_constraints = compatible_generated_hints(build_work_scene_constraints(), forbidden)
         extras.append(
             "Work scene direction: " + ", ".join(work_constraints) + "."
         )
 
+    normalized["constraint_sources"]["scene_hints"] = [
+        item for item in extras if item.startswith((
+            "Composition preference:", "Cafe scene direction:", "Rural scene liveliness:",
+            "Home scene direction:", "Work scene direction:", "Outdoor scene liveliness:",
+        ))
+    ]
+    normalized = normalize_scene_plan(normalized)
+    prompt = build_scene_image_prompt(normalized, language=language).strip()
     return " ".join([prompt] + extras).strip()
 
 

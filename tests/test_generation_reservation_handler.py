@@ -215,6 +215,49 @@ def test_image_generation_failure_releases_the_reservation(monkeypatch):
 
 
 @pytest.mark.usefixtures("initialized_db")
+@pytest.mark.parametrize("custom_notes", ["No mugs", "No windows", "No notebook"])
+@pytest.mark.parametrize("llm_enabled", [False, True])
+def test_cp05_n2_diagnostic_custom_photo_failure_is_reachable_and_isolated(monkeypatch, custom_notes, llm_enabled):
+    """Document N-2 with real local selection, without changing its policy."""
+    from services import openai_image
+
+    original_builder = generation.build_enriched_image_prompt
+    calls = []
+
+    async def observe_builder(**kwargs):
+        calls.append(kwargs)
+        return await original_builder(**kwargs)
+
+    def unexpected_http(*_args, **_kwargs):
+        raise AssertionError("Preset conflict must stop before any provider HTTP")
+
+    async def run():
+        await db.create_or_update_user(314, "u", name="Test", gender="female")
+        monkeypatch.setattr(generation, "get_user", _fake_get_user)
+        monkeypatch.setattr(generation, "get_settings", lambda: _settings(
+            generation_daily_limit=5, llm_image_prompt_enabled=llm_enabled,
+        ))
+        monkeypatch.setattr(generation, "generate_card_text", _fake_generate_affirmations)
+        monkeypatch.setattr(generation, "build_enriched_image_prompt", observe_builder)
+        monkeypatch.setattr(openai_image.aiohttp, "ClientSession", unexpected_http)
+        message = _FakeMessage(user_id=314)
+        state = _state(sphere="career", style="custom", visual_mode="photo", custom_style_description=custom_notes)
+
+        await generation._run_generation(message, state, theme_text="Calm professional focus", user_telegram_id=314)
+
+        assert len(calls) == 1
+        assert calls[0]["style"] == calls[0]["resolved_style"] == "custom"
+        assert calls[0]["custom_style_description"] == custom_notes
+        assert calls[0]["use_llm"] == llm_enabled
+        assert not message.photos
+        assert any("Could not generate the image" in text for text, _ in message.answers)
+        assert state.state == generation.GenerationState.choosing_style
+        assert await db.get_generation_usage_today(314) == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.usefixtures("initialized_db")
 def test_telegram_send_failure_releases_the_reservation(monkeypatch):
     async def run():
         await db.create_or_update_user(305, "u", name="Test", gender="female")
