@@ -317,7 +317,8 @@ def test_metamorphic_legacy_list_extension_before_hard_boundary(suffix, followin
 
 def test_package_a_has_no_production_imports_or_provider_dependencies():
     root = Path(__file__).resolve().parents[1]
-    modules = {"directive_segments", "visual_intent", "visual_safety", "visual_safety_types"}
+    modules = {"directive_segments", "visual_intent", "visual_safety", "visual_safety_types",
+               "visual_registry", "visual_registry_content"}
     paths = list(root.glob("*.py"))
     for directory in ("services", "handlers", "keyboards"):
         paths.extend((root / directory).rglob("*.py"))
@@ -332,9 +333,17 @@ def test_package_a_has_no_production_imports_or_provider_dependencies():
             assert names <= {'re', 'dataclasses', 'services.visual_safety_types'}
             # Neutral contracts import no consumers, interpreter, configuration or I/O.
             continue
+        if path.stem == 'visual_registry':
+            assert names <= {'dataclasses', 'hashlib', 'json', 'services.visual_semantics',
+                             'services.visual_safety_types'}
+            continue
+        if path.stem == 'visual_registry_content':
+            assert names <= {'services.visual_registry', 'services.visual_semantics'}
+            continue
         if path.stem in modules:
             assert names <= {'dataclasses', 'enum', 're', 'typing', 'hashlib', 'json', 'services',
-                             'services.visual_semantics', 'visual_semantics', *(f'services.{m}' for m in modules)}
+                             'services.visual_semantics', 'visual_semantics', *(f'services.{m}' for m in modules
+                                 if m not in {'visual_registry', 'visual_registry_content'})}
         else:
             assert not any(name.split(".")[-1] in modules for name in names), path
 
