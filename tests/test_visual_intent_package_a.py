@@ -340,6 +340,16 @@ def test_package_a_has_no_production_imports_or_provider_dependencies():
         if path.stem == 'visual_registry_content':
             assert names <= {'services.visual_registry', 'services.visual_semantics'}
             continue
+        if path.stem == 'visual_renderer':
+            assert names <= {'dataclasses', 'json', 'services',
+                             'services.visual_registry', 'services.visual_registry_content',
+                             'directive_segments', 'visual_intent', 'visual_safety',
+                             'visual_semantics', 'visual_safety_types'}
+            continue
+        assert not any(name.split('.')[-1] == 'visual_renderer' for name in names), path
+        assert not any(type(n) is ast.Constant and type(n.value) is str and
+                       n.value in {'visual_renderer', 'services.visual_renderer'}
+                       for n in ast.walk(tree)), path
         if path.stem in modules:
             assert names <= {'dataclasses', 'enum', 're', 'typing', 'hashlib', 'json', 'services',
                              'services.visual_semantics', 'visual_semantics', *(f'services.{m}' for m in modules

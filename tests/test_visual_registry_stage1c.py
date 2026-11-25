@@ -631,6 +631,7 @@ def test_runtime_import_isolation_in_a_fresh_process():
         "import sys; import services.visual_safety; "
         "assert 'services.visual_registry' not in sys.modules; "
         "assert 'services.visual_registry_content' not in sys.modules; "
+        "assert 'services.visual_renderer' not in sys.modules; "
         "from services.visual_registry_content import seed_registry; seed_registry(); "
         "assert not set(sys.modules) & {'config','database','aiohttp','requests',"
         "'services.openai_image','services.yandex_gpt','services.coastal_intent',"
@@ -646,7 +647,7 @@ def test_no_runtime_dynamic_registry_import_or_provider_dependency():
     for directory in ('services', 'handlers', 'keyboards'):
         paths.extend((root / directory).rglob('*.py'))
     for path in paths:
-        if path.stem in {'visual_registry', 'visual_registry_content'}:
+        if path.stem in {'visual_registry', 'visual_registry_content', 'visual_renderer'}:
             continue
         tree = ast.parse(path.read_text(encoding='utf-8-sig'))
         # Complements Package A's static-import oracle for named dynamic loads.
